@@ -28,11 +28,35 @@ type RuntimeProvisioner struct {
 	Err               error
 }
 
-func (fake *RuntimeProvisioner) Provision(_ context.Context, request application.RuntimeProvisionRequest) (application.ProvisionedRuntime, error) {
+func (fake *RuntimeProvisioner) Provision(ctx context.Context, request application.RuntimeProvisionRequest, check application.RuntimePreStartCheck) (application.ProvisionedRuntime, error) {
 	fake.mu.Lock()
-	defer fake.mu.Unlock()
 	fake.ProvisionRequests = append(fake.ProvisionRequests, request)
-	return fake.ProvisionResult, fake.Err
+	result, err := fake.ProvisionResult, fake.Err
+	fake.mu.Unlock()
+	if err != nil {
+		return result, err
+	}
+
+	partial := result
+	partial.StartedAt = time.Time{}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
+	if check == nil {
+		return partial, fmt.Errorf("runtime pre-start check is required")
+	}
+	if err := check(ctx, application.CreatedRuntimeIdentity{
+		ContainerID:       result.ContainerID,
+		RuntimeInstanceID: result.RuntimeInstanceID,
+		WorkerSessionID:   request.WorkerSessionID,
+		Generation:        result.Generation,
+	}); err != nil {
+		return partial, err
+	}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
+	return result, nil
 }
 
 func (fake *RuntimeProvisioner) Inspect(_ context.Context, id string) (application.RuntimeInspection, error) {

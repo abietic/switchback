@@ -14,10 +14,10 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   DisplayPart,
   TransientDisplayDelta,
-  WorkerTimelinePage,
   WorkerTimelineTurn,
 } from "../../api/contracts";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
+import { parseWorkerTimelinePage } from "../../projections/decoders/worker";
 
 export function WorkerTimeline({
   workerSessionId,
@@ -26,6 +26,7 @@ export function WorkerTimeline({
   initialHasMore,
   transient,
   onArtifact,
+  onDiagnosticTarget,
 }: {
   workerSessionId: string;
   initialGroups: WorkerTimelineTurn[];
@@ -33,6 +34,7 @@ export function WorkerTimeline({
   initialHasMore: boolean;
   transient: TransientDisplayDelta[];
   onArtifact: (artifactId: string) => void;
+  onDiagnosticTarget?: (runId: string, turnId: string) => void;
 }) {
   const [groups, setGroups] = useState(initialGroups);
   const [cursor, setCursor] = useState(initialCursor);
@@ -63,7 +65,7 @@ export function WorkerTimeline({
         { headers: { Accept: "application/json" } },
       );
       if (!response.ok) throw new Error("Older Worker history is unavailable.");
-      const page = await response.json() as WorkerTimelinePage;
+      const page = parseWorkerTimelinePage(await response.json());
       setGroups((current) => {
         const byID = new Map(current.map((turn) => [turn.agent_turn_id, turn]));
         for (const turn of page.turns) byID.set(turn.agent_turn_id, turn);
@@ -86,18 +88,19 @@ export function WorkerTimeline({
     {loadError ? <p className="timeline-warning" role="alert">{loadError}</p> : null}
     <div aria-label="Durable Worker history">
       {ordered.length > 0 ? ordered.map((turn) => (
-        <TurnGroup key={turn.agent_turn_id} turn={turn} onArtifact={onArtifact} />
+        <TurnGroup key={turn.agent_turn_id} turn={turn} onArtifact={onArtifact} onDiagnosticTarget={onDiagnosticTarget} />
       )) : <p className="timeline-warning">No durable Worker activity yet.</p>}
     </div>
     <LiveActivity transient={transient} />
   </div>;
 }
 
-function TurnGroup({ turn, onArtifact }: { turn: WorkerTimelineTurn; onArtifact: (artifactId: string) => void }) {
+function TurnGroup({ turn, onArtifact, onDiagnosticTarget }: { turn: WorkerTimelineTurn; onArtifact: (artifactId: string) => void; onDiagnosticTarget?: (runId: string, turnId: string) => void }) {
   return <section className="turn-group" aria-label={`Agent turn ${turn.agent_turn_id}`}>
     <header className="turn-group-header">
       <div><span>Run {shortID(turn.worker_run_id)}</span><span>Turn {shortID(turn.agent_turn_id)}</span></div>
       <span className={`turn-state turn-${turn.status}`}>{humanStatus(turn.status)}</span>
+      {onDiagnosticTarget ? <button type="button" aria-label={`Diagnostics for Turn ${turn.agent_turn_id}`} onClick={() => onDiagnosticTarget(turn.worker_run_id, turn.agent_turn_id)}>Diagnostics</button> : null}
     </header>
     <article className="timeline-entry">
       <span className="timeline-icon timeline-user"><GitBranch size={15} /></span>

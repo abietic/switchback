@@ -376,7 +376,7 @@ func runProfile(
 		},
 		NetworkEnforcementStatus: networkEvidence.EnforcementStatus,
 		Storage:                  storage, Secrets: secretResources,
-	})
+	}, application.RejectRuntimePreStart)
 	if err != nil {
 		return result, err
 	}
@@ -570,7 +570,7 @@ func runProfile(
 				},
 				NetworkEnforcementStatus: networkEvidence.EnforcementStatus,
 				Storage:                  storage, Secrets: replacementSecrets,
-			})
+			}, application.RejectRuntimePreStart)
 			if err != nil {
 				return result, err
 			}

@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"sync"
+
+	sdk "github.com/coder/acp-go-sdk"
 )
 
 const (
@@ -210,18 +212,23 @@ func (w *recordingWriter) poison() {
 	w.pending = nil
 }
 
-func pumpRecordedOutput(source io.Reader, target *io.PipeWriter, sink *frameWriter) error {
+func pumpRecordedOutput(source io.Reader, target *io.PipeWriter, sink *frameWriter, admit func([]byte) (func(), error)) error {
 	buffer := make([]byte, 32<<10)
 	pending := make([]byte, 0, len(buffer))
-	delivering := true
-	deliverFrame := func(frame []byte) {
-		if !delivering {
-			return
+	deliverFrame := func(frame []byte) error {
+		release, err := admit(frame)
+		if err != nil {
+			_ = target.CloseWithError(err)
+			return err
 		}
 		if delivered, err := writeAll(target, frame); err != nil || delivered != len(frame) {
+			if release != nil {
+				release()
+			}
 			_ = target.Close()
-			delivering = false
+			return fmt.Errorf("deliver ACP peer output: %w", io.ErrClosedPipe)
 		}
+		return nil
 	}
 	for {
 		count, readErr := source.Read(buffer)
@@ -233,7 +240,6 @@ func pumpRecordedOutput(source io.Reader, target *io.PipeWriter, sink *frameWrit
 					if len(pending) > maxRawFrameBytes {
 						err := fmt.Errorf("ACP raw frame exceeds %d bytes", maxRawFrameBytes)
 						_ = target.CloseWithError(err)
-						_, _ = io.Copy(io.Discard, source)
 						return err
 					}
 					break
@@ -242,16 +248,16 @@ func pumpRecordedOutput(source io.Reader, target *io.PipeWriter, sink *frameWrit
 				if len(frame) > maxRawFrameBytes {
 					err := fmt.Errorf("ACP raw frame exceeds %d bytes", maxRawFrameBytes)
 					_ = target.CloseWithError(err)
-					_, _ = io.Copy(io.Discard, source)
 					return err
 				}
 				if _, err := sink.Write(frame); err != nil {
 					_ = target.CloseWithError(err)
-					_, _ = io.Copy(io.Discard, source)
 					return err
 				}
 				if _, unknown := unknownSessionUpdate(frame); !unknown {
-					deliverFrame(frame)
+					if err := deliverFrame(frame); err != nil {
+						return err
+					}
 				}
 				pending = pending[newline+1:]
 			}
@@ -273,17 +279,78 @@ func pumpRecordedOutput(source io.Reader, target *io.PipeWriter, sink *frameWrit
 						return err
 					}
 					if _, unknown := unknownSessionUpdate(pending); !unknown {
-						deliverFrame(pending)
+						if err := deliverFrame(pending); err != nil {
+							return err
+						}
 					}
 				}
-				if delivering {
-					_ = target.Close()
-				}
+				_ = target.Close()
 				return nil
 			}
 			_ = target.CloseWithError(readErr)
 			return fmt.Errorf("read ACP child stdout")
 		}
+	}
+}
+
+// Admit only validated known session/update notifications, after the authoritative
+// raw frame has been recorded and before the SDK's fixed notification queue.
+// This blocks stdout in FIFO order: permission/RPC/EOF behind a long notification
+// prefix cannot overtake it. Outbound Cancel and lifecycle Close use other paths.
+func (a *Adapter) admitSessionUpdate(frame []byte) (func(), error) {
+	var envelope struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(frame, &envelope); err != nil || envelope.Method != "session/update" {
+		return nil, nil
+	}
+	var notification sdk.SessionNotification
+	if len(envelope.ID) != 0 || json.Unmarshal(envelope.Params, &notification) != nil || notification.Validate() != nil || notification.Update.Validate() != nil || notification.SessionId == "" {
+		a.failClosed()
+		return nil, fmt.Errorf("invalid known ACP session/update notification")
+	}
+	if err := a.lifecycle.Err(); err != nil {
+		return nil, err
+	}
+	// Capture the exact Turn before waiting for credit. Context cancellation may
+	// finish that Turn while stdout is parked here; never rebind its frame to a
+	// newer Prompt after a permit becomes available.
+	a.mu.Lock()
+	delivery := a.activeDelivery
+	if string(notification.SessionId) != a.agentSessionID {
+		delivery = nil
+	}
+	a.mu.Unlock()
+	select {
+	case a.notificationCredits <- struct{}{}:
+	case <-a.lifecycle.Done():
+		return nil, a.lifecycle.Err()
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { <-a.notificationCredits }) }
+	a.mu.Lock()
+	if a.state == stateClosed || a.state == stateUnusable || a.lifecycle.Err() != nil {
+		a.mu.Unlock()
+		release()
+		return nil, fmt.Errorf("ACP notification admission was fenced")
+	}
+	if delivery != a.activeDelivery || (delivery != nil && delivery.closing) {
+		delivery = nil
+	}
+	// One permit precedes every queued ticket; callback dequeue precedes release.
+	// Thus the ticket queue has room whenever a credit was acquired. Do not wait
+	// under Adapter.mu even if that invariant is ever broken.
+	select {
+	case a.admittedNotifications <- &notificationCredit{delivery: delivery, release: release}:
+		a.mu.Unlock()
+		return release, nil
+	default:
+		a.mu.Unlock()
+		release()
+		a.failClosed()
+		return nil, fmt.Errorf("ACP notification credit queue invariant failed")
 	}
 }
 

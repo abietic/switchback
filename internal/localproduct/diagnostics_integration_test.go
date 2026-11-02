@@ -44,12 +44,17 @@ VALUES ('turn-1','session-1','run-1','agent-1','prompt','{}','completed','one','
 	if err != nil {
 		t.Fatal(err)
 	}
-	configuration := Config{Profile: profile, NetworkProfile: integrationNetworkProfile(t), DataRoot: t.TempDir(), ProjectID: defaultProjectID, WorkspaceID: defaultWorkspaceID, WorkspaceRevisionID: defaultWorkspaceRevisionID, GrafanaBrowserBaseURL: "http://localhost:3001"}
+	configuration := Config{Profile: profile, NetworkProfile: integrationNetworkProfile(t), DataRoot: t.TempDir(), ProjectID: defaultProjectID, WorkspaceID: defaultWorkspaceID, WorkspaceRevisionID: defaultWorkspaceRevisionID, GrafanaBrowserBaseURL: "http://localhost:3001", LangfuseBrowserBaseURL: "http://localhost:3000", LangfuseProjectID: "switchback-m1"}
 	app, err := newWithPool(ctx, configuration, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Close)
+	// Bootstrap creates the first timeline projection. Historical diagnostics
+	// must still reauthorize canonical rows when that display page is absent.
+	if _, err := pool.Exec(ctx, `DELETE FROM worker_timeline_turns`); err != nil {
+		t.Fatal(err)
+	}
 	response := httptest.NewRecorder()
 	app.Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/views/worker_detail/session-1/diagnostics?worker_run_id=run-1&agent_turn_id=turn-1", nil))
 	if response.Code != 200 {
@@ -62,12 +67,24 @@ VALUES ('turn-1','session-1','run-1','agent-1','prompt','{}','completed','one','
 		}
 		GrafanaStatus  string `json:"grafana_status"`
 		LangfuseStatus string `json:"langfuse_status"`
+		Target         struct {
+			Session string `json:"worker_session_id"`
+			Run     string `json:"worker_run_id"`
+			Turn    string `json:"agent_turn_id"`
+		} `json:"target"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Links) != 2 || result.GrafanaStatus != "configured" || result.LangfuseStatus != "identity_unavailable" {
 		t.Fatalf("result=%+v", result)
+	}
+	if result.Target.Session != "session-1" || result.Target.Run != "run-1" || result.Target.Turn != "turn-1" {
+		t.Fatalf("canonical historical target=%+v", result.Target)
+	}
+	var timelineRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM worker_timeline_turns`).Scan(&timelineRows); err != nil || timelineRows != 0 {
+		t.Fatalf("historical SQL test must have no timeline rows: %d %v", timelineRows, err)
 	}
 	parsed, err := url.Parse(result.Links[1].URL)
 	if err != nil {

@@ -1,0 +1,12 @@
+{
+  "data-root": "/mnt/lima-sbquota/docker",
+  "storage-driver": "overlay2",
+  "features": {"containerd-snapshotter": false},
+  "cgroup-parent": "switchback-core.slice",
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "iptables": true,
+  "ip6tables": true,
+  "ip-forward": true,
+  "ip-masq": true,
+  "live-restore": false
+}

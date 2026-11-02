@@ -316,6 +316,11 @@ func serveReconnectableCommands(
 		}
 	}()
 	updateSequence := uint64(0)
+	// Keep one immutable pending event; retries never regenerate its identity.
+	var pending *application.WorkerControlEvent
+	var pendingTurn, pendingTerminal bool
+	var terminalUpdate *application.AgentUpdate
+	terminalObservations := 0
 	heartbeatSequence := uint64(0)
 	processedCommands := make(map[uint64]string)
 	publishHeartbeat := func() error {
@@ -328,7 +333,66 @@ func serveReconnectableCommands(
 		return nil
 	}
 	for {
+		var capacityChanged <-chan struct{}
+		if terminalUpdate != nil && pending == nil {
+			if terminalObservations > 0 {
+				select {
+				case observation, open := <-observations:
+					if !open {
+						terminalObservations = 0
+						observations = nil
+						continue
+					}
+					event, err := modelObservationEvent(bootstrap, agentSessionID, observation)
+					if err != nil {
+						return err
+					}
+					pending = &event
+					pendingTurn, pendingTerminal = false, false
+					terminalObservations--
+				default:
+					terminalObservations = 0
+					continue
+				}
+			} else {
+				updateSequence++
+				event, terminal := agentUpdateEvent(*active, *terminalUpdate, updateSequence)
+				pending, pendingTurn, pendingTerminal = &event, true, terminal
+				terminalUpdate = nil
+			}
+		}
+		if pending != nil {
+			if source, ok := control.(interface{ CapacityChanged() <-chan struct{} }); ok {
+				// Snapshot before Publish, never after observing ErrBackpressure.
+				capacityChanged = source.CapacityChanged()
+			}
+			var err error
+			if pendingTurn {
+				err = control.PublishTurnUpdate(ctx, *pending, pendingTerminal)
+			} else {
+				err = control.Publish(ctx, *pending)
+			}
+			if err == nil {
+				pending = nil
+				if pendingTerminal {
+					cancelActivePrompt()
+					cancelActivePrompt = nil
+					_ = binder.Deactivate(turnCorrelation(*active))
+					active, updates = nil, nil
+				}
+				pendingTerminal = false
+				continue
+			}
+			if !errors.Is(err, controlgrpc.ErrBackpressure) || capacityChanged == nil {
+				return fmt.Errorf("spool AgentTurn update: %w", err)
+			}
+		}
+		consumeUpdates, consumeObservations := updates, observations
+		if pending != nil || terminalUpdate != nil {
+			consumeUpdates, consumeObservations = nil, nil
+		}
 		select {
+		case <-capacityChanged:
 		case <-ctx.Done():
 			return nil
 		case <-proxyDone:
@@ -481,7 +545,7 @@ func serveReconnectableCommands(
 			active = &command
 			updates = turnUpdates
 			updateSequence = 0
-		case update, open := <-updates:
+		case update, open := <-consumeUpdates:
 			if active == nil {
 				continue
 			}
@@ -490,26 +554,25 @@ func serveReconnectableCommands(
 				return fmt.Errorf("production ACP AgentTurn ended without a terminal update")
 			}
 			if update.Kind == "terminal" || update.Kind == "error" {
-				if err := drainModelObservations(publisher, bootstrap, agentSessionID, observations); err != nil {
-					return err
-				}
+				// Drain the finite accepted observation prefix through the same
+				// cancellable control select before publishing the terminal proof.
+				terminalUpdate = &update
+				terminalObservations = len(observations)
+				continue
 			}
 			updateSequence++
 			event, terminal := agentUpdateEvent(*active, update, updateSequence)
-			if err := control.PublishTurnUpdate(ctx, event, terminal); err != nil {
-				return fmt.Errorf("spool AgentTurn update: %w", err)
+			pending, pendingTurn, pendingTerminal = &event, true, terminal
+		case observation, open := <-consumeObservations:
+			if !open {
+				observations = nil
+				continue
 			}
-			if terminal {
-				cancelActivePrompt()
-				cancelActivePrompt = nil
-				_ = binder.Deactivate(turnCorrelation(*active))
-				active = nil
-				updates = nil
-			}
-		case observation := <-observations:
-			if err := sendModelObservation(publisher, bootstrap, agentSessionID, observation); err != nil {
+			event, err := modelObservationEvent(bootstrap, agentSessionID, observation)
+			if err != nil {
 				return err
 			}
+			pending, pendingTurn, pendingTerminal = &event, false, false
 		case <-heartbeats.C:
 			if err := publishHeartbeat(); err != nil {
 				return err
@@ -778,6 +841,14 @@ func sendModelObservation(
 	agentSessionID string,
 	observation modelobs.Observation,
 ) error {
+	event, err := modelObservationEvent(bootstrap, agentSessionID, observation)
+	if err != nil {
+		return err
+	}
+	return stream.SendEvent(event)
+}
+
+func modelObservationEvent(bootstrap runtimesecret.Bootstrap, agentSessionID string, observation modelobs.Observation) (application.WorkerControlEvent, error) {
 	correlation := observation.Correlation
 	status := "ok"
 	if observation.Error != "" {
@@ -801,11 +872,11 @@ func sendModelObservation(
 		Status:          status,
 	})
 	if err != nil {
-		return fmt.Errorf("encode model observation")
+		return application.WorkerControlEvent{}, fmt.Errorf("encode model observation")
 	}
 	envelope := eventEnvelope(bootstrap, correlation.WorkerRunID, agentSessionID,
 		correlation.AgentTurnID, "model-observation-"+correlation.RequestID, "model.observation", payload)
-	return stream.SendEvent(application.WorkerControlEvent{Envelope: envelope})
+	return application.WorkerControlEvent{Envelope: envelope}, nil
 }
 
 func decodeStartCommand(command application.WorkerControlCommand, bootstrap runtimesecret.Bootstrap, agentSessionID string) (string, error) {

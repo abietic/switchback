@@ -14,6 +14,9 @@ import (
 
 const runtimeSettlementEventReplayTimeout = 5 * time.Second
 
+// One blocked head plus one independent candidate bounds each delivery step.
+const maxRuntimeSettlementCandidatesPerPass = 2
+
 var errRuntimeSettlementOwnerBusy = errors.New(
 	"Runtime Turn settlement is already owned by the live Runtime supervisor",
 )
@@ -462,11 +465,20 @@ func terminalResultFromRuntimeSettlementCheckpoint(
 func (runner *runtimeRunner) claimNextPendingTurnSettlement(
 	ctx context.Context,
 ) (workerapp.TurnSettlement, *liveRuntime, func(), bool, error) {
-	var settlementID, runtimeInstanceID string
+	return runner.claimNextPendingTurnSettlementExceptSessions(ctx, nil, false)
+}
+
+func (runner *runtimeRunner) claimNextPendingTurnSettlementExceptSessions(
+	ctx context.Context,
+	skippedSessions []string,
+	terminalWorkPreferred bool,
+) (workerapp.TurnSettlement, *liveRuntime, func(), bool, error) {
+	var settlementID, runtimeInstanceID, workerSessionID string
 	err := runner.pool.QueryRow(ctx, `
-SELECT settlement_id,runtime_instance_id
-FROM worker_turn_settlements
+SELECT settlement_id,runtime_instance_id,worker_session_id
+FROM worker_turn_settlements candidate
 WHERE tenant_id=$1
+  AND NOT (worker_session_id=ANY(COALESCE($4::text[],ARRAY[]::text[])))
   AND (
     source_kind='runtime_event'
     OR (
@@ -480,12 +492,26 @@ WHERE tenant_id=$1
       OR lease_expires_at <= $2
       OR lease_owner_id=$3
   )
-ORDER BY accepted_at,settlement_id
+  AND NOT EXISTS (
+    SELECT 1 FROM worker_turn_settlements older
+    WHERE older.tenant_id=candidate.tenant_id
+      AND older.worker_session_id=candidate.worker_session_id
+      AND older.phase <> 'completed'
+      AND (older.accepted_at,older.settlement_id) <
+          (candidate.accepted_at,candidate.settlement_id)
+  )
+-- After observing a busy owner or capacity denial, prioritize terminal Apply
+-- over already applied continuations. The next pass can therefore reach a
+-- terminal candidate beyond its previous bound without durable skip state.
+ORDER BY CASE WHEN $5 AND phase='terminal_event_applied' THEN 1 ELSE 0 END,
+         accepted_at,settlement_id
 LIMIT 1`,
 		runner.configuration.Profile.TenantID,
 		runner.now().UTC(),
 		runner.settlerID,
-	).Scan(&settlementID, &runtimeInstanceID)
+		skippedSessions,
+		terminalWorkPreferred,
+	).Scan(&settlementID, &runtimeInstanceID, &workerSessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return workerapp.TurnSettlement{}, nil, nil, false, nil
 	}
@@ -498,7 +524,7 @@ LIMIT 1`,
 	if live == nil {
 		current, err := runner.settlements.Load(ctx, settlementID)
 		if err != nil {
-			return workerapp.TurnSettlement{},
+			return current,
 				nil,
 				nil,
 				true,
@@ -508,7 +534,7 @@ LIMIT 1`,
 			(current.LeaseOwnerID != "" &&
 				current.LeaseOwnerID != runner.settlerID &&
 				current.LeaseExpiresAt.After(runner.now().UTC())) {
-			return workerapp.TurnSettlement{},
+			return current,
 				nil,
 				nil,
 				true,
@@ -517,7 +543,7 @@ LIMIT 1`,
 		return current, nil, func() {}, true, nil
 	}
 	if !live.mu.TryLock() {
-		return workerapp.TurnSettlement{}, nil, nil, true,
+		return workerapp.TurnSettlement{SettlementID: settlementID, WorkerSessionID: workerSessionID}, nil, nil, true,
 			errRuntimeSettlementOwnerBusy
 	}
 	unlock := live.mu.Unlock
@@ -531,7 +557,7 @@ LIMIT 1`,
 			current.LeaseOwnerID != runner.settlerID &&
 			current.LeaseExpiresAt.After(runner.now().UTC())) {
 		unlock()
-		return workerapp.TurnSettlement{},
+		return current,
 			nil,
 			nil,
 			true,
@@ -543,17 +569,64 @@ LIMIT 1`,
 func (runner *runtimeRunner) reconcileOnePendingTurnSettlement(
 	ctx context.Context,
 ) (string, bool, error) {
-	current, live, unlock, found, err :=
-		runner.claimNextPendingTurnSettlement(ctx)
-	if err != nil || !found {
-		return "", found, err
+	var skippedSessions []string
+	var capacityWait error
+	var blockedTurn string
+	var ownerBusy bool
+	for candidate := 0; candidate < maxRuntimeSettlementCandidatesPerPass; candidate++ {
+		if err := ctx.Err(); err != nil {
+			return blockedTurn, len(skippedSessions) > 0, err
+		}
+		current, live, unlock, found, err :=
+			runner.claimNextPendingTurnSettlementExceptSessions(ctx, skippedSessions, capacityWait != nil || ownerBusy)
+		if err != nil && singleRuntimeCause(err) != errRuntimeSettlementOwnerBusy {
+			return current.AgentTurnID, found, err
+		}
+		if !found {
+			break
+		}
+		if err == nil {
+			err = runner.reconcilePendingTurnSettlementCandidate(ctx, current, live)
+			// Do not hold a live supervisor mutex while selecting another Session.
+			unlock()
+		}
+		if err == nil {
+			// Preserve capacity waiting even after delivering unrelated work: the
+			// caller must still drain existing work without starting a new Turn.
+			return current.AgentTurnID, true, capacityWait
+		}
+		switch {
+		case runtimeStagingWait(err):
+			capacityWait = err
+			blockedTurn = current.AgentTurnID
+		case singleRuntimeCause(err) == errRuntimeSettlementOwnerBusy:
+			ownerBusy = true
+		default:
+			return current.AgentTurnID, true, err
+		}
+		// Excluding the whole Session keeps its later settlements behind its
+		// blocked head. This skip state lasts only for this bounded pass.
+		skippedSessions = append(skippedSessions, current.WorkerSessionID)
 	}
-	defer unlock()
+	if capacityWait != nil {
+		return blockedTurn, true, capacityWait
+	}
+	if ownerBusy {
+		return blockedTurn, true, errRuntimeSettlementOwnerBusy
+	}
+	return "", false, nil
+}
+
+func (runner *runtimeRunner) reconcilePendingTurnSettlementCandidate(
+	ctx context.Context,
+	current workerapp.TurnSettlement,
+	live *liveRuntime,
+) error {
 	if live == nil {
 		runtimeInstanceID, _, _, authorityErr :=
 			runtimeSettlementRuntimeAuthority(current)
 		if authorityErr != nil {
-			return current.AgentTurnID, true, authorityErr
+			return authorityErr
 		}
 		reconcileDurable := runner.reconcileDurableTerminalSettlementByID
 		if runner.durableTerminalReconciler != nil {
@@ -573,11 +646,9 @@ func (runner *runtimeRunner) reconcileOnePendingTurnSettlement(
 					settleErr,
 					workerapp.ErrTurnSettlementRevisionConflict,
 				) {
-				return current.AgentTurnID,
-					true,
-					errRuntimeSettlementOwnerBusy
+				return errRuntimeSettlementOwnerBusy
 			}
-			return current.AgentTurnID, true, settleErr
+			return settleErr
 		}
 		restoreUnowned := runner.restoreUnownedRuntimeByID
 		if runner.unownedRuntimeRestorer != nil {
@@ -585,22 +656,22 @@ func (runner *runtimeRunner) reconcileOnePendingTurnSettlement(
 		}
 		restored, restoreErr := restoreUnowned(ctx, runtimeInstanceID)
 		if restoreErr != nil {
-			return current.AgentTurnID, true, restoreErr
+			return restoreErr
 		}
 		if restored != nil {
 			runner.superviseRestoredTurn(ctx, *restored)
 		}
-		return current.AgentTurnID, true, nil
+		return nil
 	}
-	_, err = runner.reconcilePendingTurnSettlement(
+	_, err := runner.reconcilePendingTurnSettlement(
 		ctx,
 		current,
 		live,
 	)
 	if errors.Is(err, errRuntimeRecoverySettled) {
-		return current.AgentTurnID, true, nil
+		return nil
 	}
-	return current.AgentTurnID, true, err
+	return err
 }
 
 func (runner *runtimeRunner) reconcileStartupRuntimeTurnSettlements(

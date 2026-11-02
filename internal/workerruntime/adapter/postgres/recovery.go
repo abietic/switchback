@@ -257,6 +257,25 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,$14,$15,1,$16,$16)`,
 	return result, err
 }
 
+// FindTerminalRuntimeFailureForTurn is an exact durable handoff, including after
+// Backend restart. Historical failures for another Turn or epoch cannot settle
+// the caller's current execution.
+func (store *RuntimeRecoveryStore) FindTerminalRuntimeFailureForTurn(ctx context.Context, tenantID, sessionID, runID, turnID, runtimeID string, generation, epoch uint64) (application.RuntimeRecoveryState, bool, error) {
+	state, err := scanRuntimeRecoveryState(store.pool.QueryRow(ctx, runtimeRecoverySelect+`
+WHERE incident.tenant_id=$1 AND incident.worker_session_id=$2
+ AND incident.worker_run_id=$3 AND incident.agent_turn_id=$4
+ AND incident.failed_runtime_instance_id=$5 AND incident.failed_generation=$6
+ AND incident.failed_channel_epoch=$7 AND incident.phase='exhausted'
+ AND turn.status='failed' AND turn.terminal_reason='runtime_recovery_failed'`, tenantID, sessionID, runID, turnID, runtimeID, generation, epoch))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return application.RuntimeRecoveryState{}, false, nil
+	}
+	if err != nil {
+		return application.RuntimeRecoveryState{}, false, fmt.Errorf("read terminal Runtime failure: %w", err)
+	}
+	return state, true, nil
+}
+
 func (store *RuntimeRecoveryStore) appendRuntimeRecoveryStartedEvent(
 	ctx context.Context,
 	tx platformpostgres.Tx,
@@ -443,7 +462,7 @@ SELECT incident.incident_id,incident.tenant_id,incident.worker_session_id,
        COALESCE((
          SELECT event.event_id
          FROM outbox_events event
-         WHERE event.event_type='RuntimeRecoveryStarted.v1'
+         WHERE event.event_type IN ('RuntimeRecoveryStarted.v1','RuntimeRecoveryFailed.v1')
            AND event.correlation_id=incident.incident_id
          ORDER BY event.sequence
          LIMIT 1

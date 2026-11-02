@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"context"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ func TestStartWorkerRunPersistsCurrentAndLegacyNetworkEvidence(t *testing.T) {
 	for name, evidence := range tests {
 		t.Run(name, func(t *testing.T) {
 			pool := postgrestest.Open(t)
+			runtimecapacity.Initialize(t, pool)
 			ctx := context.Background()
 			now := time.Date(2026, 7, 26, 1, 30, 0, 0, time.UTC)
 			seedAllocationRequests(t, pool, 1, now)
@@ -64,7 +66,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 			}
 			permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 				TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-				RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-task-01",
+				RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 			})
 			if err != nil {
 				t.Fatal(err)

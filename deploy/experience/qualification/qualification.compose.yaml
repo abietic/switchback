@@ -1,0 +1,313 @@
+{
+  "x-qualification-status": "UNDEPLOYED source; Create then write exclusive frozen actual-CID control then one Start; use completed operation driver only",
+  "services": {
+    "qualification-worker": {
+      "pull_policy": "never",
+      "restart": "no",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true",
+        "seccomp=${QUALIFICATION_WORKER_SECCOMP_FILE:?exact generated production Worker seccomp required}"
+      ],
+      "stdin_open": true,
+      "tty": false,
+      "networks": [
+        "worker-control"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "image": "${FROZEN_WORKER_IMAGE_ID:?actual frozen Worker image required}",
+      "user": "10002:10002",
+      "command": [
+        "qualify-worker"
+      ],
+      "cgroup_parent": "switchback-workers.slice",
+      "cpus": 2,
+      "mem_limit": "4g",
+      "memswap_limit": "4g",
+      "pids_limit": 512,
+      "storage_opt": {
+        "size": "10G"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_WORKER_CONTROL_DIR:?exclusive actual-CID control directory required}",
+          "target": "/qualification",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_DATA_DIR:?fresh product qualification window directory required}",
+          "target": "/qualification-data",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "qualification-backend-holder": {
+      "pull_policy": "never",
+      "restart": "no",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stdin_open": true,
+      "tty": false,
+      "networks": [
+        "worker-control"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "image": "${FROZEN_BACKEND_IMAGE_ID:?same actual frozen Backend image required}",
+      "user": "0:0",
+      "command": [
+        "qualify-backend"
+      ],
+      "cap_add": [
+        "CHOWN",
+        "DAC_OVERRIDE",
+        "FOWNER"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 256,
+      "read_only": true,
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_BACKEND_HOLDER_CONTROL_DIR:?exclusive actual-CID control directory required}",
+          "target": "/qualification",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_DATA_DIR:?fresh product qualification window directory required}",
+          "target": "/qualification-data",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "qualification-backend-without-chown": {
+      "pull_policy": "never",
+      "restart": "no",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stdin_open": true,
+      "tty": false,
+      "networks": [
+        "worker-control"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "image": "${FROZEN_BACKEND_IMAGE_ID:?same actual frozen Backend image required}",
+      "user": "0:0",
+      "command": [
+        "qualify-backend"
+      ],
+      "cap_add": [
+        "DAC_OVERRIDE",
+        "FOWNER"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 256,
+      "read_only": true,
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_BACKEND_WITHOUT_CHOWN_CONTROL_DIR:?exclusive actual-CID control directory required}",
+          "target": "/qualification",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_DATA_DIR:?fresh product qualification window directory required}",
+          "target": "/qualification-data",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "qualification-backend-without-dac-override": {
+      "pull_policy": "never",
+      "restart": "no",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stdin_open": true,
+      "tty": false,
+      "networks": [
+        "worker-control"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "image": "${FROZEN_BACKEND_IMAGE_ID:?same actual frozen Backend image required}",
+      "user": "0:0",
+      "command": [
+        "qualify-backend"
+      ],
+      "cap_add": [
+        "CHOWN",
+        "FOWNER"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 256,
+      "read_only": true,
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_BACKEND_WITHOUT_DAC_OVERRIDE_CONTROL_DIR:?exclusive actual-CID control directory required}",
+          "target": "/qualification",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_DATA_DIR:?fresh product qualification window directory required}",
+          "target": "/qualification-data",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "qualification-backend-without-fowner": {
+      "pull_policy": "never",
+      "restart": "no",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stdin_open": true,
+      "tty": false,
+      "networks": [
+        "worker-control"
+      ],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "image": "${FROZEN_BACKEND_IMAGE_ID:?same actual frozen Backend image required}",
+      "user": "0:0",
+      "command": [
+        "qualify-backend"
+      ],
+      "cap_add": [
+        "CHOWN",
+        "DAC_OVERRIDE"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 256,
+      "read_only": true,
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_BACKEND_WITHOUT_FOWNER_CONTROL_DIR:?exclusive actual-CID control directory required}",
+          "target": "/qualification",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "${QUALIFICATION_DATA_DIR:?fresh product qualification window directory required}",
+          "target": "/qualification-data",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "switchback-backend": {
+      "restart": "no",
+      "environment": {
+        "SWITCHBACK_RUNTIME_CAPACITY_TRUST_FILE": "/etc/switchback/runtime-capacity/trust.json",
+        "SWITCHBACK_RUNTIME_CAPACITY_ADMISSION_MANIFEST_FILE": "/etc/switchback/runtime-capacity/admission-manifest.json",
+        "SWITCHBACK_RUNTIME_CAPACITY_SNAPSHOT_DIRECTORY": "/run/switchback-capacity"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/core/capacity-publisher-config",
+          "target": "/etc/switchback/runtime-capacity",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/etc/switchback/created-layer-observer",
+          "target": "/etc/switchback/created-layer-observer",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/core/capacity-publication-public",
+          "target": "/run/switchback-capacity",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    }
+  },
+  "networks": {
+    "worker-control": {
+      "external": true,
+      "name": "switchback-m1-worker-control"
+    }
+  }
+}

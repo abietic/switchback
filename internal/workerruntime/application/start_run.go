@@ -47,6 +47,10 @@ type StartWorkerRunRecord struct {
 }
 
 type StartedWorkerRun struct {
+	// Created is local transaction outcome metadata, never persisted or sent on
+	// the wire. Only the transaction that inserts ownership may set it. A
+	// historical result (including after response loss) cannot repeat effects.
+	Created             bool `json:"-"`
 	WorkerRunID         string
 	WorkerSessionID     string
 	TaskID              string

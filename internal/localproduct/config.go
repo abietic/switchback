@@ -19,34 +19,39 @@ const (
 )
 
 type Config struct {
-	Profile                 config.SingleUserLocalProfile
-	NetworkProfile          config.RuntimeNetworkProfile
-	Assistant               config.AssistantSettings
-	DatabaseURL             string
-	DataRoot                string
-	EngineDataRoot          string
-	WorkspaceSourceRoot     string
-	ProjectID               string
-	WorkspaceID             string
-	WorkspaceRevisionID     string
-	WorkerImage             string
-	WorkerNetwork           string
-	BackendGRPCTarget       string
-	BackendHTTPBaseURL      string
-	GRPCAddress             string
-	KimiCredentialFile      string
-	DeepSeekCredentialFile  string
-	LangfuseBaseURL         string
-	LangfusePublicKey       string
-	LangfuseSecretKey       string
-	TelemetryAddress        string
-	AlloyPushURL            string
-	GrafanaBrowserBaseURL   string
-	AssistantLiteLLMBaseURL string
-	AssistantLiteLLMAPIKey  string
-	ExecutionEnabled        bool
-	WorkerDisplayEnabled    bool
-	RuntimeRecoveryEnabled  bool
+	RuntimeCapacityAdmissionManifestFile string
+	RuntimeCapacityTrustFile             string
+	RuntimeCapacitySnapshotDirectory     string
+	Profile                              config.SingleUserLocalProfile
+	NetworkProfile                       config.RuntimeNetworkProfile
+	Assistant                            config.AssistantSettings
+	DatabaseURL                          string
+	DataRoot                             string
+	EngineDataRoot                       string
+	WorkspaceSourceRoot                  string
+	ProjectID                            string
+	WorkspaceID                          string
+	WorkspaceRevisionID                  string
+	WorkerImage                          string
+	WorkerNetwork                        string
+	BackendGRPCTarget                    string
+	BackendHTTPBaseURL                   string
+	GRPCAddress                          string
+	KimiCredentialFile                   string
+	DeepSeekCredentialFile               string
+	LangfuseBaseURL                      string
+	LangfusePublicKey                    string
+	LangfuseSecretKey                    string
+	TelemetryAddress                     string
+	AlloyPushURL                         string
+	GrafanaBrowserBaseURL                string
+	LangfuseBrowserBaseURL               string
+	LangfuseProjectID                    string
+	AssistantLiteLLMBaseURL              string
+	AssistantLiteLLMAPIKey               string
+	ExecutionEnabled                     bool
+	WorkerDisplayEnabled                 bool
+	RuntimeRecoveryEnabled               bool
 }
 
 func LoadConfig(lookup config.LookupEnv) (Config, error) {
@@ -64,31 +69,36 @@ func LoadConfig(lookup config.LookupEnv) (Config, error) {
 		return Config{}, err
 	}
 	result := Config{
-		Profile:                 profile,
-		NetworkProfile:          networkProfile,
-		Assistant:               assistant,
-		DatabaseURL:             value(lookup, "SWITCHBACK_DATABASE_URL", ""),
-		DataRoot:                value(lookup, "SWITCHBACK_DATA_ROOT", ""),
-		EngineDataRoot:          value(lookup, "SWITCHBACK_ENGINE_DATA_ROOT", ""),
-		WorkspaceSourceRoot:     value(lookup, "SWITCHBACK_WORKSPACE_SOURCE_ROOT", ""),
-		ProjectID:               value(lookup, "SWITCHBACK_PROJECT_ID", defaultProjectID),
-		WorkspaceID:             value(lookup, "SWITCHBACK_WORKSPACE_ID", defaultWorkspaceID),
-		WorkspaceRevisionID:     value(lookup, "SWITCHBACK_WORKSPACE_REVISION_ID", defaultWorkspaceRevisionID),
-		WorkerImage:             value(lookup, "SWITCHBACK_WORKER_IMAGE", ""),
-		WorkerNetwork:           value(lookup, "SWITCHBACK_WORKER_NETWORK", ""),
-		BackendGRPCTarget:       value(lookup, "SWITCHBACK_BACKEND_GRPC_TARGET", ""),
-		BackendHTTPBaseURL:      value(lookup, "SWITCHBACK_BACKEND_HTTP_BASE_URL", ""),
-		GRPCAddress:             value(lookup, "SWITCHBACK_GRPC_ADDRESS", defaultGRPCAddress),
-		KimiCredentialFile:      value(lookup, "SWITCHBACK_KIMI_CREDENTIAL_FILE", ""),
-		DeepSeekCredentialFile:  value(lookup, "SWITCHBACK_DEEPSEEK_CREDENTIAL_FILE", ""),
-		LangfuseBaseURL:         value(lookup, "LANGFUSE_BASE_URL", ""),
-		LangfusePublicKey:       value(lookup, "LANGFUSE_PUBLIC_KEY", ""),
-		LangfuseSecretKey:       value(lookup, "LANGFUSE_SECRET_KEY", ""),
-		TelemetryAddress:        value(lookup, "SWITCHBACK_TELEMETRY_ADDRESS", ""),
-		AlloyPushURL:            value(lookup, "SWITCHBACK_ALLOY_PUSH_URL", ""),
-		GrafanaBrowserBaseURL:   value(lookup, "SWITCHBACK_GRAFANA_BROWSER_BASE_URL", ""),
-		AssistantLiteLLMBaseURL: value(lookup, "SWITCHBACK_ASSISTANT_LITELLM_BASE_URL", ""),
-		AssistantLiteLLMAPIKey:  value(lookup, "SWITCHBACK_ASSISTANT_LITELLM_API_KEY", ""),
+		RuntimeCapacityAdmissionManifestFile: value(lookup, "SWITCHBACK_RUNTIME_CAPACITY_ADMISSION_MANIFEST_FILE", ""),
+		RuntimeCapacityTrustFile:             value(lookup, "SWITCHBACK_RUNTIME_CAPACITY_TRUST_FILE", ""),
+		RuntimeCapacitySnapshotDirectory:     value(lookup, "SWITCHBACK_RUNTIME_CAPACITY_SNAPSHOT_DIRECTORY", ""),
+		Profile:                              profile,
+		NetworkProfile:                       networkProfile,
+		Assistant:                            assistant,
+		DatabaseURL:                          value(lookup, "SWITCHBACK_DATABASE_URL", ""),
+		DataRoot:                             value(lookup, "SWITCHBACK_DATA_ROOT", ""),
+		EngineDataRoot:                       value(lookup, "SWITCHBACK_ENGINE_DATA_ROOT", ""),
+		WorkspaceSourceRoot:                  value(lookup, "SWITCHBACK_WORKSPACE_SOURCE_ROOT", ""),
+		ProjectID:                            value(lookup, "SWITCHBACK_PROJECT_ID", defaultProjectID),
+		WorkspaceID:                          value(lookup, "SWITCHBACK_WORKSPACE_ID", defaultWorkspaceID),
+		WorkspaceRevisionID:                  value(lookup, "SWITCHBACK_WORKSPACE_REVISION_ID", defaultWorkspaceRevisionID),
+		WorkerImage:                          value(lookup, "SWITCHBACK_WORKER_IMAGE", ""),
+		WorkerNetwork:                        value(lookup, "SWITCHBACK_WORKER_NETWORK", ""),
+		BackendGRPCTarget:                    value(lookup, "SWITCHBACK_BACKEND_GRPC_TARGET", ""),
+		BackendHTTPBaseURL:                   value(lookup, "SWITCHBACK_BACKEND_HTTP_BASE_URL", ""),
+		GRPCAddress:                          value(lookup, "SWITCHBACK_GRPC_ADDRESS", defaultGRPCAddress),
+		KimiCredentialFile:                   value(lookup, "SWITCHBACK_KIMI_CREDENTIAL_FILE", ""),
+		DeepSeekCredentialFile:               value(lookup, "SWITCHBACK_DEEPSEEK_CREDENTIAL_FILE", ""),
+		LangfuseBaseURL:                      value(lookup, "LANGFUSE_BASE_URL", ""),
+		LangfusePublicKey:                    value(lookup, "LANGFUSE_PUBLIC_KEY", ""),
+		LangfuseSecretKey:                    value(lookup, "LANGFUSE_SECRET_KEY", ""),
+		TelemetryAddress:                     value(lookup, "SWITCHBACK_TELEMETRY_ADDRESS", ""),
+		AlloyPushURL:                         value(lookup, "SWITCHBACK_ALLOY_PUSH_URL", ""),
+		GrafanaBrowserBaseURL:                value(lookup, "SWITCHBACK_GRAFANA_BROWSER_BASE_URL", ""),
+		LangfuseBrowserBaseURL:               value(lookup, "SWITCHBACK_LANGFUSE_BROWSER_BASE_URL", ""),
+		LangfuseProjectID:                    value(lookup, "SWITCHBACK_LANGFUSE_PROJECT_ID", ""),
+		AssistantLiteLLMBaseURL:              value(lookup, "SWITCHBACK_ASSISTANT_LITELLM_BASE_URL", ""),
+		AssistantLiteLLMAPIKey:               value(lookup, "SWITCHBACK_ASSISTANT_LITELLM_API_KEY", ""),
 	}
 	result.ExecutionEnabled, err = boolValue(lookup, "SWITCHBACK_M1_WORKER_DELIVERY_ENABLED", false)
 	if err != nil {
@@ -109,6 +119,9 @@ func LoadConfig(lookup config.LookupEnv) (Config, error) {
 }
 
 func (configuration Config) Validate() error {
+	if err := configuration.validateCapacityPaths(); err != nil {
+		return err
+	}
 	if configuration.Assistant.Enabled {
 		profile, err := config.ProductionProfileRegistry().ResolveAssistant(
 			configuration.Assistant.ModelProfile,
@@ -247,4 +260,16 @@ func hostPort(name, current string) error {
 
 func canonical(current string) bool {
 	return current != "" && strings.TrimSpace(current) == current && !strings.ContainsAny(current, "\r\n\x00")
+}
+
+func (c Config) validateCapacityPaths() error {
+	if c.RuntimeCapacityTrustFile == "" && c.RuntimeCapacitySnapshotDirectory == "" && c.RuntimeCapacityAdmissionManifestFile == "" {
+		return nil
+	}
+	for _, p := range []string{c.RuntimeCapacityTrustFile, c.RuntimeCapacitySnapshotDirectory, c.RuntimeCapacityAdmissionManifestFile} {
+		if !canonical(p) || !filepath.IsAbs(p) || filepath.Clean(p) != p || p == "/" {
+			return fmt.Errorf("runtime capacity trust file, snapshot directory and admission manifest must be grouped canonical absolute paths")
+		}
+	}
+	return nil
 }

@@ -176,7 +176,15 @@ export interface TransientDisplayDelta {
   emitted_at: string;
 }
 
+export interface RuntimeDispatchWait {
+  reason: "capacity_uninitialized" | "capacity_evidence_invalid" | "capacity_evidence_stale"
+    | "capacity_identity_drift" | "capacity_inventory_unknown" | "capacity_exhausted"
+    | "capacity_path_not_integrated";
+  observed_at: string;
+}
+
 export interface TaskListItem {
+  runtime_dispatch_wait?: RuntimeDispatchWait;
   task_id: string;
   title: string;
   workspace: string;
@@ -265,7 +273,14 @@ export interface ApprovalRequest {
 export interface WorkerDiagnosticLinks {
   links: Array<{ kind: "grafana" | "logs" | "langfuse"; url: string }>;
   grafana_status: "configured" | "disabled" | "invalid_config";
-  langfuse_status: "identity_unavailable";
+  langfuse_status: "disabled" | "invalid_config" | "identity_unavailable" | "pending" | "blocked" | "unavailable" | "historically_verified";
+  target: { worker_session_id: string; worker_run_id?: string; agent_turn_id?: string };
+  identity?: {
+    version: "langfuse.projection.v3";
+    trace_id: string;
+    selected_observation_id?: string;
+    sources: Array<{ kind: "run_basis" | "turn_basis"; source_id: string; frame_digest: string }>;
+  };
 }
 
 export interface WorkerDetailData {

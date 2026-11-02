@@ -63,6 +63,9 @@ type runtimeRunner struct {
 	environment   *runtimeEnvironment
 	engine        io.Closer
 	provisioner   *dockeradapter.Provisioner
+	workerPolicy  *workerPolicyAdmission
+	startPolicy   runtimeStartPolicy
+	initialPolicy runtimeStartPolicy
 	objects       *artifactlocal.ObjectStore
 	display       projectionpostgres.Materializer
 	transient     *projectionapp.TransientBroker
@@ -101,11 +104,13 @@ type runtimeRunner struct {
 	) (*restoredStartupTurn, error)
 	scheduled platformpostgres.ScheduledCommandPoller
 
-	startupReady       atomic.Bool
-	mu                 sync.Mutex
-	runtimes           map[string]*liveRuntime
-	adoptingRuntimeIDs map[string]struct{}
-	turnSupervisors    activeTurnSupervisors
+	startupReady                   atomic.Bool
+	mu                             sync.Mutex
+	runtimes                       map[string]*liveRuntime
+	initializingSessionGenerations map[string]uint64
+	pendingInitialActivations      map[string]*pendingInitialActivation
+	adoptingRuntimeIDs             map[string]struct{}
+	turnSupervisors                activeTurnSupervisors
 }
 
 type activeTurnSupervisors struct {
@@ -155,14 +160,15 @@ func (supervisors *activeTurnSupervisors) stopAndWait() {
 }
 
 type liveRuntime struct {
-	mu             sync.Mutex
-	identity       controlgrpc.RuntimeIdentity
-	agentSessionID string
-	storage        workerapp.SessionStorage
-	sourceDigest   string
-	events         <-chan workerapp.WorkerControlEvent
-	traceOffset    int64
-	containerID    string
+	initialRunID, initialTurnID string
+	mu                          sync.Mutex
+	identity                    controlgrpc.RuntimeIdentity
+	agentSessionID              string
+	storage                     workerapp.SessionStorage
+	sourceDigest                string
+	events                      <-chan workerapp.WorkerControlEvent
+	traceOffset                 int64
+	containerID                 string
 }
 
 type runtimeReadyPayload struct {
@@ -276,6 +282,7 @@ func newRuntimeRunner(
 	objects *artifactlocal.ObjectStore,
 	display projectionpostgres.Materializer,
 	transient *projectionapp.TransientBroker,
+	initialPolicy runtimeStartPolicy,
 ) (*runtimeRunner, error) {
 	engine, err := dockeradapter.NewClient()
 	if err != nil {
@@ -311,7 +318,14 @@ func newRuntimeRunner(
 		engine.Close()
 		return nil, err
 	}
-	journal := workerapp.RuntimeControlJournalService{Store: journalStore, Now: now}
+	workerPolicy := &workerPolicyAdmission{
+		lookup: func(ctx context.Context, runtimeID string) (workerPolicyOwner, error) {
+			return loadWorkerPolicyOwner(ctx, pool, runtimeID)
+		},
+		inspect: provisioner.VerifyWorkerPolicy,
+		handoff: provisioner.LookupWorkerPolicyHandoff,
+	}
+	journal := workerapp.RuntimeControlJournalService{Store: workerPolicy.guardJournal(journalStore), Now: now}
 	hub := controlgrpc.NewHubWithJournal(journal)
 	recoveryStore := workerpostgres.NewRuntimeRecoveryStore(pool)
 	recoveryService := workerapp.RuntimeRecoveryService{
@@ -337,7 +351,10 @@ func newRuntimeRunner(
 	runner := &runtimeRunner{
 		configuration: configuration, pool: pool, ids: ids, now: now, hub: hub,
 		environment: environment, engine: engine, provisioner: provisioner, objects: objects,
-		display: display, transient: transient,
+		workerPolicy:  workerPolicy,
+		startPolicy:   unavailableRuntimeStartPolicy{checker: provisioner},
+		initialPolicy: initialPolicy,
+		display:       display, transient: transient,
 		runtimes: make(map[string]*liveRuntime), settlerID: settlerID,
 	}
 	if err := hub.SetModelObservationAcceptor(workerapp.ModelObservationAcceptor{Preparer: runner}); err != nil {
@@ -351,8 +368,10 @@ func newRuntimeRunner(
 		Store: taskpostgres.NewStore(pool), IDs: ids, Now: now, PermitTTL: 5 * time.Minute,
 	}
 	runner.starts = workerapp.RuntimeCoordinator{
-		Starts:      workerapp.StartWorkerRunService{Store: workerpostgres.NewRunStore(pool), IDs: ids, Now: now},
-		Environment: environment, Provisioner: provisioner,
+		CreatedLayerChecker: initialCreatedLayerChecker(initialPolicy),
+		Authorizer:          workerpostgres.NewInitialRuntimeExecutionAuthorizer(pool),
+		Starts:              workerapp.StartWorkerRunService{Store: workerpostgres.NewRunStore(pool), IDs: ids, Now: now},
+		Environment:         environment, Provisioner: provisioner,
 	}
 	runner.binding = workerapp.AgentSessionBindingService{
 		Store: workerpostgres.NewAgentSessionBindingStore(pool), IDs: ids, Now: now,
@@ -601,7 +620,10 @@ func (runner *runtimeRunner) Run(ctx context.Context) error {
 	}
 	if !runner.configuration.RuntimeRecoveryEnabled {
 		if err := runner.rejectUnownedRuntimes(ctx); err != nil {
-			return err
+			if !runtimeStagingWait(err) {
+				return err
+			}
+			slog.Warn("startup retains pending initial Runtime ownership", "error", err)
 		}
 	}
 	runner.startupReady.Store(true)
@@ -708,6 +730,7 @@ func (runner *runtimeRunner) runOnce(ctx context.Context) error {
 		ctx,
 		runtimeRunOnceDependencies{
 			reconcileSettlement: runner.reconcileOnePendingTurnSettlement,
+			reconcileInitial:    runner.reconcileInitialActivation,
 			startAdoption:       runner.restoreOneUnownedRuntime,
 			detectFailures:      runner.detectRuntimeFailures,
 			reconcileRecovery:   runner.reconcileRuntimeRecovery,
@@ -719,6 +742,7 @@ func (runner *runtimeRunner) runOnce(ctx context.Context) error {
 }
 
 type runtimeRunOnceDependencies struct {
+	reconcileInitial    func(context.Context) error
 	reconcileSettlement func(
 		context.Context,
 	) (string, bool, error)
@@ -748,25 +772,60 @@ func (runner *runtimeRunner) runOnceWith(
 		dependencies.executeTurn == nil {
 		return fmt.Errorf("Runtime runOnce dependencies are required")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var capacityWait error
 	if _, found, err := dependencies.reconcileSettlement(ctx); err != nil {
-		if errors.Is(err, errRuntimeSettlementOwnerBusy) {
+		if singleRuntimeCause(err) == errRuntimeSettlementOwnerBusy {
 			return nil
 		}
-		return err
+		if !runtimeStagingWait(err) {
+			return err
+		}
+		capacityWait = err
 	} else if found {
 		return nil
 	}
-	if _, err := dependencies.startAdoption(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := dependencies.detectFailures(ctx); err != nil {
+	// Keep draining already-owned work after a classified wait at any stage.
+	rememberWait := func(err error) error {
+		if err != nil && !runtimeStagingWait(err) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if capacityWait == nil {
+			capacityWait = err
+		}
+		return nil
+	}
+	if dependencies.reconcileInitial != nil {
+		if err := rememberWait(dependencies.reconcileInitial(ctx)); err != nil {
+			return err
+		}
+	}
+	_, err := dependencies.startAdoption(ctx)
+	if err = rememberWait(err); err != nil {
 		return err
 	}
-	if _, _, err := dependencies.reconcileRecovery(ctx); err != nil {
+	if err = rememberWait(dependencies.detectFailures(ctx)); err != nil {
 		return err
 	}
-	if err := dependencies.cleanupTerminal(ctx); err != nil {
+	_, _, err = dependencies.reconcileRecovery(ctx)
+	if err = rememberWait(err); err != nil {
 		return err
+	}
+	if err = rememberWait(dependencies.cleanupTerminal(ctx)); err != nil {
+		return err
+	}
+	// An accepted continuation is still pending. Drain existing work and
+	// cleanup, but do not turn the unavailable next start into completion.
+	if capacityWait != nil {
+		return capacityWait
 	}
 	if err := dependencies.startQueuedTask(ctx); err != nil {
 		return err
@@ -775,12 +834,9 @@ func (runner *runtimeRunner) runOnceWith(
 }
 
 func (runner *runtimeRunner) detectRuntimeFailures(ctx context.Context) error {
-	if !runner.configuration.RuntimeRecoveryEnabled {
-		return nil
-	}
 	rows, err := runner.pool.Query(ctx, `
 SELECT session.worker_session_id,runtime.runtime_instance_id,
-       runtime.generation,runtime.control_channel_epoch
+       runtime.generation,runtime.control_channel_epoch,COALESCE(runtime.container_id,'')
 FROM worker_sessions session
 JOIN runtime_instances runtime ON runtime.runtime_instance_id=session.active_runtime_instance_id
 WHERE session.tenant_id=$1 AND session.user_id=$2
@@ -794,15 +850,15 @@ ORDER BY session.updated_at,session.worker_session_id`,
 		return err
 	}
 	type candidate struct {
-		sessionID, runtimeID string
-		generation, epoch    uint64
+		sessionID, runtimeID, containerID string
+		generation, epoch                 uint64
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var candidate candidate
 		if err := rows.Scan(
 			&candidate.sessionID, &candidate.runtimeID,
-			&candidate.generation, &candidate.epoch,
+			&candidate.generation, &candidate.epoch, &candidate.containerID,
 		); err != nil {
 			rows.Close()
 			return err
@@ -814,8 +870,24 @@ ORDER BY session.updated_at,session.worker_session_id`,
 		return err
 	}
 	rows.Close()
+	var pending error
 	for _, candidate := range candidates {
+		runner.mu.Lock()
+		initializing := runner.initializingSessionGenerations[candidate.sessionID] == candidate.generation
+		runner.mu.Unlock()
+		if initializing {
+			continue
+		}
 		if runner.runtimeAdoptionInFlight(candidate.runtimeID) {
+			continue
+		}
+		if err := runner.interruptedInitialRuntime(ctx, candidate.runtimeID); err != nil {
+			if !runtimeStagingWait(err) {
+				return err
+			}
+			if pending == nil {
+				pending = err
+			}
 			continue
 		}
 		inspection, err := runner.provisioner.Inspect(ctx, candidate.runtimeID)
@@ -824,6 +896,9 @@ ORDER BY session.updated_at,session.worker_session_id`,
 		}
 		if inspection.Exists && inspection.Running {
 			continue
+		}
+		if inspection.Exists && (inspection.ContainerID != candidate.containerID || inspection.Generation != candidate.generation) {
+			return fmt.Errorf("Runtime hard inspection identity conflict")
 		}
 		trigger := workerdomain.RecoveryTriggerContainerMissing
 		if inspection.Exists {
@@ -836,14 +911,14 @@ ORDER BY session.updated_at,session.worker_session_id`,
 				RuntimeGeneration: candidate.generation, ChannelEpoch: candidate.epoch,
 				Trigger: trigger, EvidenceRef: "runtime-inspection/" + candidate.runtimeID + "/g" +
 					strconv.FormatUint(candidate.generation, 10),
-				EvidenceAt: inspection.ObservedAt,
+				EvidenceAt: inspection.ObservedAt, Inspection: &inspection,
 			},
 		)
 		if err != nil {
 			return err
 		}
 	}
-	return nil
+	return pending
 }
 
 func (runner *runtimeRunner) reconcileRuntimeRecovery(
@@ -1067,23 +1142,65 @@ ORDER BY session.updated_at,session.worker_session_id LIMIT 1`, runner.configura
 
 func (runner *runtimeRunner) startNextQueuedTask(ctx context.Context) error {
 	var taskID, allocationRequestID, sessionID string
-	var taskRevision, sessionRevision uint64
+	var issuedPermitIDs []string
+	var taskRevision, sessionRevision, queueSequence, queueRevision uint64
 	err := runner.pool.QueryRow(ctx, `
 SELECT task.task_id,task.revision,allocation.allocation_request_id,
-       COALESCE(task.worker_session_id,''),COALESCE(session.session_revision,0)
+       COALESCE(task.worker_session_id,''),COALESCE(session.session_revision,0),
+       COALESCE(task.session_queue_sequence,0),COALESCE(queue.queue_revision,0),
+       (SELECT COALESCE(array_agg(p.permit_id ORDER BY p.permit_id COLLATE "C"),ARRAY[]::text[])
+        FROM session_dispatch_permits p WHERE p.target_kind='task' AND p.target_id=task.task_id
+          AND p.worker_session_id=task.worker_session_id
+          AND p.session_queue_sequence=task.session_queue_sequence AND p.queue_revision=queue.queue_revision)
 FROM tasks task
 JOIN session_allocation_requests allocation
   ON allocation.request_kind='task' AND allocation.owner_id=task.task_id
 LEFT JOIN worker_sessions session ON session.worker_session_id=task.worker_session_id
+LEFT JOIN session_task_queue_entries queue ON queue.task_id=task.task_id AND queue.worker_session_id=task.worker_session_id AND queue.session_queue_sequence=task.session_queue_sequence AND queue.status IN ('pending','permit_issued')
 WHERE task.tenant_id=$1 AND task.initiator_user_id=$2 AND task.status='queued'
 ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.TenantID,
 		runner.configuration.Profile.ActorUserID).Scan(
-		&taskID, &taskRevision, &allocationRequestID, &sessionID, &sessionRevision)
+		&taskID, &taskRevision, &allocationRequestID, &sessionID, &sessionRevision, &queueSequence, &queueRevision, &issuedPermitIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("read next queued Task: %w", err)
+	}
+	recordWait := func(cause error) error {
+		reason := ""
+		leaf := singleRuntimeCause(cause)
+		if leaf == errRuntimeStartCapacityUnavailable {
+			reason = "capacity_path_not_integrated"
+		} else {
+			switch leaf {
+			case workerapp.CapacityUninitialized:
+				reason = "capacity_uninitialized"
+			case workerapp.CapacityEvidenceInvalid:
+				reason = "capacity_evidence_invalid"
+			case workerapp.CapacityEvidenceStale:
+				reason = "capacity_evidence_stale"
+			case workerapp.CapacityIdentityDrift:
+				reason = "capacity_identity_drift"
+			case workerapp.CapacityInventoryUnknown:
+				reason = "capacity_inventory_unknown"
+			case workerapp.CapacityExhausted:
+				reason = "capacity_exhausted"
+			case workerapp.CapacityPathNotIntegrated:
+				reason = "capacity_path_not_integrated"
+			}
+		}
+		if !taskapp.ValidRuntimeDispatchWaitReason(reason) {
+			return cause
+		}
+		_, err := (taskapp.RuntimeDispatchWaitService{Store: taskpostgres.NewStore(runner.pool), IDs: randomIDs{}}).Record(ctx, taskapp.RuntimeDispatchWaitObservation{TenantID: runner.configuration.Profile.TenantID, UserID: runner.configuration.Profile.ActorUserID, TaskID: taskID, ExpectedPermitIDs: issuedPermitIDs, Wait: taskapp.RuntimeDispatchWait{Reason: reason, TaskRevision: taskRevision, WorkerSessionID: sessionID, QueueSequence: queueSequence, QueueRevision: queueRevision}})
+		if err != nil {
+			return errors.Join(cause, fmt.Errorf("record queued runtime dispatch wait: %w", err))
+		}
+		return cause
+	}
+	if err := runner.checkInitialCapacity(ctx); err != nil {
+		return recordWait(err)
 	}
 	if sessionID == "" {
 		allocated, err := runner.allocator.Execute(ctx, workerapp.AllocateWorkerSessionCommand{
@@ -1107,6 +1224,7 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 			return fmt.Errorf("enqueue Task on allocated WorkerSession: %w", err)
 		}
 		taskRevision = enqueued.TaskRevision
+		queueSequence, queueRevision = enqueued.SessionQueueSequence, enqueued.QueueRevision
 	}
 	var existingRun string
 	err = runner.pool.QueryRow(ctx, `SELECT COALESCE(current_worker_run_id,'') FROM tasks WHERE task_id=$1`, taskID).Scan(&existingRun)
@@ -1116,11 +1234,10 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 	permit, err := runner.dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{
 		TenantID: runner.configuration.Profile.TenantID,
 		UserID:   runner.configuration.Profile.ActorUserID, WorkerSessionID: sessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "local-standard-admission",
-		IdempotencyKey: "local-dispatch/" + taskID,
+		RuntimeGeneration: 1, IdempotencyKey: "local-dispatch/" + taskID,
 	})
 	if err != nil {
-		return fmt.Errorf("issue queued Task dispatch permit: %w", err)
+		return recordWait(err)
 	}
 	var specJSON json.RawMessage
 	if err := runner.pool.QueryRow(ctx, `SELECT task_spec_snapshot FROM tasks WHERE task_id=$1`, taskID).Scan(&specJSON); err != nil {
@@ -1152,6 +1269,24 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 		"task_spec_digest":               spec.CreationIntentRef.TaskSpecDigest,
 	})
 	prompt, _ := json.Marshal(map[string]string{"text": taskPrompt(spec)})
+	// Ownership commits before environment preparation and Provision. Another
+	// Session's terminal waiter may inspect all Runtimes during that window.
+	// Protect only this locally owned initializer, including its live handoff.
+	runner.mu.Lock()
+	if _, owned := runner.initializingSessionGenerations[sessionID]; owned {
+		runner.mu.Unlock()
+		return fmt.Errorf("WorkerSession %s already has an initializing Runtime", sessionID)
+	}
+	if runner.initializingSessionGenerations == nil {
+		runner.initializingSessionGenerations = make(map[string]uint64)
+	}
+	runner.initializingSessionGenerations[sessionID] = 1
+	runner.mu.Unlock()
+	defer func() {
+		runner.mu.Lock()
+		delete(runner.initializingSessionGenerations, sessionID)
+		runner.mu.Unlock()
+	}()
 	started, err := runner.starts.Start(ctx, workerapp.StartRuntimeCommand{Run: workerapp.StartWorkerRunCommand{
 		TenantID: runner.configuration.Profile.TenantID,
 		UserID:   runner.configuration.Profile.ActorUserID, WorkerSessionID: sessionID,
@@ -1168,70 +1303,36 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 		ControlChannelEpoch: 1,
 	}})
 	if err != nil {
-		if started.Ownership.RuntimeInstanceID != "" {
-			return runner.reconcileFailedRuntimeStart(ctx, started.Ownership, err)
-		}
-		return fmt.Errorf("start queued Task Runtime: %w", err)
+		return runner.handleInitialRuntimeStartFailure(ctx, started, err)
 	}
-	failStart := func(cause error) error {
-		return runner.reconcileFailedRuntimeStart(ctx, started.Ownership, cause)
-	}
+	// Provision already returned a physical Runtime. NULL database CID does
+	// not prove absence; hard ready/binding/cancellation failures retain the
+	// durable interrupted owner and prepared storage for explicit reconciliation.
 	prepared, ok := runner.environment.get(started.Ownership.RuntimeInstanceID)
 	if !ok || prepared.SourceDigest != sourceDigest {
-		return failStart(fmt.Errorf("prepared WorkingCopy differs from the start snapshot"))
+		return fmt.Errorf("prepared WorkingCopy differs from the start snapshot")
 	}
 	events, err := runner.hub.Events(ctx, started.Ownership.RuntimeInstanceID, 1)
 	if err != nil {
-		return failStart(err)
+		return err
 	}
 	readyEvent, err := waitWorkerEvent(ctx, events, runtimeReadyTimeout, func(event workerapp.WorkerControlEvent) bool {
 		return event.Envelope.MessageType == "runtime.ready"
 	})
 	if err != nil {
-		return failStart(err)
+		return err
 	}
 	var ready runtimeReadyPayload
 	if err := json.Unmarshal(readyEvent.Payload, &ready); err != nil ||
 		ready.AgentSessionID == "" || ready.AgentProfileID != profile.ID ||
 		ready.AgentProfileRevision != profile.Revision || ready.AgentProfileDigest != profile.Digest {
-		return failStart(fmt.Errorf("runtime.ready identity or profile is invalid"))
+		return fmt.Errorf("runtime.ready identity or profile is invalid")
 	}
 	bound, err := runner.bindInitialAgentSession(ctx, started.Ownership, ready.AgentSessionID)
 	if err != nil {
-		return failStart(fmt.Errorf("bind initial AgentSession after runtime.ready: %w", err))
+		return fmt.Errorf("bind initial AgentSession after runtime.ready: %w", err)
 	}
-	active, err := runner.residency.Activate(ctx, workerapp.ActivateResidentRuntimeCommand{
-		TenantID:        runner.configuration.Profile.TenantID,
-		WorkerSessionID: started.Ownership.WorkerSessionID,
-		WorkerRunID:     started.Ownership.WorkerRunID, AgentTurnID: started.Ownership.AgentTurnID,
-		RuntimeInstanceID: started.Ownership.RuntimeInstanceID,
-		ContainerID:       started.Runtime.ContainerID, RuntimeGeneration: 1, ControlChannelEpoch: 1,
-		ExpectedSessionRevision: bound.SessionRevision, ExpectedRunRevision: bound.RunRevision,
-		ExpectedTurnRevision: bound.TurnRevision, ExpectedRuntimeRevision: bound.RuntimeRevision,
-	})
-	if err != nil {
-		return failStart(err)
-	}
-	if err := processWorkerControlEvent(
-		ctx,
-		readyEvent,
-		"runtime_ready_committed",
-		func() error { return nil },
-	); err != nil {
-		return failStart(fmt.Errorf("apply runtime.ready after activation: %w", err))
-	}
-	tracePath := filepath.Join(prepared.Storage.TraceSpool.BackendPath, "acp.raw.jsonl")
-	offset, _ := fileSize(tracePath)
-	live := &liveRuntime{
-		identity: prepared.Credential.Identity, agentSessionID: ready.AgentSessionID,
-		storage: prepared.Storage, sourceDigest: sourceDigest, events: events,
-		traceOffset: offset, containerID: started.Runtime.ContainerID,
-	}
-	runner.mu.Lock()
-	runner.runtimes[started.Ownership.RuntimeInstanceID] = live
-	runner.mu.Unlock()
-	_ = active
-	return nil
+	return runner.beginInitialActivation(ctx, started, prepared, bound, ready, readyEvent, events)
 }
 
 func (runner *runtimeRunner) bindInitialAgentSession(
@@ -1314,6 +1415,9 @@ func (runner *runtimeRunner) executeNextDeliveredTurn(ctx context.Context) error
 	runner.mu.Lock()
 	live := runner.runtimes[turn.RuntimeInstanceID]
 	runner.mu.Unlock()
+	if err := runner.checkDeliveredCapacity(ctx, live, turn); err != nil {
+		return err
+	}
 	if live == nil {
 		return fmt.Errorf("delivered AgentTurn has no owned live Runtime")
 	}
@@ -1340,6 +1444,9 @@ func (runner *runtimeRunner) superviseDeliveredTurn(
 	live *liveRuntime,
 	turn pendingTurn,
 ) error {
+	if err := runner.checkDeliveredCapacity(ctx, live, turn); err != nil {
+		return err
+	}
 	live.mu.Lock()
 	defer live.mu.Unlock()
 	if turn.AgentSessionID != live.agentSessionID {
@@ -1559,9 +1666,11 @@ func (runner *runtimeRunner) awaitAndSettleTurn(
 		return applyTerminal()
 	}
 	continued, err := runner.continueQueuedTurn(ctx, turn, completed)
-	if err != nil {
+	if err != nil && !runtimeStagingWait(err) {
 		return err
 	}
+	// Capacity denial concerns only the accepted successor. The previous
+	// Turn's report, artifacts and terminal acknowledgement still settle.
 	if continued {
 		return applyTerminal()
 	}
@@ -1748,11 +1857,26 @@ func (runner *runtimeRunner) publishDisplayCheckpoint(
 	return true
 }
 
+// handleInitialRuntimeStartFailure preserves an interrupted physical owner;
+// no database NULL-CID fact can turn an uncertain Engine effect into absence.
+func (runner *runtimeRunner) handleInitialRuntimeStartFailure(ctx context.Context, started workerapp.StartedRuntime, cause error) error {
+	if initialRuntimePending(cause) || started.Runtime.ContainerID != "" || started.Runtime.PhysicalEffectUnknown {
+		return cause
+	}
+	if started.Ownership.RuntimeInstanceID != "" {
+		return runner.reconcileFailedRuntimeStart(ctx, started.Ownership, cause)
+	}
+	return fmt.Errorf("start queued Task Runtime: %w", cause)
+}
+
 func (runner *runtimeRunner) reconcileFailedRuntimeStart(
 	ctx context.Context,
 	ownership workerapp.StartedWorkerRun,
 	cause error,
 ) error {
+	if initialRuntimePending(cause) {
+		return cause
+	}
 	var containerID, runtimeStatus string
 	var sessionRevision, runRevision, turnRevision, runtimeRevision uint64
 	err := runner.pool.QueryRow(ctx, `SELECT COALESCE(runtime.container_id,''),runtime.status,
@@ -1810,6 +1934,9 @@ ORDER BY queue_sequence LIMIT 1`, turn.WorkerSessionID).Scan(&commandID)
 		return false, nil
 	}
 	if err != nil {
+		return false, err
+	}
+	if err := checkRuntimeStart(ctx, runner.startPolicy); err != nil {
 		return false, err
 	}
 	_, err = runner.queued.Execute(ctx, workerapp.ContinueQueuedTurnCommand{
@@ -1995,6 +2122,7 @@ WHERE session.tenant_id=$1 AND session.user_id=$2
 		return err
 	}
 	defer rows.Close()
+	var pending error
 	for rows.Next() {
 		var sessionID, runID, turnID, runtimeID, containerID, status string
 		var generation, sessionRevision, runRevision, turnRevision, runtimeRevision uint64
@@ -2012,6 +2140,15 @@ WHERE session.tenant_id=$1 AND session.user_id=$2
 		if owned {
 			continue
 		}
+		if err := runner.interruptedInitialRuntime(ctx, runtimeID); err != nil {
+			if !runtimeStagingWait(err) {
+				return err
+			}
+			if pending == nil {
+				pending = err
+			}
+			continue
+		}
 		if pendingSettlement {
 			continue
 		}
@@ -2027,7 +2164,10 @@ WHERE session.tenant_id=$1 AND session.user_id=$2
 			return fmt.Errorf("reconcile unowned Runtime %s: %w", runtimeID, err)
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return pending
 }
 
 func taskPrompt(spec contractsv1.TaskSpec) string {
@@ -2218,6 +2358,12 @@ func (runner *runtimeRunner) waitTurnTerminal(
 				return turnTerminalResult{},
 					errBackendDeadlineSourceHandoff
 			}
+			if settled, err := runner.terminalRuntimeFailureHandoff(ctx, live, turn); err != nil {
+				return turnTerminalResult{}, err
+			} else if settled {
+				runner.terminateDisplayStream(ctx, display, "exhausted")
+				return turnTerminalResult{}, errRuntimeRecoverySettled
+			}
 			if err := runner.detectRuntimeFailures(ctx); err != nil {
 				return turnTerminalResult{}, err
 			}
@@ -2230,10 +2376,19 @@ func (runner *runtimeRunner) waitTurnTerminal(
 				return turnTerminalResult{}, errRuntimeRecoverySettled
 			}
 			if err := runner.dispatchPendingInterrupt(ctx, live, turn); err != nil {
+				if errors.Is(err, errRuntimeRecoverySettled) {
+					runner.terminateDisplayStream(ctx, display, "exhausted")
+				}
 				return turnTerminalResult{}, err
 			}
 		case event, open := <-live.events:
 			if !open {
+				if settled, err := runner.terminalRuntimeFailureHandoff(ctx, live, turn); err != nil {
+					return turnTerminalResult{}, err
+				} else if settled {
+					runner.terminateDisplayStream(ctx, display, "exhausted")
+					return turnTerminalResult{}, errRuntimeRecoverySettled
+				}
 				handoff, err :=
 					runner.backendDeadlineSourceWaiterHandoff(ctx, turn)
 				if err != nil {
@@ -2480,6 +2635,11 @@ func (runner *runtimeRunner) dispatchPendingInterrupt(
 	live *liveRuntime,
 	turn pendingTurn,
 ) error {
+	if settled, err := runner.terminalRuntimeFailureHandoff(ctx, live, turn); err != nil {
+		return err
+	} else if settled {
+		return errRuntimeRecoverySettled
+	}
 	var commandID string
 	err := runner.pool.QueryRow(ctx, `
 SELECT command_id FROM worker_user_commands
@@ -2508,6 +2668,14 @@ ORDER BY created_at,command_id LIMIT 1`, turn.WorkerSessionID, turn.WorkerRunID,
 SET status='dispatched',outcome=outcome || '{"runtime_dispatch":"accepted"}'::jsonb,updated_at=$2
 WHERE command_id=$1 AND status='accepted'`, commandID, runner.now().UTC())
 	return err
+}
+
+func (runner *runtimeRunner) terminalRuntimeFailureHandoff(ctx context.Context, live *liveRuntime, turn pendingTurn) (bool, error) {
+	if runner.recoveryStore == nil {
+		return false, nil
+	}
+	_, found, err := runner.recoveryStore.FindTerminalRuntimeFailureForTurn(ctx, turn.TenantID, turn.WorkerSessionID, turn.WorkerRunID, turn.AgentTurnID, turn.RuntimeInstanceID, turn.RuntimeGeneration, live.identity.ChannelEpoch)
+	return found, err
 }
 
 func (runner *runtimeRunner) finishInterruptCommands(ctx context.Context, turn pendingTurn, reason string) error {

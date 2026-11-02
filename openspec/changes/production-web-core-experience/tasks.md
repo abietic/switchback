@@ -46,3 +46,22 @@
 - [x] 6.3 Run strict OpenSpec validation, generated-contract checks, `make verify`, and the documented real local Compose Assistant-to-Task-to-Worker-to-Artifact-to-acceptance-to-Home flow.
 - [x] 6.4 Record exact automated and manual acceptance evidence, separating environment or external-service blockers from product failures.
 - [ ] 6.5 Mark tasks complete only from matching code, test, repository, and acceptance evidence; synchronize and archive this change only after every closeout gate passes.
+
+## 7. Real Experience Workbench Regression (2026-10-11)
+
+- [x] 7.1 Reproduce no-Artifact loading, delayed report arrival, cross-Artifact error, aborted-response pollution and same-identity projection refresh through the public Workbench/HTTP seam; implement identity-bound presentation without weakening Artifact review authority.
+- [x] 7.2 Run focused and complete Web tests plus the production build for the exact repaired candidate (44 files / 522 tests; frozen 125-file Web source and actual image recorded separately).
+- [x] 7.3 Serve a separate production Web candidate against the retained real experience Backend and verify the original no-Artifact UI symptom in-browser, including reload; preserve old failed Worker/evidence and leave full end-to-end closeout open. Evidence: `.scratch/workbench-experience1011.56Rp17/preview-result-r2.json`.
+
+## 8. Production Observability Navigation (2026-10-11)
+
+- [x] 8.1 Reproduce missing expanded/rail/drawer links and overview route through public component/router tests, then separate real Observability navigation from planned Admin.
+- [x] 8.2 Reuse the validated Home View and adapter for authorized exact Worker links, honest empty creation entry points, error retry and stale/access-clear behavior without new endpoints or commands.
+- [x] 8.3 Run targeted Web component/router tests, production build and strict OpenSpec validation; record results separately from real UI acceptance. Evidence: `.scratch/production-observability-navigation-1011.md` (5 files / 57 tests; build and strict validation exit 0).
+- [ ] 8.4 Verify the navigation and same-identity diagnostics in the final freshly built production candidate; component/build results do not close this acceptance or 6.5.
+
+## 9. Explicit historical diagnostic targets (offline Task 3 slice)
+
+- [x] 9.1 Add validated historical identity DTO decoding, exact report/patch/Turn target selection and canonical URL reload without active/latest or missing-target fallback.
+- [x] 9.2 Prove safe proof wording/summary, older-page parser reuse, immediate target clearing and stale/ABA fencing through public component/router tests.
+- [ ] 9.3 Complete independent review and final rebuilt production UI acceptance; keep 6.5 and 8.4 open until matching physical evidence exists.

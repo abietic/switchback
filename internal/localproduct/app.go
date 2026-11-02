@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	artifactlangfuse "github.com/abietic/switchback/internal/artifacttrace/adapter/langfuse"
 	artifactlocal "github.com/abietic/switchback/internal/artifacttrace/adapter/localfile"
 	artifactpostgres "github.com/abietic/switchback/internal/artifacttrace/adapter/postgres"
 	artifactapp "github.com/abietic/switchback/internal/artifacttrace/application"
@@ -24,11 +25,13 @@ import (
 	gatewayhttp "github.com/abietic/switchback/internal/gateway/http"
 	"github.com/abietic/switchback/internal/platform/config"
 	platformpostgres "github.com/abietic/switchback/internal/platform/postgres"
+	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 )
 
 type App struct {
 	configuration    Config
+	initialPolicy    runtimeStartPolicy
 	pool             *pgxpool.Pool
 	ownsPool         bool
 	handler          http.Handler
@@ -74,6 +77,10 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 	if err := requireSchema(ctx, pool, configuration.Assistant.Enabled); err != nil {
 		return nil, err
 	}
+	initialPolicy, err := newInitialCapacitySource(ctx, configuration, pool)
+	if err != nil {
+		return nil, err
+	}
 	objects, err := artifactlocal.NewObjectStore(configuration.DataRoot)
 	if err != nil {
 		return nil, err
@@ -89,14 +96,6 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 			WorkspaceRevisionID: configuration.WorkspaceRevisionID, ResolutionID: "resolution-local",
 			ResolutionRevision: 1, MembershipRevision: 1, Readable: true,
 		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	gateway, err := gatewayhttp.NewHandlerWithOptions(gatewayhttp.HandlerOptions{
-		Actor:     gatewayhttp.FixedActor{TenantID: configuration.Profile.TenantID, UserID: configuration.Profile.ActorUserID},
-		Commands:  commands,
-		Assistant: commands,
 	})
 	if err != nil {
 		return nil, err
@@ -127,7 +126,9 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 		Viewer: viewer, Views: views,
 		Streams: stream, Timeline: projectionStore,
 		Diagnostics: projectionStore, WorkspaceID: configuration.WorkspaceID,
-		GrafanaBrowserBaseURL: configuration.GrafanaBrowserBaseURL,
+		GrafanaBrowserBaseURL:  configuration.GrafanaBrowserBaseURL,
+		LangfuseBrowserBaseURL: configuration.LangfuseBrowserBaseURL, LangfuseProjectID: configuration.LangfuseProjectID,
+		ProjectionNavigation: artifactpostgres.NewProjectionNavigationStore(pool, configuration.Profile.TenantID, configuration.Profile.ActorUserID, artifactlangfuse.ProjectionNavigationCompiler{}),
 	})
 	if err != nil {
 		return nil, err
@@ -145,12 +146,16 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 	if err := materializer.Bootstrap(ctx, configuration.Profile.TenantID); err != nil {
 		return nil, fmt.Errorf("bootstrap Frontier Task index: %w", err)
 	}
-	app := &App{configuration: configuration, pool: pool,
+	app := &App{configuration: configuration, pool: pool, initialPolicy: initialPolicy,
 		telemetry: newTelemetryRunner(configuration),
-		handler:   productHandler{gateway: gateway, frontier: frontier, artifactContent: artifactContent}}
+		handler:   productHandler{frontier: frontier, artifactContent: artifactContent}}
+	taskStore := taskpostgres.NewStore(pool)
 	app.outbox = platformpostgres.OutboxDispatcher{
-		Pool:       pool,
-		Publisher:  materializer,
+		Pool: pool,
+		Publisher: runtimeFailureCancellationPublisher{Pool: pool, Actions: taskapp.TaskActionService{Store: taskStore, IDs: ids, Now: now}, Next: runtimeFailureEventPublisher{
+			Consumer: taskapp.RuntimeFailureConsumer{Reader: taskStore, Pause: taskapp.TaskPauseService{Store: taskStore, IDs: ids, Now: now}},
+			Next:     materializer,
+		}},
 		LeaseOwner: "localproduct-outbox", LeaseDuration: 30 * time.Second, BatchSize: 64, Now: now,
 	}
 	if configuration.Assistant.Enabled {
@@ -161,11 +166,25 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 	}
 	app.observability = activateObservability(ctx, newObservabilityRunner(configuration, pool, objects))
 	if configuration.ExecutionEnabled {
-		app.runtime, err = newRuntimeRunner(configuration, pool, objects, materializer, transientDisplay)
+		app.runtime, err = newRuntimeRunner(configuration, pool, objects, materializer, transientDisplay, initialPolicy)
 		if err != nil {
 			return nil, fmt.Errorf("compose local Worker Runtime: %w", err)
 		}
 	}
+	var startPolicy runtimeStartPolicy = unavailableRuntimeStartPolicy{}
+	if app.runtime != nil {
+		startPolicy = app.runtime.startPolicy
+	}
+	gateway, err := gatewayhttp.NewHandlerWithOptions(gatewayhttp.HandlerOptions{
+		Actor:     gatewayhttp.FixedActor{TenantID: configuration.Profile.TenantID, UserID: configuration.Profile.ActorUserID},
+		Commands:  runtimeGuardedCommands{commands: commands, policy: startPolicy},
+		Assistant: commands,
+	})
+	if err != nil {
+		app.Close()
+		return nil, err
+	}
+	app.handler = productHandler{gateway: gateway, frontier: frontier, artifactContent: artifactContent}
 	app.fragmentHistory = artifactpostgres.NewFragmentHistoryStore(pool, configuration.Profile.TenantID, configuration.Profile.ActorUserID, objects, app.runtime)
 	app.fragmentCoverage = artifactpostgres.NewFragmentCoverageStore(pool, configuration.Profile.TenantID, configuration.Profile.ActorUserID)
 	return app, nil

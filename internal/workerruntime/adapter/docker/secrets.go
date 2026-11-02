@@ -48,13 +48,16 @@ func (p *Provisioner) stageSecretVolume(ctx context.Context, request application
 		return "", fmt.Errorf("Runtime secret volume identity conflict")
 	}
 	removeVolume := true
-	defer func() {
+	// Capture the validated identity before an error return clears named result name.
+	defer func(volumeName string) {
 		if !removeVolume {
 			return
 		}
-		_, cleanupErr := p.engine.VolumeRemove(context.WithoutCancel(ctx), name, client.VolumeRemoveOptions{Force: true})
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_, cleanupErr := p.engine.VolumeRemove(cleanupCtx, volumeName, client.VolumeRemoveOptions{Force: true})
 		resultErr = errors.Join(resultErr, cleanupErr)
-	}()
+	}(created.Volume.Name)
 
 	populator, err := p.engine.ContainerCreate(ctx, p.secretPopulatorOptions(request, name))
 	if err != nil {
@@ -76,11 +79,15 @@ func (p *Provisioner) stageSecretVolume(ctx context.Context, request application
 	select {
 	case <-ctx.Done():
 		return "", errors.Join(ctx.Err(), removePopulator())
-	case waitErr := <-wait.Error:
-		if waitErr != nil {
-			return "", errors.Join(dockerError("wait for Runtime secret populator", waitErr), removePopulator())
+	case waitErr, ok := <-wait.Error:
+		if !ok || waitErr == nil {
+			waitErr = fmt.Errorf("Runtime secret populator wait returned no result")
 		}
-	case result := <-wait.Result:
+		return "", errors.Join(dockerError("wait for Runtime secret populator", waitErr), removePopulator())
+	case result, ok := <-wait.Result:
+		if !ok || result.Error != nil {
+			return "", errors.Join(fmt.Errorf("Runtime secret populator wait did not confirm success"), removePopulator())
+		}
 		if result.StatusCode != 0 {
 			return "", errors.Join(fmt.Errorf("Runtime secret populator rejected its inputs"), removePopulator())
 		}
@@ -96,6 +103,7 @@ func (p *Provisioner) stageSecretVolume(ctx context.Context, request application
 }
 
 func (p *Provisioner) secretPopulatorOptions(request application.RuntimeProvisionRequest, volumeName string) client.ContainerCreateOptions {
+	pids := int64(32)
 	return client.ContainerCreateOptions{
 		Name:  "switchback-runtime-secret-populator-" + request.RuntimeInstanceID + "-g" + strconv.FormatUint(request.Generation, 10),
 		Image: p.options.Image,
@@ -114,6 +122,13 @@ func (p *Provisioner) secretPopulatorOptions(request application.RuntimeProvisio
 			CapDrop:         []string{"ALL"},
 			SecurityOpt:     []string{"no-new-privileges"},
 			RestartPolicy:   container.RestartPolicy{Name: container.RestartPolicyDisabled},
+			Resources: container.Resources{
+				CgroupParent: "switchback-core.slice",
+				NanoCPUs:     100_000_000,
+				Memory:       67_108_864,
+				MemorySwap:   67_108_864,
+				PidsLimit:    &pids,
+			},
 			Mounts: []mount.Mount{
 				{Type: mount.TypeBind, Source: request.Secrets.Bootstrap.EngineSource, Target: secretInputBootstrap, ReadOnly: true},
 				{Type: mount.TypeBind, Source: request.Secrets.ModelCredential.EngineSource, Target: secretInputModel, ReadOnly: true},

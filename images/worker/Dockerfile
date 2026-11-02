@@ -8,7 +8,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY images/worker/qualification ./images/worker/qualification
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/worker-shim ./cmd/worker-shim \
+    && sh images/worker/qualification/build.sh \
     && go version | grep -F 'go1.26.4' \
     && /out/worker-shim --build-info | grep -F '"acp_go_sdk_version":"v0.13.5"'
 
@@ -32,6 +34,8 @@ RUN pip install --no-cache-dir 'litellm[proxy]==1.93.0' \
     && python -c "import importlib.metadata as m; assert m.version('litellm') == '1.93.0'"
 COPY --from=go-build /usr/local/go /usr/local/go
 COPY --from=go-build /out/worker-shim /usr/local/bin/worker-shim
+COPY --from=go-build /out/switchback-qualification-native /usr/local/bin/switchback-qualification-native
+COPY --from=go-build /out/switchback-qualification-compat /usr/local/bin/switchback-qualification-compat
 COPY --from=node-deps /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-deps /opt/switchback/node_modules /opt/switchback/node_modules
 COPY images/worker/litellm /opt/switchback/litellm
@@ -40,7 +44,7 @@ RUN mkdir -p /workspace /var/lib/switchback/agent-state /var/lib/switchback/trac
     && chown -R switchback-agent:switchback-agent /run/switchback-runtime \
     && chmod 0700 /run/switchback-runtime/app-server-logs /run/switchback-runtime/codex-sqlite \
     && chown -R litellm:litellm /var/lib/switchback-litellm \
-    && chmod 0755 /usr/local/bin/worker-shim \
+    && chmod 0755 /usr/local/bin/worker-shim /usr/local/bin/switchback-qualification-native /usr/local/bin/switchback-qualification-compat \
     && test "$(/opt/switchback/node_modules/.bin/codex-acp --version | awk '{print $NF}')" = '1.1.2' \
     && /usr/local/bin/worker-shim --build-info | grep -F '"litellm_version":"1.93.0"'
 ENV PATH="/usr/local/go/bin:/opt/switchback/node_modules/.bin:/usr/local/bin:/usr/bin:/bin"

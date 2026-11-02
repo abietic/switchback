@@ -1,0 +1,28 @@
+# UNDEPLOYED SOURCE TEMPLATE: no automatic enablement, restart, or key generation.
+# Inherit the host mount namespace; filesystem namespace hardening changes identity.
+[Unit]
+Description=Switchback finite created-layer observer (undeployed template)
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/switchback/created-layer-observer/deployment.env
+ExecStart=/opt/switchback/bin/switchback-created-layer-observer serve ${SWITCHBACK_DEPLOYMENT_MANIFEST_DIGEST}
+RuntimeDirectory=switchback-created-layer
+RuntimeDirectoryMode=0700
+Slice=switchback-core.slice
+CapabilityBoundingSet=CAP_SYS_ADMIN
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+SystemCallFilter=~@mount @reboot @swap
+Restart=no
+UMask=0077
+CPUQuota=20%
+CPUQuotaPeriodSec=100ms
+MemoryMax=128M
+MemorySwapMax=0
+TasksMax=64
+KillMode=control-group
+TimeoutStopSec=10s

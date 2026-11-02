@@ -1,0 +1,27 @@
+# UNDEPLOYED new candidate template. No install/enable/restart is authorized.
+# Fixed config and actual observer env are prepared in the guest-global mount
+# namespace. Do not add PrivateMounts/BindReadOnlyPaths/PrivateTmp here.
+[Unit]
+Description=Switchback capacity publisher (qualification bootstrap candidate)
+
+[Service]
+Type=simple
+ExecStart=/opt/switchback/bin/switchback-capacity-publisher
+User=root
+Group=root
+Slice=switchback-core.slice
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_PTRACE
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+SystemCallFilter=~@mount @reboot @swap
+Restart=no
+UMask=0077
+LimitCORE=0
+KillMode=control-group
+TimeoutStopSec=10s
+CPUQuota=20%
+CPUQuotaPeriodSec=100ms
+MemoryMax=128M
+MemorySwapMax=0
+TasksMax=64

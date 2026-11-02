@@ -6,6 +6,7 @@ The production `web/` application already owns authoritative Frontier, command, 
 
 - Add a viewer-scoped `home_dashboard/index` Frontier View for attention Tasks, recent Workers, recent deliveries, and continuity capacity.
 - Replace the production router and shell with one adaptive product shell for overview, focused execution, and mobile routes.
+- Expose `/observability` as a read-only overview using authorized Home recent Workers and their existing exact Worker diagnostics; keep Admin separately planned.
 - Add complete dark, light, and system theme presentation with browser-local preference and semantic tokens.
 - Migrate Home, Tasks, Assistant, Worker, Workbench, and Artifact presentation inside `web/` while preserving authoritative snapshots, SSE, commands, permissions, continuity, recovery, acceptance, and integrity contracts.
 - Establish responsive, accessibility, browser, repository, and local Compose closeout gates, then remove the superseded production visual system.

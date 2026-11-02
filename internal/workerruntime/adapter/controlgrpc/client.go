@@ -834,6 +834,17 @@ func (client *Client) TryPublishHeartbeat(event application.WorkerControlEvent) 
 	return err
 }
 
+// CapacityChanged snapshots a broadcast pulse. Callers must obtain it BEFORE
+// attempting nonblocking Publish: an ACK between that snapshot and a failed
+// Publish closes the captured channel, so waiting cannot lose the wakeup.
+// Pulses include lifecycle/continuity changes; callers must retry only
+// ErrBackpressure and propagate all other errors.
+func (client *Client) CapacityChanged() <-chan struct{} {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.stateChanged
+}
+
 func (client *Client) enqueueEvent(
 	event application.WorkerControlEvent,
 	terminal bool,

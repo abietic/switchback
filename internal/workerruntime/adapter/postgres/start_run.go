@@ -37,12 +37,26 @@ func (store *RunStore) StartWorkerRun(
 	record application.StartWorkerRunRecord,
 ) (application.StartedWorkerRun, error) {
 	var result application.StartedWorkerRun
-	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
+	err := InCapacityTransaction(ctx, store.pool, func(tx pgx.Tx, capacity *CapacityTx) error {
+		// Task actions take the Task before touching its permit or Session.
+		// Lock before either of those rows (and before the Run's Task FK), but
+		// leave lifecycle checks after consumed-permit replay below.
+		var taskID, taskTenant, taskActor, taskWorkspace, taskStatus string
+		var taskRevision uint64
+		var taskSession *string
+		err := tx.QueryRow(ctx, `SELECT task_id,tenant_id,initiator_user_id,workspace_id,status,revision,worker_session_id FROM tasks WHERE task_id=$1 FOR UPDATE`,
+			record.Command.TaskID).Scan(&taskID, &taskTenant, &taskActor, &taskWorkspace, &taskStatus, &taskRevision, &taskSession)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return platformpostgres.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock Task for WorkerRun start: %w", err)
+		}
 		session, err := lockRunSession(ctx, tx, record.Command.WorkerSessionID)
 		if err != nil {
 			return err
 		}
-		if session.TenantID != record.Command.TenantID || session.UserID != record.Command.UserID {
+		if session.TenantID != record.Command.TenantID || session.UserID != record.Command.UserID || taskTenant != session.TenantID || taskActor != session.UserID || taskWorkspace != session.WorkspaceID {
 			return platformpostgres.ErrNotFound
 		}
 		permit, err := lockRunPermit(ctx, tx, record.Command.PermitID)
@@ -53,13 +67,42 @@ func (store *RunStore) StartWorkerRun(
 			permit.TargetID != record.Command.TaskID {
 			return ErrDispatchPermitInvalid
 		}
+		target, err := capacity.BoundTaskTarget(ctx, permit.CapacityToken, record.Command.PermitID)
+		if err != nil {
+			return err
+		}
+		if record.Command.TriggerType != "task_initial" || record.Command.ResourceProfileID != target.Profile.ID ||
+			target.TenantID != taskTenant || target.ActorID != taskActor || target.SessionID != record.Command.WorkerSessionID || target.TaskID != taskID ||
+			target.Generation != permit.RuntimeGeneration || target.SessionRevision != permit.ExpectedSessionRevision ||
+			target.QueueSequence != permit.Sequence || target.QueueRevision != permit.QueueRevision ||
+			record.Command.ExpectedSessionRevision != target.SessionRevision || record.Command.RuntimeGeneration != target.Generation {
+			return application.CapacityBindingMismatch
+		}
+		var queueStatus string
+		if err = tx.QueryRow(ctx, `SELECT status FROM session_task_queue_entries WHERE worker_session_id=$1 AND task_id=$2 AND session_queue_sequence=$3 AND queue_revision=$4`, target.SessionID, target.TaskID, target.QueueSequence, target.QueueRevision).Scan(&queueStatus); err != nil {
+			return application.CapacityBindingMismatch
+		}
 		if permit.Status == "consumed" {
-			if permit.ConsumedRunID == "" {
+			if permit.ConsumedRunID == "" || queueStatus != "dispatched" {
 				return ErrDispatchPermitInvalid
 			}
 			result, err = readStartedRun(ctx, tx, permit.ConsumedRunID)
-			return err
+			if err != nil {
+				return err
+			}
+			if result.WorkerSessionID != target.SessionID || result.TaskID != target.TaskID || result.RuntimeGeneration != target.Generation {
+				return application.CapacityBindingMismatch
+			}
+			original, err := capacity.Consume(ctx, application.CapacityConsumption{Token: permit.CapacityToken, PermitID: record.Command.PermitID, RunID: result.WorkerRunID, TurnID: result.AgentTurnID, RuntimeID: result.RuntimeInstanceID, Target: target})
+			if err != nil {
+				return err
+			}
+			if !original.ExpiresAt.Equal(permit.ExpiresAt) {
+				return application.CapacityBindingMismatch
+			}
+			return nil
 		}
+
 		if err := settlementbarrier.EnsureSessionClear(
 			ctx,
 			tx,
@@ -67,10 +110,13 @@ func (store *RunStore) StartWorkerRun(
 		); err != nil {
 			return err
 		}
-		if permit.Status != "active" || !permit.ExpiresAt.After(record.Now) ||
+		if permit.Status != "active" ||
 			permit.ExpectedSessionRevision != record.Command.ExpectedSessionRevision ||
 			permit.RuntimeGeneration != record.Command.RuntimeGeneration {
 			return ErrDispatchPermitInvalid
+		}
+		if taskRevision != target.TaskRevision || taskStatus != "queued" || taskSession == nil || *taskSession != target.SessionID {
+			return application.CapacityBindingMismatch
 		}
 		if session.Revision != permit.ExpectedSessionRevision ||
 			session.RuntimeGeneration != permit.RuntimeGeneration {
@@ -84,6 +130,26 @@ func (store *RunStore) StartWorkerRun(
 			return ErrSessionBusy
 		}
 		if err := validatePermitQueueEntry(ctx, tx, permit, record.Command.TaskID); err != nil {
+			return err
+		}
+		consumed, err := capacity.Consume(ctx, application.CapacityConsumption{Token: permit.CapacityToken, PermitID: record.Command.PermitID, RunID: record.WorkerRunID, TurnID: record.AgentTurnID, RuntimeID: record.RuntimeInstanceID, Target: target})
+		if err != nil {
+			return err
+		}
+		if !consumed.ExpiresAt.Equal(permit.ExpiresAt) {
+			return application.CapacityBindingMismatch
+		}
+		// Server-owned immutable start evidence replaces any caller namesake.
+		var snapshot map[string]any
+		if json.Unmarshal(record.Command.StartSnapshot, &snapshot) != nil || snapshot == nil {
+			return application.CapacityBindingMismatch
+		}
+		snapshot["runtime_capacity"] = struct {
+			Target      application.CapacityTarget
+			Reservation application.CapacityReservation
+		}{target, consumed}
+		record.Command.StartSnapshot, err = json.Marshal(snapshot)
+		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -130,10 +196,9 @@ VALUES ($1,$2,$3,$4,'docker_container','starting',$5,$6,$7,$8,$9,$10,$11,1,$12)`
 			record.Now); err != nil {
 			return fmt.Errorf("insert RuntimeInstance: %w", err)
 		}
-		var taskRevision uint64
 		err = tx.QueryRow(ctx, `
 UPDATE tasks
-SET status='running',current_worker_run_id=$3,revision=revision+1,updated_at=$4
+SET status='running',current_worker_run_id=$3,runtime_dispatch_wait=NULL,revision=revision+1,updated_at=$4
 WHERE task_id=$1 AND worker_session_id=$2 AND status='queued'
 RETURNING revision`, record.Command.TaskID, record.Command.WorkerSessionID,
 			record.WorkerRunID, record.Now).Scan(&taskRevision)
@@ -187,6 +252,7 @@ WHERE worker_session_id=$1 AND task_id=$2 AND status='permit_issued'`,
 			return err
 		}
 		result = application.StartedWorkerRun{
+			Created:     true,
 			WorkerRunID: record.WorkerRunID, WorkerSessionID: record.Command.WorkerSessionID,
 			TaskID: record.Command.TaskID, RuntimeInstanceID: record.RuntimeInstanceID,
 			AgentSessionID: record.AgentSessionID, AgentTurnID: record.AgentTurnID,
@@ -200,6 +266,7 @@ WHERE worker_session_id=$1 AND task_id=$2 AND status='permit_issued'`,
 }
 
 type runSession struct {
+	WorkspaceID       string
 	TenantID          string
 	UserID            string
 	Status            string
@@ -214,10 +281,10 @@ func lockRunSession(ctx context.Context, tx platformpostgres.Tx, sessionID strin
 	var session runSession
 	var boundTaskID, activeRunID, activeRuntimeID *string
 	err := tx.QueryRow(ctx, `
-SELECT tenant_id,user_id,status,session_revision,runtime_generation,bound_task_id,
+SELECT tenant_id,user_id,workspace_id,status,session_revision,runtime_generation,bound_task_id,
        active_worker_run_id,active_runtime_instance_id
 FROM worker_sessions WHERE worker_session_id=$1 FOR UPDATE`, sessionID).Scan(
-		&session.TenantID, &session.UserID, &session.Status, &session.Revision,
+		&session.TenantID, &session.UserID, &session.WorkspaceID, &session.Status, &session.Revision,
 		&session.RuntimeGeneration, &boundTaskID, &activeRunID, &activeRuntimeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return runSession{}, platformpostgres.ErrNotFound
@@ -238,6 +305,7 @@ FROM worker_sessions WHERE worker_session_id=$1 FOR UPDATE`, sessionID).Scan(
 }
 
 type runPermit struct {
+	CapacityToken           string
 	WorkerSessionID         string
 	TargetKind              string
 	TargetID                string
@@ -256,11 +324,11 @@ func lockRunPermit(ctx context.Context, tx platformpostgres.Tx, permitID string)
 	var consumedRunID *string
 	err := tx.QueryRow(ctx, `
 SELECT worker_session_id,target_kind,target_id,session_queue_sequence,queue_revision,
-  expected_session_revision,runtime_generation,status,consumed_by_worker_run_id,expires_at
+  expected_session_revision,runtime_generation,status,consumed_by_worker_run_id,expires_at,capacity_admission_ref
 FROM session_dispatch_permits WHERE permit_id=$1 FOR UPDATE`, permitID).Scan(
 		&permit.WorkerSessionID, &permit.TargetKind, &permit.TargetID, &sequence,
 		&permit.QueueRevision, &permit.ExpectedSessionRevision, &permit.RuntimeGeneration,
-		&permit.Status, &consumedRunID, &permit.ExpiresAt)
+		&permit.Status, &consumedRunID, &permit.ExpiresAt, &permit.CapacityToken)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return runPermit{}, platformpostgres.ErrNotFound
 	}

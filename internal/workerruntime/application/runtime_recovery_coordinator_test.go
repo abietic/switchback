@@ -12,40 +12,29 @@ import (
 	"github.com/abietic/switchback/internal/workerruntime/domain"
 )
 
-func TestRuntimeRecoveryCoordinatorPersistsEveryIntentBeforeExternalEffect(t *testing.T) {
+func TestRuntimeRecoveryCoordinatorStopsAfterFencingUntilCapacityIntegrated(t *testing.T) {
 	var journal []string
-	store := &coordinatorRecoveryStore{journal: &journal}
-	effects := &coordinatorEffects{journal: &journal, stable: true}
-	provisioner := &coordinatorProvisioner{journal: &journal}
-	state := coordinatorRecoveryState()
-	result, err := (application.RuntimeRecoveryCoordinator{
-		Recovery: application.RuntimeRecoveryService{
-			Store: store, IDs: &coordinatorIDs{}, Now: time.Now,
-		},
+	ids := &coordinatorIDs{}
+	coordinator := application.RuntimeRecoveryCoordinator{
+		Recovery:        application.RuntimeRecoveryService{Store: &coordinatorRecoveryStore{journal: &journal}, IDs: ids, Now: time.Now},
 		DeadlineSources: &coordinatorDeadlineSources{journal: &journal},
-		Effects:         effects,
-		Provisioner:     provisioner,
-	}).Reconcile(context.Background(), state)
-	if err != nil {
-		t.Fatal(err)
+		Effects:         &coordinatorEffects{journal: &journal, stable: true},
+		Provisioner:     &coordinatorProvisioner{journal: &journal},
 	}
-	if result.Phase != domain.RecoveryRecovered || result.AttemptCount != 1 {
-		t.Fatalf("result=%+v", result)
+	result, err := coordinator.Reconcile(context.Background(), coordinatorRecoveryState())
+	if err != application.CapacityPathNotIntegrated || result.Phase != domain.RecoveryProvisioning || result.AttemptCount != 1 || result.ReplacementRuntimeInstanceID == "" || result.ReplacementGeneration != 2 || result.ReplacementChannelEpoch != 3 {
+		t.Fatalf("capacity gate lost reserved original intent: result=%+v err=%v", result, err)
 	}
-	want := []string{
-		"persist:fencing",
-		"effect:fence",
-		"persist:provisioning",
-		"effect:prepare",
-		"effect:provision",
-		"persist:reattaching",
-		"effect:reattach",
-		"persist:verifying",
-		"effect:verify",
-		"persist:recovered",
-	}
+	want := []string{"persist:fencing", "effect:fence", "persist:provisioning"}
 	if !reflect.DeepEqual(journal, want) {
 		t.Fatalf("journal=%v want=%v", journal, want)
+	}
+	reservedIDs := ids.sequence
+	for i := 0; i < 2; i++ {
+		replayed, err := coordinator.Reconcile(context.Background(), result)
+		if err != application.CapacityPathNotIntegrated || replayed != result || ids.sequence != reservedIDs || !reflect.DeepEqual(journal, want) {
+			t.Fatalf("capacity wait replay changed owner or issued effects: result=%+v err=%v ids=%d journal=%v", replayed, err, ids.sequence, journal)
+		}
 	}
 }
 
@@ -215,111 +204,60 @@ func TestRuntimeRecoveryCoordinatorAbsoluteExpiryPreemptsDeadline(t *testing.T) 
 	}
 }
 
-func TestRuntimeRecoveryCoordinatorFencesLateProvisionWithExactContainerAfterDeadline(t *testing.T) {
-	var journal []string
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-	deadline := now.Add(time.Minute)
-	state := coordinatorProvisioningState()
-	state.AgentTurnDeadlineAt = deadline
-	effects := &coordinatorEffects{journal: &journal, stable: true}
-	deadlineSources := &coordinatorDeadlineSources{
-		journal:          &journal,
-		acceptedAt:       deadline,
-		incidentID:       state.IncidentID,
-		incidentRevision: state.IncidentRevision + 1,
-	}
-	result, err := (application.RuntimeRecoveryCoordinator{
-		Recovery: application.RuntimeRecoveryService{
-			Store: &coordinatorRecoveryStore{journal: &journal},
-			IDs:   &coordinatorIDs{}, Now: func() time.Time { return now },
-		},
-		DeadlineSources: deadlineSources,
-		Effects:         effects,
-		Provisioner: &coordinatorProvisioner{
-			journal: &journal,
-			afterProvision: func() {
-				now = deadline
-			},
-		},
-	}).Reconcile(context.Background(), state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Phase != domain.RecoveryExhausted ||
-		result.OutcomeReason != "preempted_by_backend_deadline" {
-		t.Fatalf("result=%+v", result)
-	}
-	if effects.fencedReplacement.ContainerID != "container-2" ||
-		effects.fencedReplacement.RuntimeInstanceID != state.ReplacementRuntimeInstanceID ||
-		effects.fencedReplacement.Generation != state.ReplacementGeneration {
-		t.Fatalf("fenced replacement=%+v", effects.fencedReplacement)
-	}
-	if deadlineSources.command.RuntimeInstanceID !=
-		state.ReplacementRuntimeInstanceID ||
-		deadlineSources.command.RuntimeGeneration !=
-			state.ReplacementGeneration ||
-		deadlineSources.command.ChannelEpoch !=
-			state.ReplacementChannelEpoch {
-		t.Fatalf(
-			"deadline targeted stale failed Runtime: %+v",
-			deadlineSources.command,
-		)
-	}
-	want := []string{
-		"effect:prepare",
-		"effect:provision",
-		"source:backend_deadline",
-		"effect:fence_late_provision",
-	}
-	if !reflect.DeepEqual(journal, want) {
-		t.Fatalf("journal=%v want=%v", journal, want)
+func TestRuntimeRecoveryCoordinatorBlockedPhasesHonorOriginalDeadline(t *testing.T) {
+	for _, phase := range []domain.RuntimeRecoveryPhase{domain.RecoveryProvisioning, domain.RecoveryReattaching} {
+		t.Run(string(phase), func(t *testing.T) {
+			var journal []string
+			state := coordinatorProvisioningState()
+			state.Phase = phase
+			deadline := time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+			state.AgentTurnDeadlineAt = deadline
+			now := deadline.Add(-time.Nanosecond)
+			source := &coordinatorDeadlineSources{journal: &journal, acceptedAt: deadline, incidentID: state.IncidentID, incidentRevision: state.IncidentRevision + 1}
+			coordinator := application.RuntimeRecoveryCoordinator{
+				Recovery:        application.RuntimeRecoveryService{Store: &coordinatorRecoveryStore{journal: &journal}, IDs: &coordinatorIDs{}, Now: func() time.Time { return now }},
+				DeadlineSources: source, Effects: &coordinatorEffects{journal: &journal, stable: true}, Provisioner: &coordinatorProvisioner{journal: &journal},
+			}
+			result, err := coordinator.Reconcile(context.Background(), state)
+			if err != application.CapacityPathNotIntegrated || result != state || len(journal) != 0 {
+				t.Fatalf("before deadline changed original owner: result=%+v err=%v journal=%v", result, err, journal)
+			}
+			now = deadline
+			result, err = coordinator.Reconcile(context.Background(), state)
+			expected := state
+			expected.Phase, expected.Outcome, expected.OutcomeReason = domain.RecoveryExhausted, domain.RecoveryOutcomeExhausted, "preempted_by_backend_deadline"
+			expected.IncidentRevision++
+			expected.UpdatedAt, expected.ClosedAt = deadline, &deadline
+			if err != nil || !reflect.DeepEqual(result, expected) {
+				t.Fatalf("deadline did not preempt capacity wait: result=%+v err=%v", result, err)
+			}
+			if source.command.RuntimeInstanceID != state.ReplacementRuntimeInstanceID || source.command.RuntimeGeneration != state.ReplacementGeneration || source.command.ChannelEpoch != state.ReplacementChannelEpoch || !source.command.DeadlineAt.Equal(deadline) || source.command.SourceRef != state.AgentTurnDeadlineSourceRef {
+				t.Fatalf("deadline lost original exact target: %+v", source.command)
+			}
+			if !reflect.DeepEqual(journal, []string{"source:backend_deadline"}) {
+				t.Fatalf("deadline acquired new execution effects: %v", journal)
+			}
+		})
 	}
 }
 
-func TestRuntimeRecoveryCoordinatorFencesLateProvisionWhenLifecycleOwnerWonRevision(t *testing.T) {
-	var journal []string
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-	deadline := now.Add(time.Minute)
-	state := coordinatorProvisioningState()
-	state.AgentTurnDeadlineAt = deadline
-	claimErr := errors.New("deadline source owner already advanced incident")
-	effects := &coordinatorEffects{journal: &journal, stable: true}
-	result, err := (application.RuntimeRecoveryCoordinator{
-		Recovery: application.RuntimeRecoveryService{
-			Store: &coordinatorRecoveryStore{journal: &journal},
-			IDs:   &coordinatorIDs{}, Now: func() time.Time { return now },
-		},
-		DeadlineSources: &coordinatorDeadlineSources{
-			journal: &journal,
-			err:     claimErr,
-		},
-		Effects: effects,
-		Provisioner: &coordinatorProvisioner{
-			journal: &journal,
-			afterProvision: func() {
-				now = deadline
-			},
-		},
-	}).Reconcile(context.Background(), state)
-	if !errors.Is(err, claimErr) {
-		t.Fatalf("error=%v", err)
-	}
-	if result.IncidentID != state.IncidentID || result.Phase != domain.RecoveryProvisioning {
-		t.Fatalf("result=%+v", result)
-	}
-	if effects.fencedReplacement.ContainerID != "container-2" ||
-		effects.fencedReplacement.RuntimeInstanceID != state.ReplacementRuntimeInstanceID ||
-		effects.fencedReplacement.Generation != state.ReplacementGeneration {
-		t.Fatalf("fenced replacement=%+v", effects.fencedReplacement)
-	}
-	want := []string{
-		"effect:prepare",
-		"effect:provision",
-		"source:backend_deadline",
-		"effect:fence_late_provision",
-	}
-	if !reflect.DeepEqual(journal, want) {
-		t.Fatalf("journal=%v want=%v", journal, want)
+func TestRuntimeRecoveryCoordinatorBlockedDeadlineClaimFailureRetainsOwner(t *testing.T) {
+	for _, phase := range []domain.RuntimeRecoveryPhase{domain.RecoveryProvisioning, domain.RecoveryReattaching} {
+		t.Run(string(phase), func(t *testing.T) {
+			var journal []string
+			state := coordinatorProvisioningState()
+			state.Phase = phase
+			now := state.AgentTurnDeadlineAt
+			claimErr := errors.New("deadline source owner already advanced incident")
+			result, err := (application.RuntimeRecoveryCoordinator{
+				Recovery:        application.RuntimeRecoveryService{Store: &coordinatorRecoveryStore{journal: &journal}, IDs: &coordinatorIDs{}, Now: func() time.Time { return now }},
+				DeadlineSources: &coordinatorDeadlineSources{journal: &journal, err: claimErr},
+				Effects:         &coordinatorEffects{journal: &journal, stable: true}, Provisioner: &coordinatorProvisioner{journal: &journal},
+			}).Reconcile(context.Background(), state)
+			if !errors.Is(err, claimErr) || result != state || !reflect.DeepEqual(journal, []string{"source:backend_deadline"}) {
+				t.Fatalf("failed deadline claim changed owner or issued effects: result=%+v err=%v journal=%v", result, err, journal)
+			}
+		})
 	}
 }
 
@@ -358,6 +296,7 @@ func coordinatorRecoveryState() application.RuntimeRecoveryState {
 type coordinatorRecoveryStore struct {
 	journal    *[]string
 	advanceErr error
+	current    *application.RuntimeRecoveryState
 }
 
 type coordinatorDeadlineSources struct {
@@ -442,6 +381,9 @@ func (store *coordinatorRecoveryStore) AdvanceRuntimeRecovery(
 		return application.RuntimeRecoveryState{}, store.advanceErr
 	}
 	state := coordinatorRecoveryState()
+	if store.current != nil {
+		state = *store.current
+	}
 	state.Phase = record.Command.TargetPhase
 	state.IncidentRevision = record.Command.ExpectedIncidentRevision + 1
 	if state.Phase == domain.RecoveryProvisioning ||
@@ -466,8 +408,6 @@ type coordinatorEffects struct {
 	journal           *[]string
 	stable            bool
 	verifyErr         error
-	prepareErr        error
-	afterPrepare      func()
 	fencedReplacement application.ProvisionedRuntime
 }
 
@@ -487,12 +427,6 @@ func (effects *coordinatorEffects) PrepareReplacementRuntime(
 	state application.RuntimeRecoveryState,
 ) (application.RuntimeProvisionRequest, error) {
 	*effects.journal = append(*effects.journal, "effect:prepare")
-	if effects.afterPrepare != nil {
-		effects.afterPrepare()
-	}
-	if effects.prepareErr != nil {
-		return application.RuntimeProvisionRequest{}, effects.prepareErr
-	}
 	return application.RuntimeProvisionRequest{
 		WorkerSessionID: state.WorkerSessionID, WorkerRunID: state.RuntimeWorkerRunID,
 		RuntimeInstanceID: state.ReplacementRuntimeInstanceID,
@@ -509,50 +443,40 @@ func (effects *coordinatorEffects) PrepareReplacementRuntime(
 	}, nil
 }
 
-func TestRuntimeRecoveryCoordinatorPreparationRetryHonorsDeadlineAndCancellation(t *testing.T) {
-	for _, mode := range []string{"temporary", "permanent", "cancelled", "deadline", "absolute-expiry"} {
-		t.Run(mode, func(t *testing.T) {
-			var journal []string
-			now := time.Now().UTC()
-			state := coordinatorProvisioningState()
-			state.AgentTurnDeadlineAt = now.Add(time.Minute)
-			state.SessionAbsoluteExpiresAt = now.Add(time.Hour)
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			effects := &coordinatorEffects{journal: &journal, prepareErr: application.ErrRuntimePreparationRetryable}
-			source := &coordinatorDeadlineSources{journal: &journal, acceptedAt: state.AgentTurnDeadlineAt, incidentID: state.IncidentID, incidentRevision: state.IncidentRevision + 1}
-			switch mode {
-			case "permanent":
-				effects.prepareErr = errors.New("identity rejected")
-			case "cancelled":
-				effects.afterPrepare = cancel
-			case "deadline":
-				effects.afterPrepare = func() { now = state.AgentTurnDeadlineAt }
-			case "absolute-expiry":
-				effects.afterPrepare = func() { now = state.SessionAbsoluteExpiresAt }
-			}
-			result, err := (application.RuntimeRecoveryCoordinator{Recovery: application.RuntimeRecoveryService{Store: &coordinatorRecoveryStore{journal: &journal}, IDs: &coordinatorIDs{}, Now: func() time.Time { return now }}, DeadlineSources: source, Effects: effects, Provisioner: &coordinatorProvisioner{journal: &journal}}).Reconcile(ctx, state)
-			for _, event := range journal {
-				if event == "effect:provision" {
-					t.Fatal("preparation failure provisioned a Runtime")
+func TestRuntimeRecoveryCoordinatorBlockedPhasesAbsoluteExpiryPreemptsCapacityAndDeadline(t *testing.T) {
+	for _, phase := range []domain.RuntimeRecoveryPhase{domain.RecoveryProvisioning, domain.RecoveryReattaching} {
+		for _, simultaneous := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/simultaneous=%t", phase, simultaneous), func(t *testing.T) {
+				var journal []string
+				state := coordinatorProvisioningState()
+				state.Phase = phase
+				state.SessionAbsoluteExpiresAt = time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+				state.AgentTurnDeadlineAt = state.SessionAbsoluteExpiresAt.Add(time.Minute)
+				if simultaneous {
+					state.AgentTurnDeadlineAt = state.SessionAbsoluteExpiresAt
 				}
-			}
-			if mode == "temporary" || mode == "cancelled" {
-				if !errors.Is(err, application.ErrRuntimePreparationRetryable) || !reflect.DeepEqual(result, state) {
-					t.Fatalf("preparation retry changed original owner: result=%+v err=%v", result, err)
+				if phase == domain.RecoveryReattaching {
+					state.ReplacementContainerID = "original-replacement-container"
 				}
-			} else {
-				if result.Phase != domain.RecoveryExhausted {
-					t.Fatalf("failed to honor terminal decision: phase=%s err=%v", result.Phase, err)
+				now := state.SessionAbsoluteExpiresAt
+				original := state
+				effects := &coordinatorEffects{journal: &journal, stable: true}
+				result, err := (application.RuntimeRecoveryCoordinator{
+					Recovery:        application.RuntimeRecoveryService{Store: &coordinatorRecoveryStore{journal: &journal, current: &original}, IDs: &coordinatorIDs{}, Now: func() time.Time { return now }},
+					DeadlineSources: &coordinatorDeadlineSources{journal: &journal}, Effects: effects, Provisioner: &coordinatorProvisioner{journal: &journal},
+				}).Reconcile(context.Background(), state)
+				expected := state
+				expected.Phase, expected.OutcomeReason = domain.RecoveryExhausted, "worker_session_absolute_expired"
+				expected.IncidentRevision++
+				if err != nil || result != expected {
+					t.Fatalf("absolute expiry did not retain original identity: result=%+v err=%v", result, err)
 				}
-				if mode == "deadline" && (result.OutcomeReason != "preempted_by_backend_deadline" || !source.command.DeadlineAt.Equal(state.AgentTurnDeadlineAt)) {
-					t.Fatal("retry changed deadline authority")
+				want := application.ProvisionedRuntime{RuntimeInstanceID: state.ReplacementRuntimeInstanceID, Generation: state.ReplacementGeneration, ContainerID: state.ReplacementContainerID}
+				if effects.fencedReplacement != want || !reflect.DeepEqual(journal, []string{"persist:exhausted", "effect:fence_replacement"}) {
+					t.Fatalf("expiry failed exact fencing or issued execution: fenced=%+v want=%+v journal=%v", effects.fencedReplacement, want, journal)
 				}
-				if mode == "absolute-expiry" && result.OutcomeReason != "worker_session_absolute_expired" {
-					t.Fatal("retry bypassed absolute expiry")
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -598,18 +522,15 @@ func (effects *coordinatorEffects) VerifyReplacementRuntime(
 }
 
 type coordinatorProvisioner struct {
-	journal        *[]string
-	afterProvision func()
+	journal *[]string
 }
 
 func (provisioner *coordinatorProvisioner) Provision(
 	_ context.Context,
 	request application.RuntimeProvisionRequest,
+	_ application.RuntimePreStartCheck,
 ) (application.ProvisionedRuntime, error) {
 	*provisioner.journal = append(*provisioner.journal, "effect:provision")
-	if provisioner.afterProvision != nil {
-		provisioner.afterProvision()
-	}
 	return application.ProvisionedRuntime{
 		RuntimeInstanceID: request.RuntimeInstanceID,
 		ContainerID:       "container-2",
@@ -631,4 +552,18 @@ type coordinatorIDs struct {
 func (ids *coordinatorIDs) NewID(kind string) (string, error) {
 	ids.sequence++
 	return fmt.Sprintf("%s-%d", kind, ids.sequence), nil
+}
+
+func TestInitialExecutionRecoveryPersistedPhasesDenyNewEffects(t *testing.T) {
+	for _, phase := range []domain.RuntimeRecoveryPhase{domain.RecoveryProvisioning, domain.RecoveryReattaching} {
+		t.Run(string(phase), func(t *testing.T) {
+			var journal []string
+			state := coordinatorProvisioningState()
+			state.Phase = phase
+			got, err := (application.RuntimeRecoveryCoordinator{Recovery: application.RuntimeRecoveryService{Store: &coordinatorRecoveryStore{journal: &journal}, IDs: &coordinatorIDs{}, Now: time.Now}, DeadlineSources: &coordinatorDeadlineSources{journal: &journal}, Effects: &coordinatorEffects{journal: &journal, stable: true}, Provisioner: &coordinatorProvisioner{journal: &journal}}).Reconcile(context.Background(), state)
+			if !errors.Is(err, application.CapacityPathNotIntegrated) || len(journal) != 0 || got != state {
+				t.Fatalf("persisted replacement acquired effects: phase=%s err=%v journal=%v", phase, err, journal)
+			}
+		})
+	}
 }

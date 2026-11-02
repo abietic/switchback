@@ -12,14 +12,19 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	artifactpostgres "github.com/abietic/switchback/internal/artifacttrace/adapter/postgres"
 	artifactapp "github.com/abietic/switchback/internal/artifacttrace/application"
 	contractsv1 "github.com/abietic/switchback/internal/contracts/v1"
+	gatewaypostgres "github.com/abietic/switchback/internal/gateway/adapter/postgres"
+	gatewayhttp "github.com/abietic/switchback/internal/gateway/http"
 	"github.com/abietic/switchback/internal/platform/config"
+	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/controlgrpc"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/localstorage"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/modelobs"
@@ -51,10 +56,21 @@ func (b supplementBarrier) block(ctx context.Context) error {
 // Buffered channels never hold the runtime on an assertion made by the test.
 type supplementJournal struct {
 	*workerpostgres.RuntimeControlJournal
-	accepted    chan workerapp.RuntimeControlEventAcceptance
-	applied     chan workerapp.RuntimeControlEventAcceptance
-	afterApply  func(context.Context, workerapp.ApplyRuntimeControlEventRecord, workerapp.RuntimeControlEventAcceptance) error
-	beforeApply func(context.Context, workerapp.ApplyRuntimeControlEventRecord) error
+	accepted     chan workerapp.RuntimeControlEventAcceptance
+	applied      chan workerapp.RuntimeControlEventAcceptance
+	afterReserve func(context.Context, workerapp.ReserveRuntimeControlCommandRecord, workerapp.RuntimeControlMessage) error
+	afterApply   func(context.Context, workerapp.ApplyRuntimeControlEventRecord, workerapp.RuntimeControlEventAcceptance) error
+	beforeApply  func(context.Context, workerapp.ApplyRuntimeControlEventRecord) error
+}
+
+func (s *supplementJournal) ReserveRuntimeControlCommand(ctx context.Context, r workerapp.ReserveRuntimeControlCommandRecord) (workerapp.RuntimeControlMessage, error) {
+	v, err := s.RuntimeControlJournal.ReserveRuntimeControlCommand(ctx, r)
+	if err == nil && s.afterReserve != nil {
+		if err = s.afterReserve(ctx, r, v); err != nil {
+			return workerapp.RuntimeControlMessage{}, err
+		}
+	}
+	return v, err
 }
 
 func (s *supplementJournal) AcceptRuntimeControlEvent(ctx context.Context, r workerapp.AcceptRuntimeControlEventRecord) (workerapp.RuntimeControlEventAcceptance, error) {
@@ -107,6 +123,10 @@ type supplementCallback struct {
 	correlation modelobs.Correlation
 }
 type supplementFixture struct {
+	manualInitial  bool
+	manualReady    chan struct{}
+	publishInitial func(workerapp.RuntimeProvisionRequest)
+
 	t           *testing.T
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -121,26 +141,111 @@ type supplementFixture struct {
 	stopOnce    sync.Once
 	bootstrap   observationFixtureTurn
 	provisioner *supplementProvisioner
+	startPolicy *syntheticRuntimeStartPolicy
+}
+
+// Synthetic execution is available only in test code. The atomic switch lets
+// an already running fake Turn finish while the real production denial applies
+// to its successor; no production constructor/config can opt into this policy.
+type syntheticRuntimeStartPolicy struct {
+	deny      atomic.Bool
+	inventory *runtimecapacity.FileInventory
+}
+
+func (policy *syntheticRuntimeStartPolicy) checkRuntimeStart(ctx context.Context) error {
+	if policy.deny.Load() {
+		return (unavailableRuntimeStartPolicy{}).checkRuntimeStart(ctx)
+	}
+	return ctx.Err()
+}
+
+func allowSyntheticRuntimeStarts(t *testing.T, app *App) *syntheticRuntimeStartPolicy {
+	t.Helper()
+	inventory := runtimecapacity.NewFileInventory(t)
+	c := app.configuration
+	c.RuntimeCapacityTrustFile, c.RuntimeCapacitySnapshotDirectory = inventory.TrustPath, inventory.Directory
+	source, err := newSyntheticInitialCapacitySource(context.Background(), c, app.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.configuration, app.initialPolicy = c, source
+	if app.runtime != nil {
+		app.runtime.configuration, app.runtime.initialPolicy = c, source
+	}
+	policy := &syntheticRuntimeStartPolicy{inventory: inventory}
+	installRuntimeStartPolicyFixture(t, app, policy)
+	return policy
+}
+
+func installRuntimeStartPolicyFixture(t *testing.T, app *App, policy runtimeStartPolicy) {
+	t.Helper()
+	c := app.configuration
+	commands, err := gatewaypostgres.NewCommandService(gatewaypostgres.CommandServiceOptions{Pool: app.pool, IDs: randomIDs{}, Now: time.Now, ProjectID: c.ProjectID, Profiles: config.ProductionProfileRegistry(), NetworkProfile: c.NetworkProfile, Assistant: c.Assistant, Workspace: taskapp.WorkspaceRevisionEvidence{TenantID: c.Profile.TenantID, WorkspaceID: c.WorkspaceID, WorkspaceRevisionID: c.WorkspaceRevisionID, ResolutionID: "resolution-local", ResolutionRevision: 1, MembershipRevision: 1, Readable: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := gatewayhttp.NewHandlerWithOptions(gatewayhttp.HandlerOptions{Actor: gatewayhttp.FixedActor{TenantID: c.Profile.TenantID, UserID: c.Profile.ActorUserID}, Commands: runtimeGuardedCommands{commands: commands, policy: policy}, Assistant: commands})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.handler.(productHandler)
+	handler.gateway = gateway
+	app.handler = handler
+	if app.runtime != nil {
+		app.runtime.startPolicy = policy
+	}
 }
 
 // The fixture owns the simulated client's lifetime independently from the real
 // Backend. The stopping latch makes Add/Wait safe even if startup is in flight.
 type supplementProvisioner struct {
 	*observationFixtureRuntime
-	mu       sync.Mutex
-	stopping bool
-	wg       sync.WaitGroup
-	cancel   context.CancelFunc
+	mu             sync.Mutex
+	stopping       bool
+	wg             sync.WaitGroup
+	cancel         context.CancelFunc
+	publishInitial func(workerapp.RuntimeProvisionRequest)
 }
 
-func (p *supplementProvisioner) Provision(_ context.Context, request workerapp.RuntimeProvisionRequest) (workerapp.ProvisionedRuntime, error) {
+func (p *supplementProvisioner) Provision(ctx context.Context, request workerapp.RuntimeProvisionRequest, check workerapp.RuntimePreStartCheck) (workerapp.ProvisionedRuntime, error) {
+	partial := fixtureCreatedRuntime(request)
 	p.mu.Lock()
 	if p.stopping {
 		p.mu.Unlock()
-		return workerapp.ProvisionedRuntime{}, context.Canceled
+		return partial, context.Canceled
 	}
 	p.wg.Add(1)
 	p.mu.Unlock()
+	// Reserve ownership while the external check is in flight. A rejection owns
+	// Done here; only successful startup transfers it to the simulated client.
+	clientStarted := false
+	defer func() {
+		if !clientStarted {
+			p.wg.Done()
+		}
+	}()
+	p.inventory.mu.Lock()
+	p.inventory.requests[request.RuntimeInstanceID] = request
+	p.inventory.mu.Unlock()
+	if p.publishInitial != nil {
+		p.publishInitial(request)
+	} else if err := publishSyntheticFixtureContainer(ctx, p.runner, request, partial.ContainerID); err != nil {
+		return partial, err
+	}
+	if err := fixtureRuntimePreStart(ctx, request, partial, check); err != nil {
+		return partial, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stopping {
+		return partial, context.Canceled
+	}
+	if err := p.ctx.Err(); err != nil {
+		return partial, err
+	}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
 	go func() {
 		defer p.wg.Done()
 		if err := p.run(request); err != nil && p.ctx.Err() == nil {
@@ -150,7 +255,9 @@ func (p *supplementProvisioner) Provision(_ context.Context, request workerapp.R
 			}
 		}
 	}()
-	return workerapp.ProvisionedRuntime{RuntimeInstanceID: request.RuntimeInstanceID, ContainerID: "fixture-" + request.RuntimeInstanceID, Generation: request.Generation, StartedAt: time.Now()}, nil
+	clientStarted = true
+	partial.StartedAt = time.Now()
+	return partial, nil
 }
 func (p *supplementProvisioner) stop() <-chan struct{} {
 	p.mu.Lock()
@@ -165,6 +272,17 @@ func (p *supplementProvisioner) stop() <-chan struct{} {
 // All wrappers are installed before opening a control stream. In particular,
 // there is only one Hub, acceptor and participant, shared by all runtime owners.
 func newSupplementFixture(t *testing.T, configure func(*supplementFixture)) *supplementFixture {
+	return newSupplementFixtureWithOptions(t, supplementFixtureOptions{}, configure)
+}
+
+// Selected public experience tests configure production sources before App
+// assembly. Historical fixtures retain their explicit synthetic start policy.
+type supplementFixtureOptions struct {
+	configuration     func(*Config)
+	productionInitial bool
+}
+
+func newSupplementFixtureWithOptions(t *testing.T, options supplementFixtureOptions, configure func(*supplementFixture)) *supplementFixture {
 	t.Helper()
 	pool := postgrestest.Open(t)
 	profile, err := config.LoadSingleUserLocalProfile(mapLookup(nil))
@@ -177,7 +295,11 @@ func newSupplementFixture(t *testing.T, configure func(*supplementFixture)) *sup
 		t.Fatal(err)
 	}
 	address := reserveRuntimeRunnerAddress(t)
-	app, err := newWithPool(context.Background(), Config{Profile: profile, NetworkProfile: integrationNetworkProfile(t), DatabaseURL: os.Getenv("SWITCHBACK_TEST_DATABASE_URL"), DataRoot: root, EngineDataRoot: root, WorkspaceSourceRoot: source, ProjectID: defaultProjectID, WorkspaceID: defaultWorkspaceID, WorkspaceRevisionID: defaultWorkspaceRevisionID, WorkerImage: "switchback-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", WorkerNetwork: "switchback-supplement-fixture", GRPCAddress: address, BackendGRPCTarget: address, BackendHTTPBaseURL: "http://127.0.0.1:8080", DeepSeekCredentialFile: credential, ExecutionEnabled: true, LangfuseBaseURL: "http://127.0.0.1:1", LangfusePublicKey: "synthetic-supplement-pk", LangfuseSecretKey: "synthetic-supplement-sk"}, pool)
+	configuration := Config{Profile: profile, NetworkProfile: integrationNetworkProfile(t), DatabaseURL: os.Getenv("SWITCHBACK_TEST_DATABASE_URL"), DataRoot: root, EngineDataRoot: root, WorkspaceSourceRoot: source, ProjectID: defaultProjectID, WorkspaceID: defaultWorkspaceID, WorkspaceRevisionID: defaultWorkspaceRevisionID, WorkerImage: "switchback-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", WorkerNetwork: "switchback-supplement-fixture", GRPCAddress: address, BackendGRPCTarget: address, BackendHTTPBaseURL: "http://127.0.0.1:8080", DeepSeekCredentialFile: credential, ExecutionEnabled: true, LangfuseBaseURL: "http://127.0.0.1:1", LangfusePublicKey: "synthetic-supplement-pk", LangfuseSecretKey: "synthetic-supplement-sk"}
+	if options.configuration != nil {
+		options.configuration(&configuration)
+	}
+	app, err := newWithPool(context.Background(), configuration, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +307,9 @@ func newSupplementFixture(t *testing.T, configure func(*supplementFixture)) *sup
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	f := &supplementFixture{t: t, ctx: ctx, cancel: cancel, app: app, pool: pool, callbacks: make(chan supplementCallback, 32), binder: modelobs.NewRequestBinder(), stopped: make(chan error, 1)}
 	r := app.runtime
+	if !options.productionInitial {
+		f.startPolicy = allowSyntheticRuntimeStarts(t, app)
+	}
 	r.environment.storage.Ownership = localstorage.OwnershipFunc(func(string, int, int) error { return nil })
 	r.environment.secrets.Ownership = runtimesecret.OwnershipFunc(func(string, int, int) error { return nil })
 	r.environment.secrets.OwnerUID = func(string) (uint32, error) { return 0, nil }
@@ -207,6 +332,7 @@ func newSupplementFixture(t *testing.T, configure func(*supplementFixture)) *sup
 	r.settlements.Store = f.settlements
 	clientCtx, cancelClient := context.WithCancel(ctx)
 	f.runtime = &observationFixtureRuntime{ctx: clientCtx, runner: r, address: address, starts: make(chan observationFixtureTurn, 32), failures: make(chan error, 32), joinClient: true}
+	f.runtime.installInspectionFixture(t)
 	f.runtime.onModel = func(ctx context.Context, start workerapp.WorkerControlCommand, client *controlgrpc.Client, event workerapp.WorkerControlEvent) error {
 		c := modelobs.Correlation{TraceID: "trace-" + string(start.Envelope.AgentTurnID), WorkerSessionID: string(start.Envelope.WorkerSessionID), WorkerRunID: string(start.Envelope.WorkerRunID), AgentTurnID: string(start.Envelope.AgentTurnID)}
 		if err := f.binder.Activate(c); err != nil {
@@ -223,7 +349,9 @@ func newSupplementFixture(t *testing.T, configure func(*supplementFixture)) *sup
 		}
 	}
 	f.provisioner = &supplementProvisioner{observationFixtureRuntime: f.runtime, cancel: cancelClient}
+	r.starts.CreatedLayerChecker = syntheticInitialCreatedLayerChecker{}
 	r.starts.Provisioner = f.provisioner
+	r.recovery.Provisioner = f.provisioner
 	// newWithPool owns v3 activation. We drive its workers deterministically
 	// through Tick; no second Run/background owner is started by this fixture.
 	if _, ok := app.observability.(fragmentBackgroundRunners); !ok {
@@ -235,7 +363,14 @@ func newSupplementFixture(t *testing.T, configure func(*supplementFixture)) *sup
 	if configure != nil {
 		configure(f)
 	}
-	go func() { f.stopped <- r.Run(ctx) }()
+	f.provisioner.publishInitial = f.publishInitial
+	if f.manualInitial {
+		f.manualReady = make(chan struct{})
+		go func() { f.stopped <- f.runManualInitialFixture() }()
+		supplementReceive(t, ctx, f.manualReady)
+	} else {
+		go func() { f.stopped <- r.Run(ctx) }()
+	}
 	t.Cleanup(f.stop)
 	return f
 }
@@ -281,6 +416,9 @@ func supplementReceive[T any](t *testing.T, ctx context.Context, ch <-chan T) T 
 }
 func (f *supplementFixture) next() (observationFixtureTurn, supplementCallback) {
 	f.t.Helper()
+	if f.manualInitial {
+		f.driveInitialTick()
+	}
 	turn := f.runtime.next(f.t)
 	callback := supplementReceive(f.t, f.ctx, f.callbacks)
 	if callback.event.Envelope.AgentTurnID != turn.start.Envelope.AgentTurnID {

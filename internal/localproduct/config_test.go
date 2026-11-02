@@ -1,11 +1,13 @@
 package localproduct
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/abietic/switchback/internal/platform/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestOptionalObservabilityConfigurationNeverRejectsCore(t *testing.T) {
@@ -35,11 +37,37 @@ func TestOptionalDiagnosticConfigurationNeverRejectsCore(t *testing.T) {
 	for _, base := range []string{"", "http://localhost:3001", "http://user:secret@grafana:3000"} {
 		configuration, err := LoadConfig(mapLookup(map[string]string{
 			"SWITCHBACK_DATABASE_URL": "postgres://localhost/switchback", "SWITCHBACK_DATA_ROOT": t.TempDir(),
-			"SWITCHBACK_GRAFANA_BROWSER_BASE_URL": base,
+			"SWITCHBACK_GRAFANA_BROWSER_BASE_URL":  base,
+			"SWITCHBACK_LANGFUSE_BROWSER_BASE_URL": base,
+			"SWITCHBACK_LANGFUSE_PROJECT_ID":       "invalid/path-is-optional",
 		}))
-		if err != nil || configuration.GrafanaBrowserBaseURL != base {
+		if err != nil || configuration.GrafanaBrowserBaseURL != base || configuration.LangfuseBrowserBaseURL != base || configuration.LangfuseProjectID != "invalid/path-is-optional" {
 			t.Fatalf("optional diagnostic config rejected: %v", err)
 		}
+	}
+}
+
+func TestComposeLangfuseBrowserProjectSharesInitValue(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/local/compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Services map[string]struct{ Environment map[string]string }
+	}
+	if err := yaml.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	backend := document.Services["switchback-backend"].Environment
+	web := document.Services["langfuse-web"].Environment
+	if backend["SWITCHBACK_LANGFUSE_PROJECT_ID"] != "${LANGFUSE_INIT_PROJECT_ID:-switchback-m1}" || backend["SWITCHBACK_LANGFUSE_PROJECT_ID"] != web["LANGFUSE_INIT_PROJECT_ID"] {
+		t.Fatal("Langfuse public project does not share the init value")
+	}
+	if backend["SWITCHBACK_LANGFUSE_BROWSER_BASE_URL"] != "${SWITCHBACK_LANGFUSE_BROWSER_BASE_URL-http://localhost:${SWITCHBACK_LANGFUSE_PORT:-3000}}" {
+		t.Fatal("Langfuse browser origin is not the public loopback config")
+	}
+	if !strings.Contains(string(raw), "SWITCHBACK_LANGFUSE_PROJECT_ID: *langfuse-project-id") || !strings.Contains(string(raw), "LANGFUSE_INIT_PROJECT_ID: *langfuse-project-id") {
+		t.Fatal("Langfuse project defaults must share one anchor")
 	}
 }
 

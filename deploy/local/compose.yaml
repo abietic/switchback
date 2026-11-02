@@ -1,5 +1,7 @@
 name: switchback-m1
 
+x-langfuse-project-id: &langfuse-project-id ${LANGFUSE_INIT_PROJECT_ID:-switchback-m1}
+
 x-langfuse-depends-on: &langfuse-depends-on
   postgres:
     condition: service_healthy
@@ -76,6 +78,8 @@ services:
     user: "0:0"
     read_only: true
     cap_drop: [ALL]
+    # Handoff to UID 10002 and cleanup of Worker-owned private/sticky trees.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
     security_opt: [no-new-privileges:true]
     depends_on:
       switchback-migrate:
@@ -109,6 +113,8 @@ services:
       SWITCHBACK_DEEPSEEK_CREDENTIAL_FILE: /run/switchback-provider/deepseek.key
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       SWITCHBACK_GRAFANA_BROWSER_BASE_URL: ${SWITCHBACK_GRAFANA_BROWSER_BASE_URL-http://localhost:${SWITCHBACK_GRAFANA_PORT:-3001}}
+      SWITCHBACK_LANGFUSE_BROWSER_BASE_URL: ${SWITCHBACK_LANGFUSE_BROWSER_BASE_URL-http://localhost:${SWITCHBACK_LANGFUSE_PORT:-3000}}
+      SWITCHBACK_LANGFUSE_PROJECT_ID: *langfuse-project-id
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:?run make local-env}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:?run make local-env}
     ports:
@@ -233,7 +239,7 @@ services:
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?run make local-env}
       LANGFUSE_INIT_ORG_ID: switchback-local
       LANGFUSE_INIT_ORG_NAME: Switchback Local
-      LANGFUSE_INIT_PROJECT_ID: switchback-m1
+      LANGFUSE_INIT_PROJECT_ID: *langfuse-project-id
       LANGFUSE_INIT_PROJECT_NAME: Switchback M1
       LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:?run make local-env}
       LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:?run make local-env}

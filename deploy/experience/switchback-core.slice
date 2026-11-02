@@ -1,0 +1,10 @@
+[Unit]
+Description=Switchback core candidate aggregate boundary
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+CPUQuota=120%
+MemoryMax=3G
+MemorySwapMax=0
+TasksMax=1024

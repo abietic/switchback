@@ -1,6 +1,7 @@
 package acpclient
 
 import (
+	"context"
 	"fmt"
 	sdk "github.com/coder/acp-go-sdk"
 	"io"
@@ -36,5 +37,7 @@ func New(options Options) (*Adapter, error) {
 	if auth.MethodID == "" || strings.TrimSpace(auth.MethodID) != auth.MethodID || strings.ContainsAny(auth.MethodID, "\r\n\x00") || auth.Request == nil {
 		return nil, fmt.Errorf("ACP authentication policy is required")
 	}
-	return &Adapter{options: options, state: stateNew, recorder: newTraceRecorder(options.Trace)}, nil
+	lifecycle, cancel := context.WithCancel(context.Background())
+	return &Adapter{options: options, state: stateNew, recorder: newTraceRecorder(options.Trace), lifecycle: lifecycle, cancelLifecycle: cancel,
+		explicitClose: make(chan struct{}), notificationCredits: make(chan struct{}, 128), admittedNotifications: make(chan *notificationCredit, 128)}, nil
 }

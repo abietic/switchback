@@ -1,0 +1,74 @@
+{
+  "schema": "switchback.experience.primary_pins.v1",
+  "checked_date_utc": "2026-10-12",
+  "status": "candidate_metadata_only_not_downloaded_installed_or_started",
+  "lima": {
+    "version": "2.2.1",
+    "architecture": "Darwin-arm64",
+    "url": "https://github.com/lima-vm/lima/releases/download/v2.2.1/lima-2.2.1-Darwin-arm64.tar.gz",
+    "sha256": "9e9eacce88f37e185c346bad73aa6136f738d8cdf8c3bb23cd42b071824bc66e",
+    "source": "https://github.com/lima-vm/lima/releases/expanded_assets/v2.2.1"
+  },
+  "guest": {
+    "url": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img",
+    "sha256": "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55",
+    "architecture": "arm64",
+    "kernel_package": "linux-image-6.8.0-142-generic",
+    "kernel_version": "6.8.0-142.142",
+    "xfsprogs_version": "6.6.0-1ubuntu2.1",
+    "checksum_source": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/SHA256SUMS",
+    "package_manifest_source": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.manifest"
+  },
+  "docker_metadata_source": "https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-arm64/Packages",
+  "docker_packages": [
+    {
+      "package": "containerd.io",
+      "version": "2.4.1-2~ubuntu.24.04~noble",
+      "architecture": "arm64",
+      "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/arm64/containerd.io_2.4.1-2~ubuntu.24.04~noble_arm64.deb",
+      "bytes": 19566808,
+      "sha256": "c19709945e4a41d27b2d82478d56e77d04ed039894af159c77f7302348cb1935"
+    },
+    {
+      "package": "docker-buildx-plugin",
+      "version": "0.38.0-1~ubuntu.24.04~noble",
+      "architecture": "arm64",
+      "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/arm64/docker-buildx-plugin_0.38.0-1~ubuntu.24.04~noble_arm64.deb",
+      "bytes": 15250860,
+      "sha256": "6329557882fa9cb3e00fdc2edbad1de891779f7805e211c05f15f319bf6b725a"
+    },
+    {
+      "package": "docker-ce-cli",
+      "version": "5:29.9.0-1~ubuntu.24.04~noble",
+      "architecture": "arm64",
+      "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/arm64/docker-ce-cli_29.9.0-1~ubuntu.24.04~noble_arm64.deb",
+      "bytes": 15844796,
+      "sha256": "42c2c42552901e7ad06a68a410be3ea3ea9b6f044923d2f96a1ade09466dd579"
+    },
+    {
+      "package": "docker-ce",
+      "version": "5:29.9.0-1~ubuntu.24.04~noble",
+      "architecture": "arm64",
+      "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/arm64/docker-ce_29.9.0-1~ubuntu.24.04~noble_arm64.deb",
+      "bytes": 21015612,
+      "sha256": "7dcaed8a78cdd64999a2b7bc245bb066f3f6a05aaa7e14e3d164a3504c74b810"
+    },
+    {
+      "package": "docker-compose-plugin",
+      "version": "5.6.0-1~ubuntu.24.04~noble",
+      "architecture": "arm64",
+      "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/arm64/docker-compose-plugin_5.6.0-1~ubuntu.24.04~noble_arm64.deb",
+      "bytes": 6884008,
+      "sha256": "eda8bb0d68dbba07c38d810eff11b00377f8255db802c49707a2f137d219e9d6"
+    }
+  ],
+  "not_yet_proven": [
+    "new VM/disk/backing identity",
+    "host resource coexistence",
+    "guest quota and storage coverage",
+    "core enforced upper bounds",
+    "actual Engine API/build/kernel/namespace",
+    "transport reachability",
+    "exact product image IDs"
+  ]
+}

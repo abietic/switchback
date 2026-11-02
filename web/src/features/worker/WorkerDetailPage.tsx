@@ -5,13 +5,13 @@ import {
   HeartPulse,
 } from "lucide-react";
 import type { ActionRef, TransientDisplayDelta, WorkerDetailData } from "../../api/contracts";
+import type { WorkerDiagnosticSelection } from "../../api/workerDiagnostics";
 import {
   type CommandResult,
   type WorkerCommandRequest,
 } from "../../api/workerCommands";
 import { newTaskIdempotencyKey, type TaskCommandRequest, type TaskContinuationRequest } from "../../api/taskCommands";
 import {
-  useCallback,
   useEffect,
   useState,
   type CSSProperties,
@@ -46,6 +46,8 @@ export function WorkerDetailPage({
   onTaskCommand = async () => { throw new Error("Task command client unavailable"); },
   onTaskContinue = async () => { throw new Error("Task continuation client unavailable"); },
   onStale = async () => {},
+  diagnosticSelection,
+  onDiagnosticSelectionChange,
 }: {
   worker: WorkerDetailData;
   transient?: TransientDisplayDelta[];
@@ -56,6 +58,8 @@ export function WorkerDetailPage({
   onTaskCommand?: (request: TaskCommandRequest) => Promise<CommandResult>;
   onTaskContinue?: (request: TaskContinuationRequest) => Promise<CommandResult>;
   onStale?: () => Promise<void>;
+  diagnosticSelection?: WorkerDiagnosticSelection;
+  onDiagnosticSelectionChange?: (selection: WorkerDiagnosticSelection) => void;
 }) {
   const commandAuthority = useWorkerCommandAuthority({
     worker,
@@ -79,8 +83,16 @@ export function WorkerDetailPage({
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
-  const [requestedArtifact, setRequestedArtifact] = useState<string>();
-  const clearRequestedArtifact = useCallback(() => setRequestedArtifact(undefined), []);
+  const [localSelection, setLocalSelection] = useState<WorkerDiagnosticSelection>({ kind: "none" });
+  const selection = diagnosticSelection ?? localSelection;
+  const selectDiagnostics = (next: WorkerDiagnosticSelection) => {
+    if (onDiagnosticSelectionChange) onDiagnosticSelectionChange(next);
+    else setLocalSelection(next);
+  };
+  const selectedArtifact = selection.kind === "artifact" ? worker.artifacts.find((artifact) => artifact.artifact_id === selection.artifactId) : undefined;
+  const diagnosticTarget = selection.kind === "none" ? { sessionId: worker.worker_session_id }
+    : selection.kind === "exact" ? { sessionId: worker.worker_session_id, runId: selection.runId, turnId: selection.turnId }
+      : selectedArtifact ? { sessionId: worker.worker_session_id, runId: selectedArtifact.worker_run_id, turnId: selectedArtifact.agent_turn_id } : undefined;
   const hasReviewAction = availableActions.some((action) =>
     (action.action === "task.accept" || action.action === "task.rework") &&
     action.target_id === worker.bound_task_id &&
@@ -128,7 +140,8 @@ export function WorkerDetailPage({
             initialCursor={worker.timeline_cursor}
             initialHasMore={worker.timeline_has_more ?? false}
             transient={transient}
-            onArtifact={setRequestedArtifact}
+            onArtifact={(artifactId) => selectDiagnostics({ kind: "artifact", artifactId })}
+            onDiagnosticTarget={(runId, turnId) => selectDiagnostics({ kind: "exact", runId, turnId })}
           />
         </div>
         <WorkerCommandComposer
@@ -160,8 +173,9 @@ export function WorkerDetailPage({
       <aside className="worker-side">
         <ArtifactWorkbench
           artifacts={worker.artifacts}
-          requestedArtifact={requestedArtifact}
-          onRequestedArtifactHandled={clearRequestedArtifact}
+          selectedArtifactId={selection.kind === "artifact" ? selection.artifactId : undefined}
+          onArtifactSelectionChange={(artifactId) => selectDiagnostics({ kind: "artifact", artifactId })}
+          onRequestedArtifactHandled={() => {}}
         />
         {worker.waiting_user ? <WaitingUser worker={worker} /> : null}
         <ApprovalControls
@@ -192,7 +206,11 @@ export function WorkerDetailPage({
           <h2>Runtime</h2>
           <dl className="metadata-list"><div><dt>Session</dt><dd>{worker.worker_session_id}</dd></div><div><dt>Run</dt><dd>{worker.active_worker_run_id ?? "None"}</dd></div><div><dt>Profile</dt><dd>{worker.agent_profile}</dd></div></dl>
         </section>
-        <WorkerDiagnostics sessionId={worker.worker_session_id} runId={worker.active_worker_run_id} turnId={worker.active_worker_run_id ? worker.active_agent_turn_id : undefined} />
+        <section className="side-section metadata-section" aria-label="Diagnostic target">
+          <p>{selection.kind === "none" ? "Session diagnostics" : selection.kind === "artifact" ? `Artifact ${selection.artifactId}` : selection.kind === "exact" ? `Run ${selection.runId}${selection.turnId ? ` · Turn ${selection.turnId}` : ""}` : "Invalid diagnostic selection"}</p>
+          {selection.kind !== "none" ? <button type="button" onClick={() => selectDiagnostics({ kind: "none" })}>Session diagnostics</button> : null}
+        </section>
+        {diagnosticTarget ? <WorkerDiagnostics {...diagnosticTarget} /> : <section className="side-section" aria-label="Diagnostics"><h2>Diagnostics</h2><p role="status">Selected diagnostic target unavailable.</p></section>}
       </aside>
     </main>
   );

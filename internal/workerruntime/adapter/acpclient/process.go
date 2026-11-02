@@ -42,11 +42,16 @@ func (a *Adapter) startProcess() error {
 	}
 	outbound := newRecordingWriter(stdin, a.recorder, directionClientToAgent)
 	sdkReader, sdkWriter := io.Pipe()
+	a.mu.Lock()
+	a.outputReader, a.outputWriter, a.outputSource = sdkReader, sdkWriter, stdout
+	a.mu.Unlock()
 	client := &protocolClient{workspaceRoot: a.options.WorkspaceRoot, onUpdate: a.observeSessionUpdate}
 	connection := sdk.NewClientSideConnection(client, outbound, sdkReader)
 	done := make(chan error, 1)
 	go func() {
-		_ = pumpRecordedOutput(stdout, sdkWriter, newFrameWriter(a.recorder, directionAgentToClient))
+		if err := pumpRecordedOutput(stdout, sdkWriter, newFrameWriter(a.recorder, directionAgentToClient), a.admitSessionUpdate); err != nil {
+			a.failClosed()
+		}
 		outbound.close()
 		_ = stdin.Close()
 		done <- command.Wait()
@@ -73,6 +78,9 @@ func (a *Adapter) Close(ctx context.Context) error {
 	command := a.command
 	done := a.done
 	a.mu.Unlock()
+	a.closeOnce.Do(func() { close(a.explicitClose) })
+	a.cancelLifecycle()
+	a.closeOutput()
 	if stdin != nil {
 		_ = stdin.Close()
 	}

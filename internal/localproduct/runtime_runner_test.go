@@ -417,3 +417,32 @@ func TestFinishInterruptCommandsBindsTerminalReasonAsText(t *testing.T) {
 		t.Fatalf("finish interrupt commands with no matching rows: %v", err)
 	}
 }
+
+func TestRunOnceInitialCapacityRetainsStartupBarrierAndSettlementPriority(t *testing.T) {
+	runner := &runtimeRunner{}
+	settled, initialCalls, oldWork := true, 0, 0
+	dependencies := runtimeRunOnceDependencies{
+		reconcileSettlement: func(context.Context) (string, bool, error) { return "old-settlement", settled, nil },
+		reconcileInitial:    func(context.Context) error { initialCalls++; return workerapp.CapacityContainerProofPending },
+		startAdoption:       func(context.Context) (bool, error) { oldWork++; return false, nil },
+		detectFailures:      func(context.Context) error { oldWork++; return nil },
+		reconcileRecovery: func(context.Context) (workerapp.RuntimeRecoveryState, bool, error) {
+			oldWork++
+			return workerapp.RuntimeRecoveryState{}, false, nil
+		},
+		cleanupTerminal: func(context.Context) error { oldWork++; return nil },
+		startQueuedTask: func(context.Context) error { t.Fatal("proof-pending owner started another Task"); return nil },
+		executeTurn:     func(context.Context) error { t.Fatal("proof-pending owner dispatched Prompt"); return nil },
+	}
+	if err := runner.runOnceWith(context.Background(), dependencies); err != errRuntimeStartupRestoreInProgress || initialCalls != 0 {
+		t.Fatal("initial capacity bypassed startup barrier")
+	}
+	runner.startupReady.Store(true)
+	if err := runner.runOnceWith(context.Background(), dependencies); err != nil || initialCalls != 0 {
+		t.Fatal("initial wait preempted old owned settlement")
+	}
+	settled = false
+	if err := runner.runOnceWith(context.Background(), dependencies); err != workerapp.CapacityContainerProofPending || initialCalls != 1 || oldWork != 4 {
+		t.Fatalf("initial wait stopped existing reconciliation: %v, %d", err, oldWork)
+	}
+}

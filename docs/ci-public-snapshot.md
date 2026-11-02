@@ -25,16 +25,21 @@ values. Enumeration and scanner errors fail closed. Synthetic characterizations
 exercise the failure paths; this is a release hygiene gate, not proof that every
 possible credential format or machine-specific path has been identified.
 
-Python runs on Ubuntu 24.04 Python 3.12 with stdlib only. Completed main
-discovers only the production LiteLLM callback suite (25 recorded tests). Empty discovery, skips,
-import errors and failures fail CI; callback tests fake LiteLLM and HTTP.
-The capacity feature branch adds three separate engine/preparation/freeze
-suites, which are not present in completed main. Its recorded four-suite total
-is 377; that is not main coverage. This is an explicit source boundary, not an
-absent-directory fallback or successful skip. No VM, Docker
-Engine, PostgreSQL or model provider is started by this Python gate.
-Native runtime acceptance, image builds and real provider behavior remain
-separate evidence windows.
+Python runs on Ubuntu 24.04 Python 3.12 with stdlib only. Four independent
+processes discover engine, experienceprepare, experiencefreeze and production
+LiteLLM callback `test_*.py` files (377 recorded tests: 279/50/23/25). Empty discovery, skips, import errors and test
+failures all fail CI. Engine tests use fixtures; callback tests fake LiteLLM and
+HTTP. No VM, Docker Engine, PostgreSQL or model provider is started by this gate.
+The historical fixed four-image v1 preparation/freeze tests use an exact pinned
+Worker Dockerfile fixture; they do not validate the current qualification-image
+build or authorize changing historical profile pins.
+
+`deploy/experience/created_layer_observer_assets_test.py` is explicitly excluded
+from `python-check`: its optional Compose-render check needs client-side
+`docker compose config` output. The two static asset checks and that render
+check are outside this gate's coverage. No skipped result from it is counted as
+Python success. Native observability runtime acceptance, Docker/VM acceptance,
+current image builds and real provider behavior are separate evidence windows.
 
 ## History-independent observability preservation
 
@@ -58,14 +63,17 @@ five-group compilation pass. Public manifests contain hashes and a provenance
 statement, without private author metadata or Git objects. Updates require review
 of the old/new canonical bodies and group delta; CI never refreshes expected data.
 
-The public main active manifest contains 502 functions: it retains 501 golden
-hashes and replaces exactly one reviewed public CI contract test body.
-`baseline-golden-v1.json` remains unchanged at 502 functions. Ordinary selections
-remain 230/280; all native/fixture relationships remain checked. This replacement
-aligns the protected CI contract with the existing publication/Python gates; it
-does not add capacity behavior to main. The capacity feature branch has its own
-reviewed manifest lineage and unfinished execution owners. Registration protects
-bodies and groups; it does not claim full semantic acceptance or a green full CI.
+The separate `baseline-golden-v1.json` remains unchanged at 502 functions,
+exported from the proven strict baseline plus 13 reviewed additions. The active
+manifest lineage is explicit: golden 502 → 17 reviewed body replacements plus
+287 additions (789) → five reviewed PostgreSQL fixture body replacements plus
+one new helper (790) → one reviewed public CI contract test body replacement
+(still 790). Ordinary selections remain 296/429 throughout the later repairs.
+Provenance binds the reviewed deltas; CI does not refresh its own expected data.
+Registration preserves functions and groups, not semantic acceptance: the
+recorded full five-package PostgreSQL run remains 622 pass / 34 fail / 0 skip.
+The feature contains unfinished execution owners and is not merged into main;
+neither registration nor focused repairs establish a green full CI.
 
 The Linux follow-up keeps the historical `observabilitybuild` production CLI's
 exact integration-baseline ancestry gate unchanged. Its tests construct a minimal
@@ -77,5 +85,7 @@ that the historical default accepts the independent public root, nor constitute
 an actual current image-build acceptance run.
 
 The follow-up also rejects duplicate JSON keys recursively before manifest typed
-decoding, preserving unknown-field and trailing-data rejection. Remote Required
-success still needs a fresh cloud run of the exact public main commit.
+decoding, preserving unknown-field and trailing-data rejection. Engine binding
+recognizes only the two exact bridge IPAM Source leaves already published in the
+Python bundle contract; native proof and API ordering remain required. Remote
+Required success still needs a fresh cloud run of the final commits.

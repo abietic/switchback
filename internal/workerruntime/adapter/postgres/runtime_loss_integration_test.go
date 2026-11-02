@@ -13,6 +13,7 @@ import (
 	taskapplication "github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/testsupport/failurematrix"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/fake"
 	workerpostgres "github.com/abietic/switchback/internal/workerruntime/adapter/postgres"
 	workerapplication "github.com/abietic/switchback/internal/workerruntime/application"
@@ -20,6 +21,7 @@ import (
 
 func TestGenerationOneRuntimeLossFencesWithoutImplicitReplacement(t *testing.T) {
 	pool := postgrestest.Open(t)
+	runtimecapacity.Initialize(t, pool)
 	ctx := context.Background()
 	now := time.Date(2026, 7, 23, 13, 0, 0, 0, time.UTC)
 	seedAllocationRequests(t, pool, 1, now)
@@ -51,7 +53,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 	}
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-task-01",
+		RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +65,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtimecapacity.ObserveContainer(t, pool, started.WorkerSessionID, started.RuntimeInstanceID, "container-resident-1", 1)
 	active, err := (workerapplication.RuntimeResidencyService{
 		Store: workerpostgres.NewRuntimeResidencyStore(pool),
 		Now:   func() time.Time { return now.Add(5 * time.Minute) },

@@ -13,19 +13,27 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	artifactlocal "github.com/abietic/switchback/internal/artifacttrace/adapter/localfile"
 	artifactpostgres "github.com/abietic/switchback/internal/artifacttrace/adapter/postgres"
 	artifactapp "github.com/abietic/switchback/internal/artifacttrace/application"
 	contractsv1 "github.com/abietic/switchback/internal/contracts/v1"
 	"github.com/abietic/switchback/internal/platform/config"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/controlgrpc"
+	dockeradapter "github.com/abietic/switchback/internal/workerruntime/adapter/docker"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/localstorage"
 	workerpostgres "github.com/abietic/switchback/internal/workerruntime/adapter/postgres"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/runtimesecret"
 	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -66,7 +74,10 @@ func TestBlockedDurableProjectionDoesNotDelayTerminalSettlementOrNextTurn(t *tes
 	app.runtime.environment.secrets.OpenFileOwnerUID = func(*os.File) (uint32, error) { return 0, nil }
 	ctx, cancel := context.WithCancel(context.Background())
 	runtime := &observationFixtureRuntime{ctx: ctx, runner: app.runtime, address: address, starts: make(chan observationFixtureTurn, 1), failures: make(chan error, 1)}
+	runtime.installInspectionFixture(t)
+	app.runtime.starts.CreatedLayerChecker = syntheticInitialCreatedLayerChecker{}
 	app.runtime.starts.Provisioner = runtime
+	allowSyntheticRuntimeStarts(t, app)
 	stopped := make(chan error, 1)
 	go func() { stopped <- app.runtime.Run(ctx) }()
 	t.Cleanup(func() {
@@ -191,14 +202,13 @@ WHERE turn.agent_turn_id=$1`, string(turn.start.Envelope.AgentTurnID)).Scan(&ses
 			if outage {
 				gate.release = make(chan struct{})
 			}
-			worker := &artifactapp.ProjectionWorker{Jobs: jobs, Loader: artifactapp.ProjectionSourceLoader{Metadata: jobs, Objects: app.runtime.objects}, Projector: gate}
+			probe := &warmupProjectionProbe{ProjectionJobStore: jobs}
+			worker := &artifactapp.ProjectionWorker{Jobs: probe, Loader: warmupProjectionLoaderProbe{loader: artifactapp.ProjectionSourceLoader{Metadata: jobs, Objects: app.runtime.objects}, probe: probe}, Projector: gate}
 			projectionDone := make(chan error, 1)
 			go func() { projectionDone <- worker.Tick(ctx) }()
-			var warmSource artifactapp.SourceProjection
-			select {
-			case warmSource = <-gate.entered:
-			case <-time.After(5 * time.Second):
-				t.Fatal("warmup never reached exporter")
+			warmSource, err := waitWarmupProjection(gate.entered, projectionDone, probe)
+			if err != nil {
+				t.Fatalf("pair=%d outage=%t warmup=%s: %v", pair, outage, warmup.start.Envelope.AgentTurnID, err)
 			}
 			if warmSource.Turn.Identity.AgentTurnID != warmup.start.Envelope.AgentTurnID {
 				t.Fatalf("wrong warmup source: %+v", warmSource.Source)
@@ -316,6 +326,213 @@ WHERE observation.runtime_instance_id=$1`, string(current.start.Envelope.Runtime
 	}
 }
 
+type warmupProjectionProbe struct {
+	artifactapp.ProjectionJobStore
+	mu            sync.Mutex
+	stage         string
+	started       time.Time
+	discovered    int
+	claimed       bool
+	job           artifactapp.ProjectionJob
+	loadCode      string
+	loadPermanent bool
+	completion    artifactapp.ProjectionCompletion
+}
+
+func (p *warmupProjectionProbe) begin(stage string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.stage, p.started = stage, time.Now()
+}
+
+func (p *warmupProjectionProbe) summary() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return fmt.Sprintf("stage=%s elapsed=%s discovered=%d claimed=%t source=%s checksum=%s token=%d attempts=%d loader_code=%s permanent=%t status=%s finish_code=%s", p.stage, time.Since(p.started), p.discovered, p.claimed, p.job.Source.TraceStreamID, p.job.Source.ManifestChecksum, p.job.LeaseToken, p.job.Attempts, p.loadCode, p.loadPermanent, p.completion.Status, p.completion.ErrorCode)
+}
+
+func (p *warmupProjectionProbe) Activate(ctx context.Context, version string) error {
+	p.begin("activate")
+	return p.ProjectionJobStore.Activate(ctx, version)
+}
+
+func (p *warmupProjectionProbe) Discover(ctx context.Context, version string, limit int) (int, error) {
+	p.begin("discover")
+	n, err := p.ProjectionJobStore.Discover(ctx, version, limit)
+	p.mu.Lock()
+	p.discovered = n
+	p.mu.Unlock()
+	return n, err
+}
+
+func (p *warmupProjectionProbe) Claim(ctx context.Context, version string, lease time.Duration) (artifactapp.ProjectionJob, bool, error) {
+	p.begin("claim")
+	job, ok, err := p.ProjectionJobStore.Claim(ctx, version, lease)
+	p.mu.Lock()
+	p.job, p.claimed = job, ok
+	p.mu.Unlock()
+	return job, ok, err
+}
+
+func (p *warmupProjectionProbe) Finish(ctx context.Context, job artifactapp.ProjectionJob, completion artifactapp.ProjectionCompletion) error {
+	p.begin("finish")
+	p.mu.Lock()
+	p.completion = completion
+	p.mu.Unlock()
+	err := p.ProjectionJobStore.Finish(ctx, job, completion)
+	return err
+}
+
+type warmupProjectionLoaderProbe struct {
+	loader artifactapp.ProjectionSourceLoader
+	probe  *warmupProjectionProbe
+}
+
+func (p warmupProjectionLoaderProbe) Load(ctx context.Context, job artifactapp.ProjectionJob) (artifactapp.SourceProjection, error) {
+	p.probe.begin("load")
+	source, err := p.loader.Load(ctx, job)
+	var typed *artifactapp.ProjectionError
+	if errors.As(err, &typed) {
+		p.probe.mu.Lock()
+		p.probe.loadCode, p.probe.loadPermanent = typed.Code, typed.Permanent
+		p.probe.mu.Unlock()
+	}
+	if err == nil {
+		p.probe.begin("export")
+	}
+	return source, err
+}
+
+var errWarmupProjectionFinished = errors.New("warmup projection finished before exporter entry")
+var errWarmupProjectionTimeout = errors.New("warmup never reached exporter: Tick still running")
+
+func waitWarmupProjection(entered <-chan artifactapp.SourceProjection, done chan error, probe *warmupProjectionProbe) (artifactapp.SourceProjection, error) {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	// A healthy exporter can finish before this wait begins. Entry is the
+	// proof; Tick nil alone also means no work or a handled loader failure.
+	finished := func(tickErr error) (artifactapp.SourceProjection, error) {
+		select {
+		case source := <-entered:
+			// Keep the original completion/error for the assertions after entry.
+			// The fixture's one-shot Tick uses a capacity-one done channel.
+			done <- tickErr
+			return source, nil
+		default:
+			return artifactapp.SourceProjection{}, fmt.Errorf("%w: %s tick_error=%v", errWarmupProjectionFinished, probe.summary(), tickErr)
+		}
+	}
+	select {
+	case source := <-entered:
+		return source, nil
+	case tickErr := <-done:
+		return finished(tickErr)
+	case <-timer.C:
+		// Resolve results ready at the deadline before declaring a live Tick.
+		select {
+		case source := <-entered:
+			return source, nil
+		default:
+		}
+		select {
+		case tickErr := <-done:
+			return finished(tickErr)
+		default:
+		}
+		return artifactapp.SourceProjection{}, fmt.Errorf("%w: %s", errWarmupProjectionTimeout, probe.summary())
+	}
+}
+
+// This controlled no-work case reproduces the lost diagnostic branch, not the
+// unknown cause of the historical intermittent warmup failure.
+func TestWarmupProjectionReportsCompletedTickWithoutExporter(t *testing.T) {
+	pool := postgrestest.Open(t)
+	objects, err := artifactlocal.NewObjectStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := artifactpostgres.NewProjectionJobStore(pool)
+	probe := &warmupProjectionProbe{ProjectionJobStore: jobs}
+	gate := &observationFixtureProjector{entered: make(chan artifactapp.SourceProjection, 1)}
+	done := make(chan error, 1)
+	worker := &artifactapp.ProjectionWorker{Jobs: probe, Loader: warmupProjectionLoaderProbe{loader: artifactapp.ProjectionSourceLoader{Metadata: jobs, Objects: objects}, probe: probe}, Projector: gate}
+	// Actual Tick has returned nil with no eligible job; nil is not export proof.
+	done <- worker.Tick(context.Background())
+	at := time.Now()
+	_, err = waitWarmupProjection(gate.entered, done, probe)
+	if !errors.Is(err, errWarmupProjectionFinished) || !strings.Contains(err.Error(), "claimed=false") {
+		t.Fatalf("completed no-work Tick was classified as %v", err)
+	}
+	if elapsed := time.Since(at); elapsed > time.Second {
+		t.Fatalf("completed no-work Tick waited %s", elapsed)
+	}
+}
+
+func TestWarmupProjectionReportsHandledLoaderFailure(t *testing.T) {
+	f := newSupplementFixture(t, nil)
+	// The fixture's real scanner sees this credential in actual prompt input.
+	// No sealed source, job, marker or execution result is changed by this test.
+	createRuntimeRunnerTask(t, f.app.Handler(), f.pool, "warmup-safe-marker", "Inspect fixture-provider-credential")
+	turn, callback := f.next()
+	f.send(callback)
+	f.finish(turn, callback)
+	f.settled(turn)
+	jobs := artifactpostgres.NewProjectionJobStore(f.pool)
+	probe := &warmupProjectionProbe{ProjectionJobStore: jobs}
+	gate := &observationFixtureProjector{entered: make(chan artifactapp.SourceProjection, 1)}
+	done := make(chan error, 1)
+	worker := &artifactapp.ProjectionWorker{Jobs: probe, Loader: warmupProjectionLoaderProbe{loader: artifactapp.ProjectionSourceLoader{Metadata: jobs, Objects: f.app.runtime.objects}, probe: probe}, Projector: gate}
+	done <- worker.Tick(f.ctx)
+	metadata, err := jobs.LoadProjectionSourceMetadata(f.ctx, probe.job.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := artifactapp.ReadTurnObservationSource(f.ctx, f.app.runtime.objects, metadata.Manifest)
+	if err != nil || sealed.ErrorCode != "credential_detected" {
+		t.Fatalf("actual input did not produce expected safe marker: code=%s err=%v", sealed.ErrorCode, err)
+	}
+	_, err = waitWarmupProjection(gate.entered, done, probe)
+	if !errors.Is(err, errWarmupProjectionFinished) || !strings.Contains(err.Error(), "loader_code=source_incomplete") || !strings.Contains(err.Error(), "status=blocked") || !strings.Contains(err.Error(), "source=trace-"+string(turn.start.Envelope.AgentTurnID)) {
+		t.Fatalf("handled loader failure was classified as %v", err)
+	}
+}
+
+func TestWarmupProjectionPreservesEnteredSourceAndTickCompletion(t *testing.T) {
+	f := newSupplementFixture(t, nil)
+	createRuntimeRunnerTask(t, f.app.Handler(), f.pool, "warmup-completed-export", "Produce a deterministic report")
+	turn, callback := f.next()
+	f.send(callback)
+	f.finish(turn, callback)
+	f.settled(turn)
+	jobs := artifactpostgres.NewProjectionJobStore(f.pool)
+	probe := &warmupProjectionProbe{ProjectionJobStore: jobs}
+	gate := &observationFixtureProjector{entered: make(chan artifactapp.SourceProjection, 1)}
+	done := make(chan error, 1)
+	worker := &artifactapp.ProjectionWorker{Jobs: probe, Loader: warmupProjectionLoaderProbe{loader: artifactapp.ProjectionSourceLoader{Metadata: jobs, Objects: f.app.runtime.objects}, probe: probe}, Projector: gate}
+	done <- worker.Tick(f.ctx)
+	// Both channels are already ready from the actual worker/loader/exporter.
+	// Re-enter this wait with the same real source to cover both select orders;
+	// this is channel-order verification, not another export/publication claim.
+	for range 100 {
+		source, err := waitWarmupProjection(gate.entered, done, probe)
+		if err != nil || source.Turn.Identity.AgentTurnID != turn.start.Envelope.AgentTurnID || source.Source != probe.job.Source {
+			t.Fatalf("completed real export lost its exact source: source=%+v err=%v", source.Source, err)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			done <- err
+		default:
+			t.Fatal("entry wait consumed the original Tick completion")
+		}
+		if err := gate.ExportAndVerify(f.ctx, source); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 type observationFixtureProjector struct {
 	entered chan artifactapp.SourceProjection
 	release chan struct{}
@@ -356,22 +573,164 @@ func (turn observationFixtureTurn) finish(t *testing.T) time.Time {
 }
 
 type observationFixtureRuntime struct {
-	ctx      context.Context
-	runner   *runtimeRunner
-	address  string
-	starts   chan observationFixtureTurn
-	failures chan error
+	readyTransform func(*runtimeReadyPayload)
+	ctx            context.Context
+	runner         *runtimeRunner
+	address        string
+	starts         chan observationFixtureTurn
+	failures       chan error
 	// Tests may tighten the cadence to exercise the real authenticated path;
 	// zero retains the production 15-second Runtime heartbeat contract.
 	heartbeatInterval time.Duration
+	// A manual test clock preserves the ticker when nil; closing it stops the pump.
+	heartbeatTicks <-chan time.Time
 	// A test-only start gate may defer an accelerated cadence until durable
 	// Runtime startup has dispatched a real command. Nil starts the default pump
 	// with the Runtime lifecycle, including when no AgentTurn exists.
 	heartbeatStart <-chan struct{}
 	// Optional test-owned callback scheduling; production control I/O stays real.
 	onModel func(context.Context, workerapp.WorkerControlCommand, *controlgrpc.Client, workerapp.WorkerControlEvent) error
+	// Selected synthetic ACP response, persisted before terminal into the real raw spool.
+	rawResponse func(contractsv1.RuntimeControlEnvelope) string
 	// Opt-in test lifecycle ownership; the historical fixture default is unchanged.
 	joinClient bool
+	inventory  *observationFixtureDocker
+}
+
+// All Runtime I/O shares this inventory; PostgreSQL and control authority stay real.
+type observationFixtureDocker struct {
+	recoveryAbsentDocker
+	mu              sync.Mutex
+	requests        map[string]workerapp.RuntimeProvisionRequest
+	exited          map[string]bool
+	inspectionError error
+	inspectCalls    int
+	removes         []string
+}
+
+func (r *observationFixtureRuntime) installInspectionFixture(t *testing.T) {
+	t.Helper()
+	r.inventory = &observationFixtureDocker{requests: make(map[string]workerapp.RuntimeProvisionRequest), exited: make(map[string]bool)}
+	p, err := dockeradapter.NewProvisioner(r.inventory, dockeradapter.Options{Image: r.runner.configuration.WorkerImage, Network: r.runner.configuration.WorkerNetwork, EngineDataRoot: r.runner.configuration.EngineDataRoot, BackendGRPCTarget: r.address, BackendHTTPBaseURL: r.runner.configuration.BackendHTTPBaseURL, HostPathVerifier: r.inventory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.runner.provisioner = p
+	r.runner.cleanup.Cleaner = p
+	r.runner.recovery.Provisioner = r
+}
+
+func (e *observationFixtureDocker) ContainerInspect(_ context.Context, target string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.inspectCalls++
+	if e.inspectionError != nil {
+		return client.ContainerInspectResult{}, e.inspectionError
+	}
+	for id, request := range e.requests {
+		if target != "switchback-runtime-"+id && target != "fixture-"+id {
+			continue
+		}
+		return client.ContainerInspectResult{Container: container.InspectResponse{ID: "fixture-" + id, Config: &container.Config{Labels: map[string]string{"com.switchback.managed": "worker-runtime", "com.switchback.runtime-instance-id": id, "com.switchback.runtime-generation": strconv.FormatUint(request.Generation, 10)}}, State: &container.State{Running: !e.exited[id], ExitCode: 1}}}, nil
+	}
+	return client.ContainerInspectResult{}, cerrdefs.ErrNotFound
+}
+
+func (e *observationFixtureDocker) ContainerRemove(_ context.Context, target string, _ client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for id := range e.requests {
+		if target == "fixture-"+id {
+			delete(e.requests, id)
+			delete(e.exited, id)
+			e.removes = append(e.removes, target)
+			return client.ContainerRemoveResult{}, nil
+		}
+	}
+	return client.ContainerRemoveResult{}, cerrdefs.ErrNotFound
+}
+func (*observationFixtureDocker) ContainerCreate(context.Context, client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	return client.ContainerCreateResult{}, errors.New("unexpected Docker adapter provisioning; fixture Runtime owns creation")
+}
+func (*observationFixtureDocker) ContainerStart(context.Context, string, client.ContainerStartOptions) (client.ContainerStartResult, error) {
+	return client.ContainerStartResult{}, errors.New("unexpected Docker adapter start")
+}
+func (*observationFixtureDocker) ContainerWait(context.Context, string, client.ContainerWaitOptions) client.ContainerWaitResult {
+	panic("unexpected Docker adapter wait; fixture Runtime owns client lifetime")
+}
+func (*observationFixtureDocker) VolumeCreate(context.Context, client.VolumeCreateOptions) (client.VolumeCreateResult, error) {
+	return client.VolumeCreateResult{}, errors.New("unexpected Docker adapter volume creation")
+}
+func (*observationFixtureDocker) VolumeRemove(context.Context, string, client.VolumeRemoveOptions) (client.VolumeRemoveResult, error) {
+	return client.VolumeRemoveResult{}, cerrdefs.ErrNotFound
+}
+
+func TestObservationFixtureRuntimeInspectionMatchesProvisionedIdentity(t *testing.T) {
+	f := newSupplementFixture(t, nil)
+	createRuntimeRunnerTask(t, f.app.Handler(), f.pool, "fixture-inspection-identity", "Keep a healthy resident Runtime")
+	turn := f.runtime.next(t)
+	inspection, err := f.app.runtime.provisioner.Inspect(f.ctx, string(turn.start.Envelope.RuntimeInstanceID))
+	if err != nil || !inspection.Exists || !inspection.Running || inspection.ContainerID != "fixture-"+string(turn.start.Envelope.RuntimeInstanceID) || inspection.Generation != uint64(turn.start.Envelope.RuntimeGeneration) || inspection.ObservedAt.IsZero() {
+		t.Fatalf("provisioned fixture is not observed healthy with exact identity: inspection=%+v err=%v", inspection, err)
+	}
+}
+
+func TestObservationFixtureDockerInspectionAndCleanup(t *testing.T) {
+	ctx := context.Background()
+	e := &observationFixtureDocker{requests: map[string]workerapp.RuntimeProvisionRequest{
+		"runtime-fixture-one": {RuntimeInstanceID: "runtime-fixture-one", Generation: 3},
+		"runtime-fixture-two": {RuntimeInstanceID: "runtime-fixture-two", Generation: 7},
+	}, exited: map[string]bool{"runtime-fixture-two": true}}
+	p, err := dockeradapter.NewProvisioner(e, dockeradapter.Options{Image: "switchback-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Network: "fixture-network", EngineDataRoot: t.TempDir(), BackendGRPCTarget: "fixture-backend:9090", BackendHTTPBaseURL: "http://fixture-backend:8080", HostPathVerifier: e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthy, err := p.Inspect(ctx, "runtime-fixture-one")
+	if err != nil || !healthy.Exists || !healthy.Running || healthy.ContainerID != "fixture-runtime-fixture-one" || healthy.Generation != 3 || healthy.ExitCode != nil || healthy.ObservedAt.IsZero() {
+		t.Fatalf("healthy inspection=%+v err=%v", healthy, err)
+	}
+	exited, err := p.Inspect(ctx, "runtime-fixture-two")
+	if err != nil || !exited.Exists || exited.Running || exited.Generation != 7 || exited.ExitCode == nil || *exited.ExitCode != 1 {
+		t.Fatalf("exit inspection=%+v err=%v", exited, err)
+	}
+	missing, err := p.Inspect(ctx, "runtime-fixture-missing")
+	if err != nil || missing.Exists || missing.Running || missing.ObservedAt.IsZero() {
+		t.Fatalf("missing inspection=%+v err=%v", missing, err)
+	}
+	e.mu.Lock()
+	e.inspectionError = errors.New("controlled fixture inspection failure")
+	e.mu.Unlock()
+	if _, err := p.Inspect(ctx, "runtime-fixture-one"); err == nil {
+		t.Fatal("inspection error was swallowed")
+	}
+	e.mu.Lock()
+	e.inspectionError = nil
+	e.mu.Unlock()
+	for _, request := range []workerapp.RuntimeCleanupRequest{
+		{RuntimeInstanceID: "runtime-fixture-one", Generation: 4, ExpectedContainerID: "fixture-runtime-fixture-one"},
+		{RuntimeInstanceID: "runtime-fixture-one", Generation: 3, ExpectedContainerID: "fixture-runtime-other"},
+	} {
+		if observation, err := p.Cleanup(ctx, request); err == nil || observation.Confirmed {
+			t.Fatalf("conflicting cleanup was confirmed: %+v err=%v", observation, err)
+		}
+	}
+	observation, err := p.Cleanup(ctx, workerapp.RuntimeCleanupRequest{RuntimeInstanceID: "runtime-fixture-one", Generation: 3, ExpectedContainerID: "fixture-runtime-fixture-one"})
+	if err != nil || !observation.Confirmed || observation.ContainerExists || observation.SecretVolumeExists {
+		t.Fatalf("exact cleanup=%+v err=%v", observation, err)
+	}
+	missing, err = p.Inspect(ctx, "runtime-fixture-one")
+	if err != nil || missing.Exists {
+		t.Fatalf("removed runtime still exists: %+v err=%v", missing, err)
+	}
+	exited, err = p.Inspect(ctx, "runtime-fixture-two")
+	if err != nil || !exited.Exists || exited.Generation != 7 {
+		t.Fatalf("cleanup touched another runtime: %+v err=%v", exited, err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.removes) != 1 || e.removes[0] != "fixture-runtime-fixture-one" {
+		t.Fatalf("cleanup targets=%v", e.removes)
+	}
 }
 
 func TestObservationFixtureRuntimeHeartbeatsRemainIndependentAndMonotonic(t *testing.T) {
@@ -441,16 +800,33 @@ WHERE observation.runtime_instance_id=$1`, string(start.Envelope.RuntimeInstance
 	}
 }
 
-func (r *observationFixtureRuntime) Inspect(context.Context, string) (workerapp.RuntimeInspection, error) {
-	return workerapp.RuntimeInspection{}, nil
+func (r *observationFixtureRuntime) Inspect(ctx context.Context, id string) (workerapp.RuntimeInspection, error) {
+	return r.runner.provisioner.Inspect(ctx, id)
 }
-func (r *observationFixtureRuntime) Provision(_ context.Context, request workerapp.RuntimeProvisionRequest) (workerapp.ProvisionedRuntime, error) {
+func (r *observationFixtureRuntime) Provision(ctx context.Context, request workerapp.RuntimeProvisionRequest, check workerapp.RuntimePreStartCheck) (workerapp.ProvisionedRuntime, error) {
+	partial := fixtureCreatedRuntime(request)
+	r.inventory.mu.Lock()
+	r.inventory.requests[request.RuntimeInstanceID] = request
+	r.inventory.mu.Unlock()
+	if err := publishSyntheticFixtureContainer(ctx, r.runner, request, partial.ContainerID); err != nil {
+		return partial, err
+	}
+	if err := fixtureRuntimePreStart(ctx, request, partial, check); err != nil {
+		return partial, err
+	}
+	if err := r.ctx.Err(); err != nil {
+		return partial, err
+	}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
 	go func() {
 		if err := r.run(request); err != nil && r.ctx.Err() == nil {
 			r.failures <- err
 		}
 	}()
-	return workerapp.ProvisionedRuntime{RuntimeInstanceID: request.RuntimeInstanceID, ContainerID: "fixture-" + request.RuntimeInstanceID, Generation: request.Generation, StartedAt: time.Now()}, nil
+	partial.StartedAt = time.Now()
+	return partial, nil
 }
 func (r *observationFixtureRuntime) next(t *testing.T) observationFixtureTurn {
 	t.Helper()
@@ -513,7 +889,11 @@ func (r *observationFixtureRuntime) run(request workerapp.RuntimeProvisionReques
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	ready, _ := json.Marshal(runtimeReadyPayload{AgentSessionID: "agent-observation-fixture", AgentProfileID: request.AgentProfile.ID, AgentProfileRevision: request.AgentProfile.Revision, AgentProfileDigest: request.AgentProfile.Digest, Capabilities: workerapp.AgentCapabilities{ProtocolVersion: "1", Prompt: true, Cancel: true}})
+	readyPayload := runtimeReadyPayload{AgentSessionID: "agent-observation-fixture", AgentProfileID: request.AgentProfile.ID, AgentProfileRevision: request.AgentProfile.Revision, AgentProfileDigest: request.AgentProfile.Digest, Capabilities: workerapp.AgentCapabilities{ProtocolVersion: "1", Prompt: true, Cancel: true}}
+	if r.readyTransform != nil {
+		r.readyTransform(&readyPayload)
+	}
+	ready, _ := json.Marshal(readyPayload)
 	if err := client.Publish(ctx, workerapp.WorkerControlEvent{Envelope: contractsv1.RuntimeControlEnvelope{MessageID: "ready-observation-fixture", IdempotencyKey: "ready-observation-fixture", WorkerSessionID: contractsv1.WorkerSessionID(request.WorkerSessionID), WorkerRunID: contractsv1.WorkerRunID(request.WorkerRunID), RuntimeInstanceID: contractsv1.RuntimeInstanceID(request.RuntimeInstanceID), RuntimeGeneration: uint32(request.Generation), AgentSessionID: "agent-observation-fixture", AgentTurnID: "runtime-startup", ChannelEpoch: prepared.Credential.Identity.ChannelEpoch, MessageType: "runtime.ready", Payload: ready}}); err != nil {
 		return err
 	}
@@ -535,6 +915,21 @@ func (r *observationFixtureRuntime) run(request workerapp.RuntimeProvisionReques
 			at := time.Now()
 			frame, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": string(start.Envelope.AgentTurnID), "method": "session/prompt", "params": map[string]any{"sessionId": start.Envelope.AgentSessionID, "_meta": map[string]any{"switchback": map[string]any{"agent_turn_id": start.Envelope.AgentTurnID, "runtime_id": start.Envelope.RuntimeInstanceID, "runtime_generation": start.Envelope.RuntimeGeneration, "worker_session_id": start.Envelope.WorkerSessionID}}}})
 			record, _ := json.Marshal(map[string]any{"type": "acp.raw_frame", "direction": "client_to_agent", "frame": string(frame)})
+			if r.rawResponse != nil {
+				response, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{
+					"sessionId": start.Envelope.AgentSessionID,
+					"_meta":     map[string]any{"switchback": map[string]any{"agent_turn_id": start.Envelope.AgentTurnID, "runtime_id": start.Envelope.RuntimeInstanceID, "runtime_generation": start.Envelope.RuntimeGeneration, "worker_session_id": start.Envelope.WorkerSessionID}},
+					"update":    map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": r.rawResponse(start.Envelope)}},
+				}})
+				if err != nil {
+					return err
+				}
+				responseRecord, err := json.Marshal(map[string]any{"type": "acp.raw_frame", "direction": "agent_to_client", "frame": string(response)})
+				if err != nil {
+					return err
+				}
+				record = append(append(record, '\n'), responseRecord...)
+			}
 			trace, err := os.OpenFile(filepath.Join(prepared.Storage.TraceSpool.BackendPath, "acp.raw.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 			if err != nil {
 				return err
@@ -576,7 +971,7 @@ func (r *observationFixtureRuntime) run(request workerapp.RuntimeProvisionReques
 			if err := client.PublishTurnUpdate(ctx, workerapp.WorkerControlEvent{Envelope: e}, false); err != nil {
 				return err
 			}
-			model, _ := json.Marshal(workerapp.ModelObservation{ObservationID: "model-" + id, WorkerSessionID: string(e.WorkerSessionID), WorkerRunID: string(e.WorkerRunID), AgentTurnID: id, RuntimeID: string(e.RuntimeInstanceID), Generation: uint64(e.RuntimeGeneration), Model: "fixture-model", Route: "fixture", Input: json.RawMessage(`{"text":"report"}`), Output: json.RawMessage(`{"text":"done"}`), StartedAt: at, EndedAt: time.Now(), Status: "completed"})
+			model, _ := json.Marshal(workerapp.ModelObservation{ObservationID: "model-" + id, WorkerSessionID: string(e.WorkerSessionID), WorkerRunID: string(e.WorkerRunID), AgentTurnID: id, RuntimeID: string(e.RuntimeInstanceID), Generation: uint64(e.RuntimeGeneration), Model: "fixture-model", Route: "fixture", Input: json.RawMessage(`{"text":"report"}`), Output: json.RawMessage(`{"text":"done"}`), StartedAt: at, EndedAt: time.Now(), Status: "ok"})
 			e.MessageID = "model-" + id
 			e.IdempotencyKey = e.MessageID
 			e.MessageType = "model.observation"
@@ -627,12 +1022,19 @@ func (r *observationFixtureRuntime) runHeartbeats(
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	ticks := r.heartbeatTicks
+	if ticks == nil {
+		ticks = ticker.C
+	}
 	var sequence uint64
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case _, open := <-ticks:
+			if !open {
+				return nil
+			}
 			sequence++
 			payload, err := json.Marshal(struct {
 				HeartbeatSequence uint64 `json:"heartbeat_sequence"`

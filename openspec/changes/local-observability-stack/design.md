@@ -38,6 +38,8 @@ Prometheus scrapes every 15 seconds and retains 7 days. Loki uses filesystem TSD
 
 Grafana has real Prometheus/Loki datasources and Platform Health, Worker Runtime, Harness & Model, Projection Health dashboards. Local rules cover target down, log loss, sustained projection backlog, runtime anomalies and no-data/error. Links use configured local bases and escaped scope/time parameters; target authorization still applies. Production UI gets necessary diagnostic links only; `web-demo` is not a product implementation.
 
+The approved 2026-10-11 diagnostics slice adds a separate public loopback Langfuse browser origin and canonical project segment. Compose shares the public project and init project through one anchor. Exact current Session/Run/Turn authority is read before the ArtifactTrace navigation bridge; Session-only requests never infer a Run. Only historical source/version/digest proof returns `historically_verified`, an exact trace route, and a safe identity summary. That proof does not bind the current endpoint/project/credential or health, and the page states `身份曾核验；链接使用当前项目配置，未实时核对`. Optional config failure and identity read failure retain other legal links; no remote call, raw proof, key, exception or invented verification time enters the HTTP response. Current same-project readback remains physical acceptance work.
+
 ## Risks / Trade-offs
 
 - Aggregation competes with core PostgreSQL → separate capped pool, read-only transactions, deadline, last-good snapshots, availability gauge.

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	artifactapp "github.com/abietic/switchback/internal/artifacttrace/application"
 	artifactdomain "github.com/abietic/switchback/internal/artifacttrace/domain"
@@ -149,14 +148,11 @@ func loadBasisFragmentCore(ctx context.Context, q fragmentQueryer, e *artifactap
 }
 
 func loadBasisFragmentCoreBinding(ctx context.Context, q fragmentQueryer, e *artifactapp.FragmentEvidence, f artifactdomain.ObservationFragment, r artifactapp.ObservationScanReceipt, p basisProvenance, historical bool) error {
-	if p.SchemaVersion != "observation.provenance.v1" || p.SettlementID == "" || !historical && p.LeaseFence == 0 || r.Provenance != (artifactapp.ObservationProvenance{CheckpointDigest: p.CheckpointDigest, InputDigest: p.InputDigest, ReportDigest: p.ReportDigest}) {
-		return fragmentProofError()
-	}
 	s := f.Scope
-	i := artifactdomain.TurnIdentity{TenantID: s.TenantID, UserID: s.UserID, WorkspaceID: s.WorkspaceID, WorkerSessionID: contractsv1.WorkerSessionID(s.WorkerSessionID), WorkerRunID: contractsv1.WorkerRunID(s.WorkerRunID)}
-	var fence uint64
-	var checkpoint []byte
-	var start, created, end time.Time
+	metadata := basisCoreMetadata{Turn: historyTurn{SettlementID: p.SettlementID}}
+	h := &metadata.Turn
+	i := &h.Identity
+	*i = artifactdomain.TurnIdentity{TenantID: s.TenantID, UserID: s.UserID, WorkspaceID: s.WorkspaceID, WorkerSessionID: contractsv1.WorkerSessionID(s.WorkerSessionID), WorkerRunID: contractsv1.WorkerRunID(s.WorkerRunID)}
 	err := q.QueryRow(ctx, `SELECT o.agent_turn_id,o.agent_session_id,o.runtime_instance_id,o.runtime_generation,o.lease_fence,o.phase_state,
  t.content,t.started_at,r.created_at,o.source_occurred_at,COALESCE(r.task_id,''),runtime.network_policy_id,runtime.network_policy_revision,runtime.network_policy_digest,runtime.network_enforcement_status
  FROM worker_turn_settlements o JOIN worker_sessions s USING(worker_session_id)
@@ -164,7 +160,7 @@ func loadBasisFragmentCoreBinding(ctx context.Context, q fragmentQueryer, e *art
  JOIN agent_turns t ON t.agent_turn_id=o.agent_turn_id AND t.worker_run_id=o.worker_run_id AND t.worker_session_id=o.worker_session_id AND t.agent_session_id=o.agent_session_id
  JOIN runtime_instances runtime ON runtime.runtime_instance_id=o.runtime_instance_id AND runtime.worker_session_id=o.worker_session_id AND runtime.generation=o.runtime_generation
  WHERE o.settlement_id=$1 AND o.tenant_id=$2 AND s.tenant_id=$2 AND s.user_id=$3 AND s.workspace_id=$4 AND o.worker_session_id=$5 AND o.worker_run_id=$6
-`, p.SettlementID, s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID).Scan(&i.AgentTurnID, &i.AgentSessionID, &i.RuntimeInstanceID, &i.RuntimeGeneration, &fence, &checkpoint, &e.Core.Input, &start, &created, &end, &i.TaskID, &i.RuntimeNetwork.ID, &i.RuntimeNetwork.Revision, &i.RuntimeNetwork.Digest, &i.RuntimeNetwork.EnforcementStatus)
+`, p.SettlementID, s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID).Scan(&i.AgentTurnID, &i.AgentSessionID, &i.RuntimeInstanceID, &i.RuntimeGeneration, &metadata.LeaseFence, &h.Checkpoint, &h.Input, &h.Start, &h.Created, &h.End, &i.TaskID, &i.RuntimeNetwork.ID, &i.RuntimeNetwork.Revision, &i.RuntimeNetwork.Digest, &i.RuntimeNetwork.EnforcementStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fragmentProofError()
 	}
@@ -173,66 +169,92 @@ func loadBasisFragmentCoreBinding(ctx context.Context, q fragmentQueryer, e *art
 	}
 	i.TraceStreamID = "trace-" + string(i.AgentTurnID)
 	i.LangfuseTraceID = "langfuse-" + string(i.AgentTurnID)
-	var frozen struct {
-		Frozen *workerapp.FrozenArtifactMetadata `json:"frozen_artifacts"`
-		Input  struct {
-			SourceCheckpointID     string `json:"source_checkpoint_id"`
-			SourceCheckpointDigest string `json:"source_checkpoint_digest"`
-		} `json:"evidence_input"`
-	}
-	if json.Unmarshal(checkpoint, &frozen) != nil || frozen.Frozen == nil || p.LeaseFence > fence || p.InputDigest != artifactdomain.Checksum(e.Core.Input) || f.InputJSON != string(e.Core.Input) || r.Scope.WorkerSessionID != s.WorkerSessionID || r.Scope.RuntimeInstanceID != string(i.RuntimeInstanceID) || r.Scope.RuntimeGeneration != uint64(i.RuntimeGeneration) {
+	if json.Unmarshal(h.Checkpoint, &metadata.Frozen) != nil {
 		return fragmentProofError()
 	}
 	if f.Kind == artifactdomain.FragmentRunBasis {
-		var initial []string
-		if err := q.QueryRow(ctx, `SELECT COALESCE(array_agg(agent_turn_id),ARRAY[]::text[]) FROM agent_turns WHERE worker_run_id=$1 AND worker_session_id=$2 AND created_at=$3 AND mode IN ('prompt','queue')`, s.WorkerRunID, s.WorkerSessionID, created).Scan(&initial); err != nil {
+		if err := q.QueryRow(ctx, `SELECT COALESCE(array_agg(agent_turn_id),ARRAY[]::text[]) FROM agent_turns WHERE worker_run_id=$1 AND worker_session_id=$2 AND created_at=$3 AND mode IN ('prompt','queue')`, s.WorkerRunID, s.WorkerSessionID, h.Created).Scan(&h.InitialIDs); err != nil {
 			return err
 		}
-		if len(initial) != 1 || initial[0] != f.InitialTurnID || f.InitialTurnID != string(i.AgentTurnID) || !f.StartedAt.Equal(created) {
-			return fragmentProofError()
-		}
-	} else {
-		var report string
-		if f.Turn == nil || *f.Turn != i || !f.StartedAt.Equal(start) || f.EndedAt == nil || !f.EndedAt.Equal(end) || json.Unmarshal([]byte(f.OutputJSON), &report) != nil || artifactdomain.Checksum([]byte(report)) != p.ReportDigest {
-			return fragmentProofError()
-		}
 	}
-	var rawManifest, rawReport []byte
-	var matched bool
 	err = q.QueryRow(ctx, `SELECT manifest,manifest_object_key,manifest_checksum,manifest_size_bytes,
  tenant_id=$2 AND user_id=$3 AND workspace_id=$4 AND worker_session_id=$5 AND worker_run_id=$6 AND agent_turn_id=$7 AND runtime_instance_id=$8 AND runtime_generation=$9
- FROM trace_manifests WHERE trace_stream_id=$1 FOR SHARE`, i.TraceStreamID, s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID, i.AgentTurnID, i.RuntimeInstanceID, i.RuntimeGeneration).Scan(&rawManifest, &e.Core.ManifestObject.Key, &e.Core.ManifestObject.Checksum, &e.Core.ManifestObject.Size, &matched)
+ FROM trace_manifests WHERE trace_stream_id=$1 FOR SHARE`, i.TraceStreamID, s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID, i.AgentTurnID, i.RuntimeInstanceID, i.RuntimeGeneration).Scan(&h.Manifest, &h.ManifestObject.Key, &h.ManifestObject.Checksum, &h.ManifestObject.Size, &metadata.ManifestMatches)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fragmentPending()
 	}
 	if err != nil {
 		return err
 	}
-	if !matched {
+	metadata.Manifest, err = contractsv1.DecodeTraceManifest(h.Manifest)
+	if err != nil {
 		return fragmentProofError()
 	}
-	m, err := contractsv1.DecodeTraceManifest(rawManifest)
-	if err != nil || m.TenantID != s.TenantID || m.UserID != s.UserID || m.WorkspaceID != s.WorkspaceID || m.WorkerSessionID != i.WorkerSessionID || m.WorkerRunID != i.WorkerRunID || m.AgentTurnID != i.AgentTurnID || m.RuntimeInstanceID != i.RuntimeInstanceID || m.RuntimeGeneration != i.RuntimeGeneration || m.TraceStreamID != i.TraceStreamID || m.LangfuseExport.TraceID != i.LangfuseTraceID {
-		return fragmentProofError()
+	var reportID string
+	if metadata.Frozen.Frozen != nil {
+		reportID = metadata.Frozen.Frozen.ReportArtifactID
 	}
-	e.Core.Manifest = m
-	var object workerapp.StoredObject
 	err = q.QueryRow(ctx, `SELECT artifact_ref,object_key,object_checksum,size_bytes,
  trace_stream_id=$2 AND tenant_id=$3 AND user_id=$4 AND workspace_id=$5 AND worker_session_id=$6 AND worker_run_id=$7 AND agent_turn_id=$8 AND runtime_instance_id=$9 AND runtime_generation=$10 AND artifact_type='report' AND COALESCE(task_id,'')=$11
- FROM artifact_refs WHERE artifact_id=$1 FOR SHARE`, frozen.Frozen.ReportArtifactID, i.TraceStreamID, s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID, i.AgentTurnID, i.RuntimeInstanceID, i.RuntimeGeneration, i.TaskID).Scan(&rawReport, &object.Key, &object.Checksum, &object.Size, &matched)
+ FROM artifact_refs WHERE artifact_id=$1 FOR SHARE`, reportID, i.TraceStreamID, s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID, i.AgentTurnID, i.RuntimeInstanceID, i.RuntimeGeneration, i.TaskID).Scan(&h.ReportRef, &h.ReportObject.Key, &h.ReportObject.Checksum, &h.ReportObject.Size, &metadata.ReportMatches)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fragmentProofError()
 	}
 	if err != nil {
 		return err
 	}
-	report, decodeErr := contractsv1.DecodeArtifactRef(rawReport)
-	if decodeErr != nil || !matched || report.ArtifactID != frozen.Frozen.ReportArtifactID || report.TenantID != s.TenantID || report.UserID != s.UserID || report.WorkspaceID != s.WorkspaceID || report.WorkerSessionID != i.WorkerSessionID || report.WorkerRunID != i.WorkerRunID || report.AgentTurnID != i.AgentTurnID || report.RuntimeInstanceID != i.RuntimeInstanceID || report.RuntimeGeneration != i.RuntimeGeneration || report.TaskID != i.TaskID || report.Type != "report" || report.URI != "object://"+object.Key || report.SizeBytes != object.Size || "sha256:"+report.SHA256 != object.Checksum || object.Checksum != p.ReportDigest || !report.CreatedAt.Equal(frozen.Frozen.CreatedAt) || report.SourceCheckpointRef.CheckpointID != frozen.Input.SourceCheckpointID || report.SourceCheckpointRef.Digest != frozen.Input.SourceCheckpointDigest {
+	metadata.Report, err = contractsv1.DecodeArtifactRef(h.ReportRef)
+	if err != nil {
 		return fragmentProofError()
 	}
-	e.Core.Report = report
-	e.Core.ReportDigest = p.ReportDigest
-	return nil
+	e.Core, err = bindBasisFragmentCore(f, r, p, historical, metadata)
+	return err
+}
+
+type basisFrozenMetadata struct {
+	Frozen *workerapp.FrozenArtifactMetadata `json:"frozen_artifacts"`
+	Input  struct {
+		SourceCheckpointID     string `json:"source_checkpoint_id"`
+		SourceCheckpointDigest string `json:"source_checkpoint_digest"`
+	} `json:"evidence_input"`
+}
+
+// Both SQL readers assemble these facts; lock policy remains in each reader.
+type basisCoreMetadata struct {
+	Turn                           historyTurn
+	LeaseFence                     uint64
+	Frozen                         basisFrozenMetadata
+	Manifest                       contractsv1.TraceManifest
+	Report                         contractsv1.ArtifactRef
+	ManifestMatches, ReportMatches bool
+}
+
+// bindBasisFragmentCore is the common pure proof boundary for the publication
+// locking reader and the navigation READ ONLY reader. It performs no I/O.
+func bindBasisFragmentCore(f artifactdomain.ObservationFragment, r artifactapp.ObservationScanReceipt, p basisProvenance, historical bool, metadata basisCoreMetadata) (artifactapp.FragmentCoreEvidence, error) {
+	var core artifactapp.FragmentCoreEvidence
+	h, frozen, m, report := metadata.Turn, metadata.Frozen, metadata.Manifest, metadata.Report
+	s, i, object := f.Scope, h.Identity, h.ReportObject
+	if p.SchemaVersion != "observation.provenance.v1" || p.SettlementID == "" || p.SettlementID != h.SettlementID || !historical && p.LeaseFence == 0 || r.Provenance != (artifactapp.ObservationProvenance{CheckpointDigest: p.CheckpointDigest, InputDigest: p.InputDigest, ReportDigest: p.ReportDigest}) || frozen.Frozen == nil || p.LeaseFence > metadata.LeaseFence || p.InputDigest != artifactdomain.Checksum(h.Input) || f.InputJSON != string(h.Input) || r.Scope != (artifactapp.ObservationScanScope{WorkerSessionID: s.WorkerSessionID, RuntimeInstanceID: string(i.RuntimeInstanceID), RuntimeGeneration: uint64(i.RuntimeGeneration)}) {
+		return core, fragmentProofError()
+	}
+	if f.Kind == artifactdomain.FragmentRunBasis {
+		if len(h.InitialIDs) != 1 || h.InitialIDs[0] != f.InitialTurnID || f.InitialTurnID != string(i.AgentTurnID) || !f.StartedAt.Equal(h.Created) {
+			return core, fragmentProofError()
+		}
+	} else {
+		var output string
+		if f.Turn == nil || *f.Turn != i || !f.StartedAt.Equal(h.Start) || f.EndedAt == nil || !f.EndedAt.Equal(h.End) || json.Unmarshal([]byte(f.OutputJSON), &output) != nil || artifactdomain.Checksum([]byte(output)) != p.ReportDigest {
+			return core, fragmentProofError()
+		}
+	}
+	if !metadata.ManifestMatches || m.TenantID != s.TenantID || m.UserID != s.UserID || m.WorkspaceID != s.WorkspaceID || m.WorkerSessionID != i.WorkerSessionID || m.WorkerRunID != i.WorkerRunID || m.AgentTurnID != i.AgentTurnID || m.RuntimeInstanceID != i.RuntimeInstanceID || m.RuntimeGeneration != i.RuntimeGeneration || m.TraceStreamID != i.TraceStreamID || m.LangfuseExport.TraceID != i.LangfuseTraceID {
+		return core, fragmentProofError()
+	}
+	if !metadata.ReportMatches || report.ArtifactID != frozen.Frozen.ReportArtifactID || report.TenantID != s.TenantID || report.UserID != s.UserID || report.WorkspaceID != s.WorkspaceID || report.WorkerSessionID != i.WorkerSessionID || report.WorkerRunID != i.WorkerRunID || report.AgentTurnID != i.AgentTurnID || report.RuntimeInstanceID != i.RuntimeInstanceID || report.RuntimeGeneration != i.RuntimeGeneration || report.TaskID != i.TaskID || report.Type != "report" || report.URI != "object://"+object.Key || report.SizeBytes != object.Size || "sha256:"+report.SHA256 != object.Checksum || object.Checksum != p.ReportDigest || !report.CreatedAt.Equal(frozen.Frozen.CreatedAt) || report.SourceCheckpointRef.CheckpointID != frozen.Input.SourceCheckpointID || report.SourceCheckpointRef.Digest != frozen.Input.SourceCheckpointDigest {
+		return core, fragmentProofError()
+	}
+	return artifactapp.FragmentCoreEvidence{Input: h.Input, ReportDigest: p.ReportDigest, Manifest: m, ManifestObject: h.ManifestObject, Report: report}, nil
 }
 
 func loadModelFragmentCore(ctx context.Context, q fragmentQueryer, e *artifactapp.FragmentEvidence, f artifactdomain.ObservationFragment, r artifactapp.ObservationScanReceipt) error {

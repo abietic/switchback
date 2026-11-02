@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
 import runtimeSource from "./viewRuntime.ts?raw";
+import workerSource from "./decoders/worker.ts?raw";
 import { findProductionViewCompositionViolations } from "../test/productionViewCompositionGuard";
 
 describe("projection runtime composition boundary", () => {
+  it("allows only the exact pure Worker timeline page parser beside the closed factory", () => {
+    expect(findProductionViewCompositionViolations({ "./decoders/worker.ts": workerSource })).toEqual([]);
+  });
+
+  it.each([
+    ["wrong name", "export function parseWorkerTimelinePage(value: unknown): WorkerTimelinePage", "export function arbitraryParser(value: unknown): WorkerTimelinePage"],
+    ["wrong input", "parseWorkerTimelinePage(value: unknown)", "parseWorkerTimelinePage(value: any)"],
+    ["wrong return", "parseWorkerTimelinePage(value: unknown): WorkerTimelinePage", "parseWorkerTimelinePage(value: unknown): unknown"],
+    ["async", "export function parseWorkerTimelinePage", "export async function parseWorkerTimelinePage"],
+    ["composition", "const page = requireRecord(value", "internalCreateViewProjectionRuntimeDecoder({}); const page = requireRecord(value"],
+    ["composition alias", "const page = requireRecord(value", "const alias = internalCreateViewProjectionRuntimeDecoder; alias({}); const page = requireRecord(value"],
+    ["factory alias", "const page = requireRecord(value", "const alias = createWorkerViewDecoder; alias(\"other\"); const page = requireRecord(value"],
+  ])("rejects timeline parser %s escape", (_label, before, after) => {
+    expect(workerSource).toContain(before);
+    expect(findProductionViewCompositionViolations({ "./decoders/worker.ts": workerSource.replace(before, after) })).toEqual([
+      expect.objectContaining({ path: "src/projections/decoders/worker.ts" }),
+    ]);
+  });
   it("keeps the guard seam closed", () => {
     expect(findProductionViewCompositionViolations({
       "../app/SafeConsumer.tsx": "export const safe = true;",

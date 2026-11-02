@@ -38,10 +38,10 @@ For the current `SingleUserLocalProfile`, the server-fixed Tenant/User identity 
 - **THEN** the server excludes those records and their derived counts and references from the Home View
 
 ### Requirement: Production Web uses one adaptive product shell
-The system SHALL route `/`, `/tasks`, `/assistant`, `/assistant/:conversationId`, `/workers/:workerSessionId`, and `/artifacts/:artifactId` through one production React Router tree and one adaptive product shell. The `/assistant` route MUST require an explicit start-conversation command rather than creating a Conversation during navigation.
+The system SHALL route `/`, `/tasks`, `/observability`, `/assistant`, `/assistant/:conversationId`, `/workers/:workerSessionId`, and `/artifacts/:artifactId` through one production React Router tree and one adaptive product shell. The `/assistant` route MUST require an explicit start-conversation command rather than creating a Conversation during navigation.
 
 #### Scenario: User opens an overview route
-- **WHEN** the user opens Home or Tasks at a desktop width
+- **WHEN** the user opens Home, Tasks, or Observability at a desktop width
 - **THEN** the one product shell renders expanded navigation and a scrollable overview canvas backed by the route's authoritative Frontier View
 
 #### Scenario: User opens a focused execution route
@@ -86,6 +86,14 @@ The migrated Home, Tasks, Assistant, Worker, Workbench, and Artifact pages SHALL
 - **WHEN** an Artifact is missing, unavailable, or fails digest or integrity verification
 - **THEN** Workbench and Artifact detail refuse unsafe content rendering, show the authoritative integrity outcome, and retain canonical navigation and permitted recovery actions
 
+#### Scenario: Worker has not published an Artifact
+- **WHEN** a Worker detail projection contains no Artifact of the selected type
+- **THEN** Workbench renders an empty state rather than a loading indicator, and a subsequently published report becomes visible without requiring the user to select an unavailable tab
+
+#### Scenario: User changes the selected Artifact during a request
+- **WHEN** a preview request is aborted because the selected Artifact changes, or another Artifact preview fails
+- **THEN** the aborted response cannot populate the preview cache, and neither its loading state nor another Artifact's error can replace the current selected Artifact's authoritative content
+
 ### Requirement: Migration has one production implementation
 The completed migration SHALL keep `web/` as the only production frontend and MUST remove superseded production routing, shell, theme, view, and style owners after replacement gates pass. Production code MUST NOT import `web-demo/`, prototype mock records, simulated domain state, legacy product/prototype copy, permanent migration flags, or disabled legacy UI paths.
 
@@ -94,5 +102,35 @@ The completed migration SHALL keep `web/` as the only production frontend and MU
 - **THEN** repository checks prove one router, one shell, one theme owner, no prototype imports or mock domain records, and no superseded production implementation before the change is archived
 
 #### Scenario: Future platform module is shown in navigation
-- **WHEN** navigation presents an out-of-scope Workspace, Memory/Evolution, Skills/MCP, Observability, Admin, Web IDE, or SessionProcess module
+- **WHEN** navigation presents an out-of-scope Workspace, Memory/Evolution, Skills/MCP, Admin, Web IDE, or SessionProcess module
 - **THEN** it appears only in a collapsed `平台规划` group with a non-interactive `规划中` label and does not expose a fake route or imply production availability
+
+### Requirement: Production observability navigation reuses authorized diagnostics
+The production Web SHALL expose a `可观测性` link to `/observability` in expanded, rail, and drawer navigation. The overview MUST use only the validated viewer-scoped Home View and existing ViewBoundary to list recent authorized WorkerSessions. User selection MUST navigate to the exact Worker detail identity and its existing diagnostics; navigation MUST NOT issue commands, synthesize telemetry, guess Langfuse identity, or construct diagnostic URLs in the overview. Admin MUST remain separately non-interactive and planned.
+
+#### Scenario: User selects an authorized Worker
+- **WHEN** Home contains a readable recent WorkerSession and the user selects it in Observability
+- **THEN** the link opens that exact Worker detail with its existing authorized diagnostics, whose Grafana data is aggregate and Logs use the selected scope; absent verified Langfuse identity produces no Langfuse link
+
+#### Scenario: No recent Worker is available
+- **WHEN** the authorized Home View contains no recent WorkerSession
+- **THEN** Observability presents an honest empty state with explicit Assistant and Tasks entry points and creates no Task or Conversation during navigation
+
+#### Scenario: Home read fails or requires resynchronization
+- **WHEN** the Home View fails, requires resynchronization, or loses access
+- **THEN** the existing ViewBoundary offers retry, retains trusted navigation while replacement is pending, and clears protected Worker data when the authoritative replica clears access
+
+### Requirement: Explicit historical diagnostics survive reload safely
+Worker diagnostics SHALL default to Session scope. Explicit Artifact selection SHALL resolve the current canonical ArtifactSummary by exact ID, and explicit timeline selection SHALL use canonical Run/Turn refs. The route SHALL retain either Artifact ID or exact Run/optional Turn; URL refs MUST NOT grant authority. A missing/malformed selection MUST NOT fall back to active, latest or newest. Client decoding SHALL reject target mismatch, duplicate or unsafe links, unknown finite status, malformed identity and any historically_verified/link inconsistency. Only historically_verified SHALL contain Langfuse identity/link, with the exact historical proof boundary wording. Commands and Artifact review authority SHALL remain unchanged.
+
+#### Scenario: Completed report is selected and the page reloads
+- **WHEN** active execution IDs clear or a newer report arrives after an explicit historical Artifact selection
+- **THEN** reload SHALL display that selected Artifact from canonical summary and request its exact historical Run/Turn, or show unavailable if it vanished
+
+#### Scenario: Historical Turn is outside the first page
+- **WHEN** a route selects an exact historical Run/Turn outside the first twenty timeline records
+- **THEN** diagnostics SHALL reauthorize that target directly without guessing latest or fetching all timeline pages; newly loaded older page targets SHALL pass the existing parser
+
+#### Scenario: Diagnostic target changes with requests in flight
+- **WHEN** the target changes, including A to B to A or a different Session
+- **THEN** old links SHALL disappear immediately and aborted/late responses SHALL NOT populate the current target

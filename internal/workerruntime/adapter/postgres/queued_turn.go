@@ -151,16 +151,20 @@ FOR UPDATE`, activeRuntimeID, sessionID, record.Command.RuntimeGeneration, previ
 		triggerType := "direct_agent_turn"
 		var newTaskID any
 		var newOriginTaskID any
+		var taskStatus string
+		var taskRevision uint64
 		if taskID != "" {
 			triggerType = "task_rework"
 			newTaskID = taskID
 			if boundTaskID != taskID {
 				return platformpostgres.ErrRevisionConflict
 			}
-			var taskStatus, initiatorID, currentRunID string
-			if err := tx.QueryRow(ctx, `SELECT status,initiator_user_id,COALESCE(current_worker_run_id,'')
-FROM tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&taskStatus, &initiatorID, &currentRunID); err != nil ||
-				taskStatus != "running" || initiatorID != record.Command.UserID || currentRunID != previousRunID {
+			var taskTenant, taskSessionID, initiatorID, currentRunID string
+			if err := tx.QueryRow(ctx, `SELECT tenant_id,status,initiator_user_id,COALESCE(worker_session_id,''),COALESCE(current_worker_run_id,''),revision
+FROM tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&taskTenant, &taskStatus, &initiatorID, &taskSessionID, &currentRunID, &taskRevision); err != nil ||
+				taskTenant != record.Command.TenantID || taskSessionID != sessionID ||
+				(taskStatus != "running" && taskStatus != "delivered") ||
+				initiatorID != record.Command.UserID || currentRunID != previousRunID {
 				return platformpostgres.ErrRevisionConflict
 			}
 		} else {
@@ -168,6 +172,9 @@ FROM tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&taskStatus, &initiatorID,
 			if boundTaskID != "" {
 				return platformpostgres.ErrRevisionConflict
 			}
+		}
+		if err := application.RejectUnintegratedExecution(); err != nil {
+			return err
 		}
 		startSnapshot, _ := json.Marshal(map[string]any{
 			"queued_after_worker_run_id":   previousRunID,
@@ -206,9 +213,7 @@ VALUES ($1,$2,'agent_turn_deadline','AgentTurn',$3,1,'{}'::jsonb,
 			return err
 		}
 		if taskID != "" {
-			if _, err := tx.Exec(ctx, `UPDATE tasks SET current_worker_run_id=$2,revision=revision+1,updated_at=$3
-WHERE task_id=$1 AND status='running' AND current_worker_run_id=$4`, taskID, record.WorkerRunID,
-				record.Now, previousRunID); err != nil {
+			if err := store.continueQueuedTaskTx(ctx, tx, record, taskID, taskStatus, taskRevision); err != nil {
 				return err
 			}
 		}
@@ -280,6 +285,62 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, event.EventID,
 		return nil
 	}()
 	return result, err
+}
+
+// The prior settlement publishes its report before consuming the accepted
+// prompt. Resume that exact bound Task in the same transaction as the queued
+// Run, retaining the previous result refs and the Task owner's revision audit.
+func (store *QueuedTurnStore) continueQueuedTaskTx(ctx context.Context, tx platformpostgres.Tx, record application.ContinueQueuedTurnRecord, taskID, fromStatus string, revision uint64) error {
+	var nextRevision uint64
+	if err := tx.QueryRow(ctx, `UPDATE tasks
+SET status='running',current_worker_run_id=$2,waiting_reason=NULL,revision=revision+1,updated_at=$3
+WHERE task_id=$1 AND revision=$4 AND status=$5 AND current_worker_run_id=$6
+RETURNING revision`, taskID, record.WorkerRunID, record.Now, revision, fromStatus, record.Command.PreviousWorkerRunID).Scan(&nextRevision); err != nil {
+		return platformpostgres.ErrRevisionConflict
+	}
+	eventID := record.EventID + "-task"
+	key := "queued-turn/" + record.Command.QueueCommandID
+	result, _ := json.Marshal(map[string]any{
+		"worker_session_id": record.Command.WorkerSessionID, "worker_run_id": record.WorkerRunID,
+		"agent_turn_id": record.AgentTurnID, "queue_command_id": record.Command.QueueCommandID,
+		"interaction_kind": "chat", "event_id": eventID,
+	})
+	if _, err := tx.Exec(ctx, `INSERT INTO task_transitions
+  (transition_id,task_id,idempotency_key,expected_revision,result_revision,from_state,to_state,trigger,result,occurred_at)
+VALUES ($1,$2,$3,$4,$5,$6,'running','initiator_chat',$7,$8)`,
+		key, taskID, key, revision, nextRevision, fromStatus, result, record.Now); err != nil {
+		return err
+	}
+	stream := platformpostgres.OwnerStream{StreamID: "task/" + taskID, OwnerContext: "task-orchestration", AggregateType: "Task", AggregateID: taskID}
+	sequence, err := store.streams.Next(ctx, tx, stream)
+	if err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"task_id": taskID, "task_revision": nextRevision, "worker_session_id": record.Command.WorkerSessionID,
+		"worker_run_id": record.WorkerRunID, "agent_turn_id": record.AgentTurnID,
+		"queue_command_id": record.Command.QueueCommandID, "interaction_kind": "chat",
+	})
+	event := contractsv1.IntegrationEvent{
+		SchemaVersion: contractsv1.IntegrationEventSchemaVersion, EventID: eventID,
+		EventType: "TaskContinuationStarted.v1", ProducerContext: "task-orchestration",
+		StreamID: stream.StreamID, Sequence: sequence, TenantID: record.Command.TenantID,
+		AggregateType: "Task", AggregateID: taskID, TraceID: stream.StreamID,
+		CorrelationID: record.Command.QueueCommandID, CausationID: record.Command.QueueCommandID,
+		IdempotencyKey: "TaskContinuationStarted.v1/" + key,
+		Visibility:     "user", OccurredAt: record.Now, Payload: payload,
+	}
+	if err := event.Validate(); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO outbox_events
+  (event_id,schema_version,event_type,producer_context,stream_id,sequence,tenant_id,aggregate_type,
+   aggregate_id,trace_id,correlation_id,causation_id,idempotency_key,visibility,payload,occurred_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		event.EventID, event.SchemaVersion, event.EventType, event.ProducerContext, event.StreamID, event.Sequence,
+		event.TenantID, event.AggregateType, event.AggregateID, event.TraceID, event.CorrelationID, event.CausationID,
+		event.IdempotencyKey, event.Visibility, event.Payload, event.OccurredAt)
+	return err
 }
 
 var _ application.QueuedTurnStore = (*QueuedTurnStore)(nil)

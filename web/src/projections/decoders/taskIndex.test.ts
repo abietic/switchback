@@ -176,3 +176,32 @@ describe("Task index production view contract", () => {
     }
   });
 });
+
+describe("queued runtime dispatch waits", () => {
+  const reasons = ["capacity_uninitialized", "capacity_evidence_invalid", "capacity_evidence_stale", "capacity_identity_drift", "capacity_inventory_unknown", "capacity_exhausted", "capacity_path_not_integrated"];
+  const observed_at = "2026-10-13T06:00:00.123456Z";
+  function waitingData(wait: unknown, status = "queued") {
+    const data = taskIndexData();
+    Object.assign(data.tasks[0]!, {status, status_tone: status === "queued" ? "neutral" : "active", runtime_dispatch_wait: wait});
+    return data;
+  }
+  it.each(reasons)("retains %s in snapshot and exact-next delta", (reason) => {
+    const wait = {reason, observed_at};
+    const data = waitingData(wait);
+    const decoder = createTaskIndexViewDecoder();
+    const decoded = decoder.decodeSnapshot(snapshot({data}), {requestedClientCommandIds: []});
+    expect(decoded.effective.data.tasks[0]).toHaveProperty("runtime_dispatch_wait", wait);
+    const next = decoder.decodeDeltaFrame(frame(delta({payload: {data}})), decoded.effective);
+    expect(next.result.kind).toBe("apply");
+  });
+  it.each([null, undefined, {}, {reason:"unknown",observed_at}, {reason:"capacity_exhausted", observed_at:"2026-10-13T14:00:00+08:00"}, {reason:"capacity_exhausted",observed_at:"2026-02-30T00:00:00Z"}])("rejects malformed snapshot and delta diagnostic %j", (wait) => {
+    const data=waitingData(wait);
+    expect(()=>createTaskIndexViewDecoder().decodeSnapshot(snapshot({data}),{requestedClientCommandIds:[]})).toThrow();
+    if (wait !== undefined) expect(()=>decodeDelta(delta({payload:{data}}))).toThrow();
+  });
+  it("rejects wait on a running task in both transports", () => {
+    const data=waitingData({reason:"capacity_exhausted",observed_at},"running");
+    expect(()=>createTaskIndexViewDecoder().decodeSnapshot(snapshot({data}),{requestedClientCommandIds:[]})).toThrow();
+    expect(()=>decodeDelta(delta({payload:{data}}))).toThrow();
+  });
+});

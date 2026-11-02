@@ -5,10 +5,13 @@ import {
   matchRoutes,
   useNavigate,
   useParams,
+  useLocation,
+  useSearchParams,
   type NavigateFunction,
   type RouteObject,
 } from "react-router";
 import { assistantConversationPath, createAssistantConversation, newAssistantIdempotencyKey } from "../api/assistantCommands";
+import { parseWorkerDiagnosticSelection, type WorkerDiagnosticSelection } from "../api/workerDiagnostics";
 import {
   submitTaskCommand,
   submitTaskContinuation,
@@ -32,6 +35,7 @@ import {
 } from "../features/artifact/ArtifactDetailPage";
 import { AssistantConversationPage } from "../features/assistant/AssistantConversationPage";
 import { HomePage } from "../features/home/HomePage";
+import { ObservabilityPage } from "../features/observability/ObservabilityPage";
 import { TasksPage } from "../features/tasks/TasksPage";
 import { WorkerDetailPage } from "../features/worker/WorkerDetailPage";
 import {
@@ -45,6 +49,7 @@ import { isSwitchbackRouteHandle, type SwitchbackRouteHandle } from "./routeHand
 
 const handles = {
   home: { shellMode: "overview", title: "工作台" },
+  observability: { shellMode: "overview", title: "可观测性" },
   tasks: { shellMode: "overview", title: "任务交付" },
   assistantStart: { shellMode: "overview", title: "Assistant" },
   assistant: { shellMode: "focused", title: "Assistant" },
@@ -73,6 +78,7 @@ export const appRoutes: RouteObject[] = [{
   element: <ProductShell />,
   children: [
     { index: true, element: <HomePage />, handle: handles.home },
+    { path: "observability", element: <ObservabilityPage />, handle: handles.observability },
     { path: "tasks", element: <TaskRoute />, handle: handles.tasks },
     { path: "assistant", element: <AssistantStartRoute />, handle: handles.assistantStart },
     { path: "assistant/:conversationId", element: <AssistantRoute />, handle: handles.assistant },
@@ -277,6 +283,19 @@ function AssistantRoute() {
 
 function WorkerRoute() {
   const { workerSessionId = "" } = useParams<"workerSessionId">();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const diagnosticSelection = parseWorkerDiagnosticSelection(location.search);
+  const selectDiagnostics = (selection: WorkerDiagnosticSelection) => {
+    const next = new URLSearchParams(searchParams);
+    for (const key of ["artifact_id", "worker_run_id", "agent_turn_id"]) next.delete(key);
+    if (selection.kind === "artifact") next.set("artifact_id", selection.artifactId);
+    if (selection.kind === "exact") {
+      next.set("worker_run_id", selection.runId);
+      if (selection.turnId) next.set("agent_turn_id", selection.turnId);
+    }
+    setSearchParams(next);
+  };
   const {
     replica,
     state,
@@ -354,6 +373,9 @@ function WorkerRoute() {
     >
       {worker ? (
         <WorkerDetailPage
+          key={workerSessionId}
+          diagnosticSelection={diagnosticSelection}
+          onDiagnosticSelectionChange={selectDiagnostics}
           availableActions={state.availableActions}
           mutationsEnabled={mutationsEnabled}
           onCommand={execute}

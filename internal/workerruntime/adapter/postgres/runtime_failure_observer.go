@@ -23,6 +23,9 @@ type DetectedRuntimeFailure struct {
 	Trigger           domain.RuntimeRecoveryTrigger
 	EvidenceRef       string
 	EvidenceAt        time.Time
+	// Inspection is populated only by the server-owned hard-container inspector.
+	// Transport/Agent signals intentionally do not carry this evidence.
+	Inspection *application.RuntimeInspection
 }
 
 type RuntimeFailureObserver struct {
@@ -54,7 +57,7 @@ func (observer *RuntimeFailureObserver) OpenDetectedRuntimeFailure(
 		return application.RuntimeRecoveryState{}, false,
 			fmt.Errorf("Runtime failure observer is unavailable")
 	}
-	if !observer.enabled {
+	if !observer.enabled && signal.Inspection == nil {
 		return application.RuntimeRecoveryState{}, false, nil
 	}
 	if !signal.Trigger.Eligible() || signal.WorkerSessionID == "" ||
@@ -63,7 +66,7 @@ func (observer *RuntimeFailureObserver) OpenDetectedRuntimeFailure(
 		return application.RuntimeRecoveryState{}, false,
 			fmt.Errorf("detected Runtime failure identity is invalid")
 	}
-	var tenantID, activeRuntimeID, sessionStatus, runtimeStatus string
+	var tenantID, activeRuntimeID, sessionStatus, runtimeStatus, containerID string
 	var activeRunID, turnID *string
 	var sessionRevision, runtimeRevision, runRevision, turnRevision uint64
 	var runtimeGeneration, channelEpoch uint64
@@ -71,7 +74,7 @@ func (observer *RuntimeFailureObserver) OpenDetectedRuntimeFailure(
 SELECT session.tenant_id,COALESCE(session.active_runtime_instance_id,''),session.status,
        session.session_revision,session.active_worker_run_id,
        runtime.status,runtime.revision,runtime.generation,runtime.control_channel_epoch,
-       turn.agent_turn_id,COALESCE(run.revision,0),COALESCE(turn.revision,0)
+       turn.agent_turn_id,COALESCE(run.revision,0),COALESCE(turn.revision,0),COALESCE(runtime.container_id,'')
 FROM worker_sessions session
 JOIN runtime_instances runtime ON runtime.runtime_instance_id=$2
   AND runtime.worker_session_id=session.worker_session_id
@@ -88,7 +91,7 @@ WHERE session.worker_session_id=$1`,
 	).Scan(
 		&tenantID, &activeRuntimeID, &sessionStatus, &sessionRevision, &activeRunID,
 		&runtimeStatus, &runtimeRevision, &runtimeGeneration, &channelEpoch,
-		&turnID, &runRevision, &turnRevision,
+		&turnID, &runRevision, &turnRevision, &containerID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return application.RuntimeRecoveryState{}, false, nil
@@ -101,7 +104,7 @@ WHERE session.worker_session_id=$1`,
 		runtimeGeneration != signal.RuntimeGeneration ||
 		channelEpoch != signal.ChannelEpoch ||
 		!detectedFailureSessionStatusAllowed(sessionStatus) ||
-		!runtimeStatusCanRecover(runtimeStatus) {
+		(observer.enabled && !runtimeStatusCanRecover(runtimeStatus)) {
 		return application.RuntimeRecoveryState{}, false, nil
 	}
 	command := application.OpenRuntimeRecoveryCommand{
@@ -123,8 +126,19 @@ WHERE session.worker_session_id=$1`,
 		command.ExpectedRunRevision = runRevision
 		command.ExpectedTurnRevision = turnRevision
 	}
-	state, err := observer.recovery.Open(ctx, command)
-	if errors.Is(err, platformpostgres.ErrRevisionConflict) {
+	var state application.RuntimeRecoveryState
+	if !observer.enabled {
+		store, ok := observer.recovery.Store.(application.RuntimeFailureWithoutReplacementStore)
+		if !ok {
+			return state, false, fmt.Errorf("Runtime failure store is unavailable")
+		}
+		state, err = (application.RuntimeFailureWithoutReplacementService{Store: store, IDs: observer.recovery.IDs, Now: observer.recovery.Now}).RecordFailureWithoutReplacement(ctx, application.RuntimeFailureWithoutReplacementCommand{
+			OpenRuntimeRecoveryCommand: command, ExpectedContainerID: containerID, Inspection: *signal.Inspection,
+		})
+	} else {
+		state, err = observer.recovery.Open(ctx, command)
+	}
+	if errors.Is(err, platformpostgres.ErrRevisionConflict) || (!observer.enabled && errors.Is(err, application.ErrTurnOutcomeAuthorityClaimed)) {
 		return application.RuntimeRecoveryState{}, false, nil
 	}
 	return state, err == nil, err

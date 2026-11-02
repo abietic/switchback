@@ -16,7 +16,7 @@ The migration crosses Eventing projection, Frontier contracts, client replica in
 **Non-Goals:**
 
 - Copy prototype mocks, simulated heartbeat/cost/approval data, or the prototype component catalogue into production.
-- Implement Workspace, Memory/Evolution, Skills/MCP, Observability, Admin, Web IDE, SessionProcess, or PreviewProxy capabilities.
+- Implement Workspace, Memory/Evolution, Skills/MCP, full Observability management, Admin, Web IDE, SessionProcess, or PreviewProxy capabilities.
 - Replace Frontier with page-owned fetching, duplicate existing owner specs, or move business authority into React state.
 - Modify `web-demo/` or turn it into a second production bundle.
 
@@ -63,6 +63,10 @@ Alternative considered: copy the whole prototype and repair production behavior 
 ### 6. Preserve runtime observability ownership
 
 Existing Eventing Projection, transactional Outbox, and Frontier diagnostics remain the runtime observability owners. Home materialization, query, or bootstrap failures surface through sanitized backend diagnostics carrying the affected View and source identities; the browser presents the existing reconnect, resync, and client-upgrade states and never converts missing evidence into success. This slice adds no fake telemetry and no second observability pipeline; full Observability and Admin remain future capabilities.
+
+The approved 2026-10-11 navigation slice exposes `/observability` through the existing overview shell in expanded, rail and drawer navigation. Its page consumes only `productionViews.home()` through ViewBoundary and the existing Home adapter, lists authorized recent Worker identities, and lets the user explicitly navigate to their existing Worker detail diagnostics. It does not fetch or merge additional backend endpoints, issue commands, invent health/cost/metrics, or construct external diagnostic URLs. Grafana remains aggregate and Logs retain the selected scope; unverified Langfuse identity has no link. Empty data offers explicit Assistant/Tasks entry points. Admin remains a separate non-interactive planned item. Component/build evidence does not close real browser or provider acceptance.
+
+The diagnostics slice defaults to Session scope and stores only an explicit presentation selection in the route: no selection, exact Artifact ID, or exact Run/optional Turn. Artifact and Run/Turn parameters are mutually exclusive. Artifact reload resolves current canonical ArtifactSummary and displays that same Artifact or unavailable; it never substitutes newest. Timeline headers expose their canonical Run/Turn, including validated older pages through the existing parser. An exact historical route can reauthorize through diagnostics without loading every timeline page. Active execution fields continue to own commands and never choose a navigation target. Keyed diagnostics immediately clear stale links and abort late responses; Session changes remount WorkerDetail. The client validates finite status, canonical requested/authorized target equality, unique loopback link kinds, and the historically_verified identity/link relation. Historical proof wording and safe summary remain explicit; current-project/health and physical readback are separate gates.
 
 Alternative considered: add page-local metrics or prototype telemetry to make the migration appear self-observing. Rejected because those signals would not be authoritative, would duplicate existing diagnostics, and could imply successful materialization when the owner pipeline failed. Closeout evidence instead records the relevant projection/query test results, sanitized failure identities, Frontier continuity behavior, browser-state acceptance, and any exact external gate blocker.
 

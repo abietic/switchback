@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 	"strings"
 	"sync"
 	"testing"
@@ -394,4 +395,31 @@ func seedContinuationTask(
 			t.Fatalf("seed statement %d: %v", index+1, err)
 		}
 	}
+}
+
+func TestInitialExecutionTaskContinuationHardDeniesBeforeNewRun(t *testing.T) {
+	pool := postgrestest.Open(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	seedContinuationTask(t, ctx, pool, now)
+	service := taskapp.TaskActionService{Store: taskpostgres.NewStore(pool), IDs: &actionIDs{}, Now: func() time.Time { return now.Add(time.Minute) }}
+	_, err := service.ContinueTaskWithWorker(ctx, exactContinuationCommand())
+	if !errors.Is(err, workerapp.CapacityPathNotIntegrated) {
+		t.Fatalf("unsupported Task continuation: %v", err)
+	}
+	assertContinuationWriteCount(t, ctx, pool, 0)
+}
+
+func TestInitialExecutionTaskReworkHardDeniesBeforeNewRun(t *testing.T) {
+	pool := postgrestest.Open(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	seedContinuationTask(t, ctx, pool, now)
+	c := exactContinuationCommand()
+	svc := taskapp.TaskActionService{Store: taskpostgres.NewStore(pool), IDs: &actionIDs{}, Now: func() time.Time { return now.Add(time.Minute) }}
+	_, err := svc.Rework(ctx, taskapp.ReworkTaskCommand{Actor: c.Actor, TaskID: c.TaskID, ExpectedTaskRevision: c.ExpectedTaskRevision, Message: c.Message, IdempotencyKey: c.IdempotencyKey})
+	if !errors.Is(err, workerapp.CapacityPathNotIntegrated) {
+		t.Fatalf("unsupported Task rework: %v", err)
+	}
+	assertContinuationWriteCount(t, ctx, pool, 0)
 }

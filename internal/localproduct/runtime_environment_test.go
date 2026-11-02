@@ -13,8 +13,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/abietic/switchback/internal/platform/config"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/controlgrpc"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/localstorage"
+	"github.com/abietic/switchback/internal/workerruntime/adapter/runtimesecret"
 	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 )
 
@@ -62,7 +64,7 @@ func TestCopyWorkspaceSourceRejectsSymlinksAndProducesStableDigest(t *testing.T)
 	if err := os.WriteFile(filepath.Join(source, "counter", "counter.go"), []byte("package counter\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	noopChown := func(string, int, int) error { return nil }
+	noopChown := func(*os.File, int, int) error { return nil }
 	first, err := copyWorkspaceSource(source, firstDestination, noopChown)
 	if err != nil {
 		t.Fatal(err)
@@ -408,5 +410,79 @@ func assertDeadlineCleanupPathAbsent(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Runtime secret root remains at %q: %v", path, err)
+	}
+}
+
+func TestRuntimeEnvironmentF1CopyBeforeHandoffAndCredential(t *testing.T) {
+	for _, failHandoff := range []bool{false, true} {
+		t.Run(strconv.FormatBool(failHandoff), func(t *testing.T) {
+			environment, _, _, _ := newDeadlineCleanupTestEnvironment(t)
+			configureCleanupPrepare(t, environment)
+			environment.secrets = runtimesecret.Materializer{
+				Ownership:        runtimesecret.OwnershipFunc(func(string, int, int) error { return nil }),
+				OwnerUID:         func(string) (uint32, error) { return 0, nil },
+				OpenFileOwnerUID: func(*os.File) (uint32, error) { return 0, nil },
+			}
+			journal := &sourcePreflightJournal{}
+			environment.hub = controlgrpc.NewHubWithJournal(workerapp.RuntimeControlJournalService{Store: journal, Now: time.Now})
+			source := environment.configuration.WorkspaceSourceRoot
+			expectedDigest, err := workspaceSourceDigest(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			planned, err := planWorkspaceSource(context.Background(), source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expectedBinding, err := planned.Binding()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = planned.Close(); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			handoffErr := errors.New("controlled handoff denial")
+			environment.storage.Ownership = localstorage.OwnershipFunc(func(path string, uid, gid int) error {
+				calls++
+				if journal.binds != 0 {
+					t.Fatalf("credential registered before handoff: %d", journal.binds)
+				}
+				if calls == 1 {
+					// A post-copy source mutation must not become bootstrap input. This also
+					// distinguishes the production connection from the old copy-after-handoff.
+					sourceWrite(t, filepath.Join(source, "late"), "not part of initial plan", 0o600)
+				}
+				if failHandoff {
+					return handoffErr
+				}
+				return nil
+			})
+			profile, _ := environment.profiles.Agent(config.KimiCodexAnthropicV1)
+			network, err := environment.networkProfiles.ResolveForDeployment(config.SingleUserLocalProfileName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := workerapp.RuntimePreparationRequest{Ownership: workerapp.StartedWorkerRun{WorkerSessionID: "session-f1", WorkerRunID: "run-f1", RuntimeInstanceID: "runtime-f1", RuntimeGeneration: 1, ControlChannelEpoch: 1}, Command: workerapp.StartWorkerRunCommand{AgentProfileID: profile.ID, AgentProfileDigest: profile.Digest, ResourceProfileID: config.LocalStandardV1, NetworkPolicyID: network.ID, NetworkPolicyRevision: network.Revision, NetworkPolicyDigest: network.Digest, NetworkEnforcementStatus: config.NetworkEnforcementActive}}
+			result, err := environment.PrepareRuntime(context.Background(), request)
+			if failHandoff {
+				if !errors.Is(err, handoffErr) || calls != 1 || journal.binds != 0 || result.Storage.BackendRoot != "" {
+					t.Fatalf("error=%v calls=%d binds=%d result=%+v", err, calls, journal.binds, result)
+				}
+				assertSourceAbsent(t, filepath.Join(environment.storage.BackendDataRoot, "sessions", "session-f1"))
+				if _, ok := environment.prepared["runtime-f1"]; ok {
+					t.Fatal("failed runtime published")
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if calls != 3 || journal.binds != 1 || environment.prepared["runtime-f1"].SourceDigest != expectedDigest || result.SourcePlanDigest != expectedBinding.Digest {
+					t.Fatalf("calls=%d binds=%d digest=%q want=%q", calls, journal.binds, environment.prepared["runtime-f1"].SourceDigest, expectedDigest)
+				}
+				assertSourceAbsent(t, filepath.Join(result.Storage.WorkingCopy.BackendPath, "late"))
+			}
+			t.Logf("fail_handoff=%v handoffs=%d credential_binds=%d", failHandoff, calls, journal.binds)
+		})
 	}
 }

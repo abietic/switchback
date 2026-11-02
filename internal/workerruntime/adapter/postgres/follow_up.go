@@ -95,6 +95,9 @@ WHERE runtime_instance_id=$1 AND worker_session_id=$2 AND generation=1 FOR UPDAT
 		if err != nil || runtimeStatus != "active" {
 			return platformpostgres.ErrRevisionConflict
 		}
+		if err := application.RejectUnintegratedExecution(); err != nil {
+			return err
+		}
 		startSnapshot, _ := json.Marshal(map[string]any{
 			"continued_from_worker_run_id": record.Command.PreviousWorkerRunID,
 			"resident_runtime_instance_id": activeRuntimeID,

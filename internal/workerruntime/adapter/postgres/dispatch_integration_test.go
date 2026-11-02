@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ func TestSessionFIFOAndSingleUsePermitPreventConcurrentTopLevelRuns(t *testing.T
 	ctx := context.Background()
 	now := time.Date(2026, 7, 23, 8, 0, 0, 0, time.UTC)
 	seedAllocationRequests(t, pool, 3, now)
+	runtimecapacity.Initialize(t, pool)
 	ids := &concurrentAllocationIDs{}
 	allocator := workerapplication.WorkerSessionAllocator{
 		Store: workerpostgres.NewAllocatorStore(pool), IDs: ids,
@@ -86,8 +88,7 @@ SET status='cancelled',updated_at=$1 WHERE allocation_request_id IN ('allocation
 	}
 	_, err = dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local",
-		IdempotencyKey: "different-permit-command",
+		RuntimeGeneration: 1, IdempotencyKey: "different-permit-command",
 	})
 	if !errors.Is(err, taskpostgres.ErrDispatchPermitExists) {
 		t.Fatalf("second active permit error=%v", err)
@@ -132,7 +133,7 @@ WHERE worker_session_id=$1 AND task_id='task-01'`, allocated.WorkerSessionID).Sc
 	}
 	_, err = dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-task-02",
+		RuntimeGeneration: 1, IdempotencyKey: "permit-task-02",
 	})
 	if !errors.Is(err, taskpostgres.ErrSessionNotDispatchable) {
 		t.Fatalf("busy Session issued second Task permit: %v", err)
@@ -184,8 +185,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 	}
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local",
-		IdempotencyKey: "permit-task-01",
+		RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -220,12 +220,11 @@ func TestIssueTaskPermitWaitsForCancelledTaskTurnSettlementCompletion(
 		PermitTTL: 5 * time.Minute,
 	}
 	command := taskapplication.IssueTaskPermitCommand{
-		TenantID:             "tenant-local",
-		UserID:               "user-local",
-		WorkerSessionID:      fixture.Started.WorkerSessionID,
-		RuntimeGeneration:    fixture.RuntimeGeneration,
-		CapacityAdmissionRef: "capacity-after-cancelled-task",
-		IdempotencyKey:       "permit-after-cancelled-task",
+		TenantID:          "tenant-local",
+		UserID:            "user-local",
+		WorkerSessionID:   fixture.Started.WorkerSessionID,
+		RuntimeGeneration: fixture.RuntimeGeneration,
+		IdempotencyKey:    "permit-after-cancelled-task",
 	}
 	if _, err := dispatch.IssueTaskPermit(
 		ctx,
@@ -364,12 +363,11 @@ WHERE worker_session_id=$1 AND task_id=$2 AND status='permit_issued'`,
 	reissued, err := dispatch.IssueTaskPermit(
 		ctx,
 		taskapplication.IssueTaskPermitCommand{
-			TenantID:             "tenant-local",
-			UserID:               "user-local",
-			WorkerSessionID:      fixture.Started.WorkerSessionID,
-			RuntimeGeneration:    runtimeGeneration,
-			CapacityAdmissionRef: "capacity-after-settlement-completed",
-			IdempotencyKey:       "permit-after-settlement-completed",
+			TenantID:          "tenant-local",
+			UserID:            "user-local",
+			WorkerSessionID:   fixture.Started.WorkerSessionID,
+			RuntimeGeneration: runtimeGeneration,
+			IdempotencyKey:    "permit-after-settlement-completed",
 		},
 	)
 	if err != nil {
@@ -433,6 +431,7 @@ func preparePendingDispatchBarrierFixture(
 	now time.Time,
 ) pendingDispatchBarrierFixture {
 	t.Helper()
+	runtimecapacity.Initialize(t, pool)
 	started, cleaned, deadlineAt :=
 		prepareBackendDeadlineSourceForApply(
 			t,
@@ -719,8 +718,7 @@ func issuePermitConcurrently(
 			defer wait.Done()
 			result, err := service.IssueTaskPermit(context.Background(), taskapplication.IssueTaskPermitCommand{
 				TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: sessionID,
-				RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local",
-				IdempotencyKey: "permit-task-01",
+				RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 			})
 			results <- result
 			errorsFound <- err

@@ -72,7 +72,7 @@ test("low-height mobile drawer scrolls independently and traps real keyboard foc
   const closeButton = dialog.getByRole("button", { name: "关闭导航菜单" });
   const lastLink = dialog.getByRole("link").last();
   const scrollRegion = dialog.getByTestId("mobile-navigation-scroll");
-  const lastPlannedItem = dialog.getByText("可观测性 / Admin");
+  const lastPlannedItem = dialog.getByText("Admin", { exact: true });
 
   await expect(dialog).toBeVisible();
   await expect(closeButton).toBeFocused();

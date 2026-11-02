@@ -560,7 +560,10 @@ func (agent *helperAgent) Prompt(ctx context.Context, request sdk.PromptRequest)
 		case <-agent.cancelled:
 			return sdk.PromptResponse{StopReason: sdk.StopReasonCancelled}, nil
 		case <-ctx.Done():
-			return sdk.PromptResponse{}, ctx.Err()
+			// AgentSideConnection cancels this session context before invoking
+			// Cancel. The peer must confirm cancellation with a normal response,
+			// not an RPC error that the client could mistake for stop proof.
+			return sdk.PromptResponse{StopReason: sdk.StopReasonCancelled}, nil
 		}
 	}
 	return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil

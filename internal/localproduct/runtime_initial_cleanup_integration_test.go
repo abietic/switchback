@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"os"
 	"path/filepath"
 	"strings"
@@ -309,7 +310,8 @@ func seedInitialCleanupStart(t *testing.T, pool *pgxpool.Pool, environment *runt
 	if _, err := dispatch.EnqueueTask(context.Background(), taskapp.EnqueueTaskCommand{TenantID: "tenant-local", UserID: "user-local", TaskID: "task-initial", WorkerSessionID: "session-initial", ExpectedTaskRevision: 1, ExpectedSessionRevision: 1, IdempotencyKey: "enqueue-initial"}); err != nil {
 		t.Fatal(err)
 	}
-	permit, err := dispatch.IssueTaskPermit(context.Background(), taskapp.IssueTaskPermitCommand{TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: "session-initial", RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-initial", IdempotencyKey: "permit-initial"})
+	runtimecapacity.Initialize(t, pool)
+	permit, err := dispatch.IssueTaskPermit(context.Background(), taskapp.IssueTaskPermitCommand{TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: "session-initial", RuntimeGeneration: 1, IdempotencyKey: "permit-initial"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +329,7 @@ type initialCleanupEngine struct {
 	provisions int
 }
 
-func (engine *initialCleanupEngine) Provision(_ context.Context, request workerapp.RuntimeProvisionRequest) (workerapp.ProvisionedRuntime, error) {
+func (engine *initialCleanupEngine) Provision(_ context.Context, request workerapp.RuntimeProvisionRequest, _ workerapp.RuntimePreStartCheck) (workerapp.ProvisionedRuntime, error) {
 	engine.provisions++
 	if engine.succeed {
 		return workerapp.ProvisionedRuntime{RuntimeInstanceID: request.RuntimeInstanceID, Generation: request.Generation, ContainerID: "container-initial"}, nil

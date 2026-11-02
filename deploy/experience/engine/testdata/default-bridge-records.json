@@ -1,0 +1,53 @@
+{
+  "authority": "none",
+  "origin": {
+    "audit_raw_bytes": 5511,
+    "audit_raw_sha256": "bd2798ee071547137bf29c148a51b14e1e880bbcd7fca1c4b0398c4db11a1833",
+    "audit_sequence": 2036,
+    "execution": ".scratch/runtime-m1-owner-exec-array-execution-1028-01",
+    "full_raw_db_retained": false,
+    "raw_db_prefix_bytes": 4096,
+    "reconstructed_stdout_bytes": 12486027,
+    "reconstructed_stdout_sha256": "d999701dced97c7356390cc88aca8f11f8b7324405f6a1ef2c19ce0dc8ff92fb"
+  },
+  "schema": "switchback.default_bridge.saved_tree_fixture.v1",
+  "tree": {
+    "b'libnetwork'": {
+      "b'docker/network/v1.0/bridge/e954e89fa8d5d161bcba92d9ec5f065ad5f75581c5beb27de8c9466f82a522cf/'": {
+        "base64": "AQAAAAAAAAB7IkFkZHJlc3NJUHY0IjoiMTcyLjE3LjAuMS8xNiIsIkJyaWRnZUlmYWNlQ3JlYXRvciI6MSwiQnJpZGdlTmFtZSI6ImRvY2tlcjAiLCJDb250YWluZXJJZmFjZVByZWZpeCI6IiIsIkRlZmF1bHRCaW5kaW5nSVAiOiIwLjAuMC4wIiwiRGVmYXVsdEJyaWRnZSI6dHJ1ZSwiRGVmYXVsdEdhdGV3YXlJUHY0IjoiXHUwMDNjbmlsXHUwMDNlIiwiRGVmYXVsdEdhdGV3YXlJUHY2IjoiXHUwMDNjbmlsXHUwMDNlIiwiRW5hYmxlSUNDIjp0cnVlLCJFbmFibGVJUE1hc3F1ZXJhZGUiOnRydWUsIkVuYWJsZUlQdjQiOnRydWUsIkVuYWJsZUlQdjYiOmZhbHNlLCJHd01vZGVJUHY0IjoiIiwiR3dNb2RlSVB2NiI6IiIsIkhvc3RJUCI6Ilx1MDAzY25pbFx1MDAzZSIsIkhvc3RJUHY2IjoiXHUwMDNjbmlsXHUwMDNlIiwiSUQiOiJlOTU0ZTg5ZmE4ZDVkMTYxYmNiYTkyZDllYzVmMDY1YWQ1Zjc1NTgxYzViZWIyN2RlOGM5NDY2ZjgyYTUyMmNmIiwiSW5oaWJpdElQdjQiOmZhbHNlLCJJbnRlcm5hbCI6ZmFsc2UsIk10dSI6MTUwMCwiVHJ1c3RlZEhvc3RJbnRlcmZhY2VzIjoiIn0=",
+        "bytes": 554,
+        "sha256": "sha256:f6e5802d93a187c7623d2dd62c29a26f24d0565fd5a4efd36800258788e0783c"
+      },
+      "b'docker/network/v1.0/endpoint_count/1582e2dc9dcb68464cc927adbc75f83ce93feea217c7694c24e8d8931a43ec26/'": {
+        "base64": "AwAAAAAAAAB7IkNvdW50IjowfQ==",
+        "bytes": 19,
+        "sha256": "sha256:517c450bde214258793ea4d427bd9204abc504d0ca1e92443d2ecc75449a04d6"
+      },
+      "b'docker/network/v1.0/endpoint_count/73d595490736a320b34bd57f8709b8c5f034a9c775f51794a8d8041fe2840d7f/'": {
+        "base64": "AQAAAAAAAAB7IkNvdW50IjowfQ==",
+        "bytes": 19,
+        "sha256": "sha256:212ee6e892552a67f9d56bea0f9f6c89233a833f1b198a97b9097d4bfa4b9837"
+      },
+      "b'docker/network/v1.0/endpoint_count/e954e89fa8d5d161bcba92d9ec5f065ad5f75581c5beb27de8c9466f82a522cf/'": {
+        "base64": "AgAAAAAAAAB7IkNvdW50IjowfQ==",
+        "bytes": 19,
+        "sha256": "sha256:ec18c249d53cf071b7d42d0c9a20c78974e066b5f10dab6cba953d5cff0d2ff1"
+      },
+      "b'docker/network/v1.0/network/1582e2dc9dcb68464cc927adbc75f83ce93feea217c7694c24e8d8931a43ec26/'": {
+        "base64": "BAAAAAAAAAB7ImFkZHJTcGFjZSI6IiIsImF0dGFjaGFibGUiOmZhbHNlLCJjb25maWdGcm9tIjoiIiwiY29uZmlnT25seSI6ZmFsc2UsImNyZWF0ZWQiOiIyMDI2LTEwLTE0VDAxOjU4OjI3LjQyNDM0MjI2MiswODowMCIsImVuYWJsZUlQdjQiOnRydWUsImVuYWJsZUlQdjYiOmZhbHNlLCJnZW5lcmljIjp7ImNvbS5kb2NrZXIubmV0d29yay5nZW5lcmljIjp7fX0sImlkIjoiMTU4MmUyZGM5ZGNiNjg0NjRjYzkyN2FkYmM3NWY4M2NlOTNmZWVhMjE3Yzc2OTRjMjRlOGQ4OTMxYTQzZWMyNiIsImluRGVsZXRlIjpmYWxzZSwiaW5ncmVzcyI6ZmFsc2UsImludGVybmFsIjpmYWxzZSwiaXBhbU9wdGlvbnMiOm51bGwsImlwYW1UeXBlIjoiZGVmYXVsdCIsImxhYmVscyI6bnVsbCwibG9hZEJhbGFuY2VySVAiOiIiLCJsb2FkQmFsYW5jZXJNb2RlIjoiTkFUIiwibmFtZSI6Imhvc3QiLCJuZXR3b3JrVHlwZSI6Imhvc3QiLCJwZXJzaXN0Ijp0cnVlLCJzY29wZSI6ImxvY2FsIiwic2tpcEd3QWxsb2NJUHY0IjpmYWxzZSwic2tpcEd3QWxsb2NJUHY2IjpmYWxzZX0=",
+        "bytes": 542,
+        "sha256": "sha256:60b5253163e016834ba70722c0d0387aa4c8aabfed5db329c4a666d04817e245"
+      },
+      "b'docker/network/v1.0/network/73d595490736a320b34bd57f8709b8c5f034a9c775f51794a8d8041fe2840d7f/'": {
+        "base64": "AgAAAAAAAAB7ImFkZHJTcGFjZSI6IiIsImF0dGFjaGFibGUiOmZhbHNlLCJjb25maWdGcm9tIjoiIiwiY29uZmlnT25seSI6ZmFsc2UsImNyZWF0ZWQiOiIyMDI2LTEwLTE0VDAxOjU4OjI3LjQyMzA1MTU4NSswODowMCIsImVuYWJsZUlQdjQiOnRydWUsImVuYWJsZUlQdjYiOmZhbHNlLCJnZW5lcmljIjp7ImNvbS5kb2NrZXIubmV0d29yay5nZW5lcmljIjp7fX0sImlkIjoiNzNkNTk1NDkwNzM2YTMyMGIzNGJkNTdmODcwOWI4YzVmMDM0YTljNzc1ZjUxNzk0YThkODA0MWZlMjg0MGQ3ZiIsImluRGVsZXRlIjpmYWxzZSwiaW5ncmVzcyI6ZmFsc2UsImludGVybmFsIjpmYWxzZSwiaXBhbU9wdGlvbnMiOm51bGwsImlwYW1UeXBlIjoiZGVmYXVsdCIsImxhYmVscyI6bnVsbCwibG9hZEJhbGFuY2VySVAiOiIiLCJsb2FkQmFsYW5jZXJNb2RlIjoiTkFUIiwibmFtZSI6Im5vbmUiLCJuZXR3b3JrVHlwZSI6Im51bGwiLCJwZXJzaXN0Ijp0cnVlLCJzY29wZSI6ImxvY2FsIiwic2tpcEd3QWxsb2NJUHY0IjpmYWxzZSwic2tpcEd3QWxsb2NJUHY2IjpmYWxzZX0=",
+        "bytes": 542,
+        "sha256": "sha256:0eddf68b13519bbc5ccfb76e3fc722746dda6c097b9834e44e647f0e26772bbd"
+      },
+      "b'docker/network/v1.0/network/e954e89fa8d5d161bcba92d9ec5f065ad5f75581c5beb27de8c9466f82a522cf/'": {
+        "base64": "AwAAAAAAAAB7ImFkZHJTcGFjZSI6IkxvY2FsRGVmYXVsdCIsImF0dGFjaGFibGUiOmZhbHNlLCJjb25maWdGcm9tIjoiIiwiY29uZmlnT25seSI6ZmFsc2UsImNyZWF0ZWQiOiIyMDI2LTEwLTI3VDA5OjE0OjQzLjk5ODQ5ODAzOCswODowMCIsImVuYWJsZUlQdjQiOnRydWUsImVuYWJsZUlQdjYiOmZhbHNlLCJnZW5lcmljIjp7ImNvbS5kb2NrZXIubmV0d29yay5lbmFibGVfaXB2NCI6dHJ1ZSwiY29tLmRvY2tlci5uZXR3b3JrLmVuYWJsZV9pcHY2IjpmYWxzZSwiY29tLmRvY2tlci5uZXR3b3JrLmdlbmVyaWMiOnsiY29tLmRvY2tlci5uZXR3b3JrLmJyaWRnZS5kZWZhdWx0X2JyaWRnZSI6InRydWUiLCJjb20uZG9ja2VyLm5ldHdvcmsuYnJpZGdlLmVuYWJsZV9pY2MiOiJ0cnVlIiwiY29tLmRvY2tlci5uZXR3b3JrLmJyaWRnZS5lbmFibGVfaXBfbWFzcXVlcmFkZSI6InRydWUiLCJjb20uZG9ja2VyLm5ldHdvcmsuYnJpZGdlLmhvc3RfYmluZGluZ19pcHY0IjoiMC4wLjAuMCIsImNvbS5kb2NrZXIubmV0d29yay5icmlkZ2UubmFtZSI6ImRvY2tlcjAiLCJjb20uZG9ja2VyLm5ldHdvcmsuZHJpdmVyLm10dSI6IjE1MDAifX0sImlkIjoiZTk1NGU4OWZhOGQ1ZDE2MWJjYmE5MmQ5ZWM1ZjA2NWFkNWY3NTU4MWM1YmViMjdkZThjOTQ2NmY4MmE1MjJjZiIsImluRGVsZXRlIjpmYWxzZSwiaW5ncmVzcyI6ZmFsc2UsImludGVybmFsIjpmYWxzZSwiaXBhbU9wdGlvbnMiOm51bGwsImlwYW1UeXBlIjoiZGVmYXVsdCIsImlwYW1WNENvbmZpZyI6Ilt7XCJQcmVmZXJyZWRQb29sXCI6XCJcIixcIlN1YlBvb2xcIjpcIlwiLFwiR2F0ZXdheVwiOlwiXCIsXCJBdXhBZGRyZXNzZXNcIjp7fX1dIiwiaXBhbVY0SW5mbyI6Ilt7XCJJUEFNRGF0YVwiOlwie1xcXCJBZGRyZXNzU3BhY2VcXFwiOlxcXCJMb2NhbERlZmF1bHRcXFwiLFxcXCJBdXhBZGRyZXNzZXNcXFwiOnt9LFxcXCJHYXRld2F5XFxcIjpcXFwiMTcyLjE3LjAuMS8xNlxcXCIsXFxcIlBvb2xcXFwiOlxcXCIxNzIuMTcuMC4wLzE2XFxcIn1cIixcIlBvb2xJRFwiOlwiTG9jYWxEZWZhdWx0LzE3Mi4xNy4wLjAvMTZcIn1dIiwibGFiZWxzIjpudWxsLCJsb2FkQmFsYW5jZXJJUCI6IiIsImxvYWRCYWxhbmNlck1vZGUiOiJOQVQiLCJuYW1lIjoiYnJpZGdlIiwibmV0d29ya1R5cGUiOiJicmlkZ2UiLCJwZXJzaXN0Ijp0cnVlLCJzY29wZSI6ImxvY2FsIiwic2tpcEd3QWxsb2NJUHY0IjpmYWxzZSwic2tpcEd3QWxsb2NJUHY2IjpmYWxzZX0=",
+        "bytes": 1241,
+        "sha256": "sha256:58bcd139eac61c9515ccb558fd855e037d11077b3caa495c480045b0e75f1b13"
+      }
+    }
+  }
+}

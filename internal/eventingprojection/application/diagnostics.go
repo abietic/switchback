@@ -16,8 +16,11 @@ type WorkerDiagnosticQuery struct {
 }
 
 type WorkerDiagnosticTarget struct {
-	StartedAt time.Time
-	EndedAt   time.Time
+	WorkerSessionID string `json:"worker_session_id"`
+	WorkerRunID     string `json:"worker_run_id,omitempty"`
+	AgentTurnID     string `json:"agent_turn_id,omitempty"`
+	StartedAt       time.Time
+	EndedAt         time.Time
 }
 
 type WorkerDiagnosticReader interface {

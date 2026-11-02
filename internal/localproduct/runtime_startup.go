@@ -122,6 +122,14 @@ func (runner *runtimeRunner) restoreStartupRuntimes(
 					restoreCtx,
 					candidate,
 				)
+			// A valid initial owner without a live handoff remains held, but
+			// must not abort Backend startup or cancel unrelated restoration.
+			// Only this exact single cause is deferred; corrupt/joined errors
+			// remain hard. The direct candidate boundary still refuses effects.
+			if singleRuntimeCause(restoreErr) == workerapp.InitialRuntimeStartReplayPending {
+				result = startupRuntimeRestoreResult{Deferred: true}
+				restoreErr = nil
+			}
 			if restoreErr != nil {
 				cancel()
 			}
@@ -178,11 +186,22 @@ func (runner *runtimeRunner) restoreStartupRuntimeCandidate(
 	*liveRuntime,
 	error,
 ) {
+	// A live owner already drains its own immutable work. Startup must never
+	// reopen its environment or take a second owner during initial handoff.
+	runner.mu.Lock()
+	owned := runner.runtimes[candidate.Restore.RuntimeInstanceID] != nil
+	runner.mu.Unlock()
+	if owned {
+		return candidate, startupRuntimeRestoreResult{Deferred: true}, nil, nil
+	}
+	if err := runner.interruptedInitialRuntime(ctx, candidate.Restore.RuntimeInstanceID); err != nil {
+		return candidate, startupRuntimeRestoreResult{}, nil, err
+	}
 	result, err := restoreStartupRuntime(
 		ctx,
 		candidate,
 		startupRestoreDependencies{
-			prepare:        runner.environment.RestoreLiveRuntime,
+			prepare:        runner.restorePolicyVerifiedLiveRuntime,
 			inspect:        runner.provisioner.Inspect,
 			waitEvents:     runner.hub.WaitEvents,
 			markSuspect:    runner.markStartupRuntimeSuspect,
@@ -374,7 +393,7 @@ func (runner *runtimeRunner) runtimeOwnedOrAdopting(
 ) bool {
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
-	if runner.runtimes[runtimeInstanceID] != nil {
+	if runner.runtimes[runtimeInstanceID] != nil || runner.pendingInitialActivations[runtimeInstanceID] != nil {
 		return true
 	}
 	_, adopting := runner.adoptingRuntimeIDs[runtimeInstanceID]
@@ -398,7 +417,7 @@ func (runner *runtimeRunner) beginRuntimeAdoption(
 	}
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
-	if runner.runtimes[runtimeInstanceID] != nil {
+	if runner.runtimes[runtimeInstanceID] != nil || runner.pendingInitialActivations[runtimeInstanceID] != nil {
 		return false
 	}
 	if _, adopting := runner.adoptingRuntimeIDs[runtimeInstanceID]; adopting {
@@ -579,7 +598,7 @@ func (runner *runtimeRunner) registerStartupLiveRuntime(
 	}
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
-	if runner.runtimes[runtimeInstanceID] != nil {
+	if runner.runtimes[runtimeInstanceID] != nil || runner.pendingInitialActivations[runtimeInstanceID] != nil {
 		return fmt.Errorf("startup Runtime identity is already live")
 	}
 	runner.runtimes[runtimeInstanceID] = live

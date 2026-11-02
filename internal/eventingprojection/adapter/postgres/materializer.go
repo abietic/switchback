@@ -1234,20 +1234,25 @@ type homeTaskItem struct {
 func (m Materializer) taskIndex(ctx context.Context, tenantID string) (json.RawMessage, error) {
 	rows, err := m.Pool.Query(ctx, `
 SELECT task_id,COALESCE(task_spec_snapshot->>'title',task_id),workspace_id,status,
-       COALESCE(worker_session_id,''),updated_at
+       COALESCE(worker_session_id,''),updated_at,`+currentTaskRuntimeDispatchWaitSQL+`
 FROM tasks WHERE tenant_id=$1 AND initiator_user_id=$2
 ORDER BY updated_at DESC,task_id DESC`, tenantID, m.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("query Task index: %w", err)
 	}
 	defer rows.Close()
-	items := make([]homeTaskItem, 0)
+	items := make([]taskIndexItem, 0)
 	for rows.Next() {
-		var item homeTaskItem
+		var item taskIndexItem
+		var waitJSON json.RawMessage
 		var updatedAt time.Time
 		if err := rows.Scan(&item.TaskID, &item.Title, &item.Workspace, &item.Status,
-			&item.WorkerSessionID, &updatedAt); err != nil {
+			&item.WorkerSessionID, &updatedAt, &waitJSON); err != nil {
 			return nil, fmt.Errorf("scan Task index: %w", err)
+		}
+		item.RuntimeDispatchWait, err = decodeRuntimeDispatchWait(waitJSON)
+		if err != nil {
+			return nil, err
 		}
 		item.StatusTone = statusTone(item.Status)
 		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
@@ -1274,12 +1279,13 @@ func (m Materializer) taskSummary(
 ) (json.RawMessage, []projectionapp.ActionRef, []projectionapp.RelatedRef, error) {
 	var title, workspaceID, status, sessionID string
 	var revision uint64
+	var waitJSON json.RawMessage
 	var updatedAt time.Time
 	err := m.Pool.QueryRow(ctx, `
 SELECT COALESCE(task_spec_snapshot->>'title',task_id),workspace_id,status,
-       COALESCE(worker_session_id,''),revision,updated_at
+       COALESCE(worker_session_id,''),revision,updated_at,`+currentTaskRuntimeDispatchWaitSQL+`
 FROM tasks WHERE tenant_id=$1 AND initiator_user_id=$2 AND task_id=$3`,
-		tenantID, m.UserID, taskID).Scan(&title, &workspaceID, &status, &sessionID, &revision, &updatedAt)
+		tenantID, m.UserID, taskID).Scan(&title, &workspaceID, &status, &sessionID, &revision, &updatedAt, &waitJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, nil, projectionapp.ErrViewUnavailable
 	}
@@ -1301,11 +1307,19 @@ FROM tasks WHERE tenant_id=$1 AND initiator_user_id=$2 AND task_id=$3`,
 		refs = append(refs, projectionapp.RelatedRef{Type: "worker_detail", ID: sessionID,
 			Href: "/api/v1/views/worker_detail/" + sessionID})
 	}
-	data, err := marshalObject(map[string]any{
+	wait, err := decodeRuntimeDispatchWait(waitJSON)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	values := map[string]any{
 		"task_id": taskID, "title": title, "workspace": workspaceID, "status": status,
 		"status_tone": statusTone(status), "worker_session_id": emptyOmit(sessionID),
 		"revision": revision, "updated_at": updatedAt.UTC().Format(time.RFC3339),
-	})
+	}
+	if wait != nil {
+		values["runtime_dispatch_wait"] = wait
+	}
+	data, err := marshalObject(values)
 	return data, actions, refs, err
 }
 
@@ -1351,14 +1365,14 @@ func (m Materializer) workerDetail(
 	ctx context.Context,
 	tenantID, sessionID string,
 ) (json.RawMessage, []projectionapp.ActionRef, []projectionapp.RelatedRef, []artifactRow, error) {
-	var status, workspaceID, boundTaskID, activeRuntimeID string
+	var status, workspaceID, boundTaskID, activeRuntimeID, activeRunID string
 	var sessionRevision, runtimeGeneration uint64
 	err := m.Pool.QueryRow(ctx, `
 SELECT status,workspace_id,COALESCE(bound_task_id,''),COALESCE(active_runtime_instance_id,''),
-       session_revision,runtime_generation
+       session_revision,runtime_generation,COALESCE(active_worker_run_id,'')
 FROM worker_sessions WHERE worker_session_id=$1 AND tenant_id=$2 AND user_id=$3`,
 		sessionID, tenantID, m.UserID).Scan(&status, &workspaceID, &boundTaskID, &activeRuntimeID,
-		&sessionRevision, &runtimeGeneration)
+		&sessionRevision, &runtimeGeneration, &activeRunID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, nil, nil, projectionapp.ErrViewUnavailable
 	}
@@ -1466,7 +1480,7 @@ LIMIT 1`, sessionID).Scan(
 	}
 
 	actions := make([]projectionapp.ActionRef, 0, 5)
-	if status != "closed" && status != "expired" && status != "recovering" &&
+	if status != "closed" && status != "expired" && status != "recovering" && recoveryPhase != "exhausted" &&
 		runID != "" && turnID != "" {
 		if terminalRun(runStatus) && terminalTurn(turnStatus) {
 			if sessionBoundTaskID == "" {
@@ -1500,12 +1514,20 @@ LIMIT 1`, sessionID).Scan(
 	if status == "waiting_user" {
 		reason := "worker_waiting_user"
 		message := "Worker needs input before it can continue."
+		allowedActions := []string{"reply", "cancel"}
 		if recoveryPhase == "exhausted" {
 			reason = "runtime_recovery_failed"
-			message = "Runtime recovery stopped after its single safe replacement attempt."
+			allowedActions = []string{}
+			if attemptCount == 0 && outcomeReason == "runtime_recovery_disabled" {
+				message = "自动恢复未启用，Runtime 已停止，需要处理"
+			} else if attemptCount == 0 {
+				message = "Runtime recovery stopped before a replacement attempt."
+			} else {
+				message = "Runtime recovery stopped after its single safe replacement attempt."
+			}
 		}
 		waiting = map[string]any{"reason": reason, "message": message,
-			"allowed_actions": []string{"reply", "cancel"}}
+			"allowed_actions": allowedActions}
 	}
 	runtimeHealth := "Not started"
 	var networkProfile any
@@ -1526,15 +1548,27 @@ WHERE runtime_instance_id=$1`, activeRuntimeID).Scan(
 			}
 		}
 	}
+	// Existing healthy clients use these legacy "active" fields as the previous
+	// terminal command target. Preserve that protocol. Only the current disabled
+	// failure graph exposes actual binding/slot after safe cancellation release;
+	// historical status/timeline remain visible without granting execution.
+	displayRunID, displayTaskID, activeTurnID := runID, boundTaskID, turnID
+	activeRunRevision, activeTurnRevision := runRevision, turnRevision
+	if status == "waiting_user" && recoveryPhase == "exhausted" && outcomeReason == "runtime_recovery_disabled" && attemptCount == 0 && failedGeneration == runtimeGeneration {
+		displayRunID, displayTaskID = activeRunID, sessionBoundTaskID
+		if activeRunID == "" || activeRunID != runID {
+			activeRunRevision, activeTurnRevision, activeTurnID = 0, 0, ""
+		}
+	}
 	data, err := marshalObject(map[string]any{
 		"worker_session_id": sessionID, "session_revision": sessionRevision, "workspace": workspaceID,
 		"status": status, "status_tone": statusTone(status), "task_status": emptyOmit(taskStatus),
 		"task_status_label": taskStatusLabel(taskStatus),
 		"task_revision":     zeroOmit(taskRevision),
 		"run_status":        emptyOmit(runStatus), "turn_status": emptyOmit(turnStatus),
-		"bound_task_id": emptyOmit(boundTaskID), "active_worker_run_id": emptyOmit(runID),
-		"active_run_revision": zeroOmit(runRevision), "active_agent_turn_id": emptyOmit(turnID),
-		"active_turn_revision": zeroOmit(turnRevision), "runtime_health": runtimeHealth,
+		"bound_task_id": emptyOmit(displayTaskID), "active_worker_run_id": emptyOmit(displayRunID),
+		"active_run_revision": zeroOmit(activeRunRevision), "active_agent_turn_id": emptyOmit(activeTurnID),
+		"active_turn_revision": zeroOmit(activeTurnRevision), "runtime_health": runtimeHealth,
 		"runtime_generation": runtimeGeneration, "agent_profile": profileID,
 		"network_profile":  networkProfile,
 		"runtime_recovery": recovery,

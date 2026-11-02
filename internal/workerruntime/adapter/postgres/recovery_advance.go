@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -30,7 +31,7 @@ func (store *RuntimeRecoveryStore) AdvanceRuntimeRecovery(
 	if err != nil {
 		return result, err
 	}
-	err = platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
+	err = inTerminalCapacityTransaction(ctx, store.pool, func() string { return result.AgentTurnID }, func(tx platformpostgres.Tx) error {
 		replayed, found, err := loadRuntimeRecoveryIdempotency(
 			ctx, tx, record.Command.WorkerSessionID, commandKind,
 			record.Command.IdempotencyKey, digest,
@@ -126,7 +127,7 @@ WHERE incident.incident_id=$1`, record.Command.IncidentID))
 		case domain.RecoveryFencing:
 			err = store.persistRecoveryFencing(ctx, tx, current, next, record)
 		case domain.RecoveryProvisioning:
-			err = store.persistRecoveryReplacement(ctx, tx, current, next, record)
+			return application.CapacityPathNotIntegrated
 		case domain.RecoveryReattaching:
 			err = store.persistRecoveryProvisioned(ctx, tx, current, next, record)
 		case domain.RecoveryVerifying:
@@ -189,6 +190,30 @@ func (store *RuntimeRecoveryStore) persistRecoveryReplacement(
 	next domain.RuntimeRecoveryIncident,
 	record application.AdvanceRuntimeRecoveryRecord,
 ) error {
+	// Preserve outcome/incident authority first, then lock the Session before
+	// touching its failed Runtime or reserving a replacement (including FK locks).
+	var lockedSessionRevision, lockedGeneration uint64
+	var lockedStatus, lockedRuntimeID string
+	err := tx.QueryRow(ctx, `
+SELECT session_revision,status,COALESCE(active_runtime_instance_id,''),runtime_generation
+FROM worker_sessions
+WHERE worker_session_id=$1 AND tenant_id=$2
+FOR UPDATE`, current.WorkerSessionID, current.TenantID).Scan(
+		&lockedSessionRevision, &lockedStatus, &lockedRuntimeID, &lockedGeneration,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return platformpostgres.ErrRevisionConflict
+	}
+	if err != nil {
+		return fmt.Errorf("lock Runtime recovery replacement Session: %w", err)
+	}
+	if lockedSessionRevision != current.SessionRevision ||
+		lockedStatus != string(domain.SessionRecovering) ||
+		lockedRuntimeID != current.FailedRuntimeInstanceID ||
+		lockedGeneration != current.FailedGeneration {
+		return platformpostgres.ErrRevisionConflict
+	}
+
 	fenceEvidence, err := json.Marshal(struct {
 		ContainerRemoved   bool   `json:"container_removed"`
 		SecretLeaseRevoked bool   `json:"secret_lease_revoked"`
@@ -399,6 +424,18 @@ func (store *RuntimeRecoveryStore) persistRecoveryExhausted(
 	}
 	if err := task.revalidate(ctx, tx, current.WorkerSessionID); err != nil {
 		return err
+	}
+	if next.OutcomeReason == "worker_session_absolute_expired" {
+		var expiresAt time.Time
+		if err := tx.QueryRow(ctx, `SELECT absolute_expires_at FROM worker_sessions WHERE worker_session_id=$1`, current.WorkerSessionID).Scan(&expiresAt); err != nil {
+			return err
+		}
+		if record.Now.Before(expiresAt) {
+			return platformpostgres.ErrRevisionConflict
+		}
+		if err := rejectUnprovenInitialAbsoluteExpiry(ctx, tx, current.WorkerSessionID); err != nil {
+			return err
+		}
 	}
 	if current.ReplacementRuntimeInstanceID != "" {
 		if _, err := tx.Exec(ctx, `

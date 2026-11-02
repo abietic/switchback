@@ -26,11 +26,22 @@ func (store *RuntimeResidencyStore) ActivateResidentRuntime(
 	record application.ActivateResidentRuntimeRecord,
 ) (application.ResidentRuntimeState, error) {
 	var result application.ResidentRuntimeState
-	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
-		row, err := lockResidentRuntime(ctx, tx, record.Command.WorkerSessionID,
-			record.Command.WorkerRunID, record.Command.AgentTurnID, record.Command.RuntimeInstanceID)
+	err := InCapacityTransaction(ctx, store.pool, func(tx pgx.Tx, capacity *CapacityTx) error {
+		row, target, err := capacity.initialExecution(ctx, record.Command.WorkerSessionID, record.Command.WorkerRunID, record.Command.AgentTurnID, record.Command.RuntimeInstanceID, record.Command.RuntimeGeneration)
 		if err != nil {
 			return err
+		}
+		container, err := capacity.actualInitialContainer(ctx, row, target)
+		if err != nil {
+			return err
+		}
+		if container != record.Command.ContainerID || row.TenantID != record.Command.TenantID || row.ControlChannelEpoch != record.Command.ControlChannelEpoch {
+			return application.CapacityBindingMismatch
+		}
+		// Exact response-loss replay retains the original revisions and CID.
+		if row.RuntimeStatus == "active" && row.RunStatus == "running" && row.TurnStatus == "delivered" && row.ContainerID == container && row.SessionRevision == record.Command.ExpectedSessionRevision+1 && row.RunRevision == record.Command.ExpectedRunRevision+1 && row.TurnRevision == record.Command.ExpectedTurnRevision && row.RuntimeRevision == record.Command.ExpectedRuntimeRevision+1 {
+			result = row.state()
+			return nil
 		}
 		if row.TenantID != record.Command.TenantID ||
 			row.RuntimeGeneration != record.Command.RuntimeGeneration ||
@@ -96,7 +107,7 @@ func (store *RuntimeResidencyStore) CompleteResidentStage(
 	record application.CompleteResidentStageRecord,
 ) (application.ResidentRuntimeState, error) {
 	var result application.ResidentRuntimeState
-	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
+	err := inTerminalCapacityTransaction(ctx, store.pool, func() string { return record.Command.AgentTurnID }, func(tx platformpostgres.Tx) error {
 		var err error
 		result, err = completeResidentStageTx(ctx, tx, record)
 		return err

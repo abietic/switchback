@@ -14,3 +14,9 @@
 
 - [x] 3.1 Add and execute G3 real scrape/query/dashboard/alert acceptance, including exact scoped Loki/Langfuse correlation.
 - [ ] 3.2 Execute G4 cold-start and paired outage matrix, loss/recovery evidence and actual retention expiry; run final regression gates and independent review.
+
+## 4. Historical diagnostic navigation (offline Task 3 slice)
+
+- [x] 4.1 Wire public loopback browser/project configuration, shared Compose project value and exact authorized ArtifactTrace navigation; expose historical proof status and safe target/identity only.
+- [x] 4.2 Add HTTP, configuration and PostgreSQL authority tests with dependency failure isolation, no remote service calls and no Timeline-row requirement.
+- [ ] 4.3 Complete independent review and final candidate physical same-project Run/selected-Turn readback; offline proof and links do not complete G3/G4 or current health acceptance.

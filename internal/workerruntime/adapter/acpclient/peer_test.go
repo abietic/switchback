@@ -31,6 +31,8 @@ func TestCorePeerProcess(t *testing.T) {
 	}
 	defer evidence.Close()
 	tokenOK := false
+	promptCount := 0
+	var pendingPrompt json.RawMessage
 	for {
 		var m peerMessage
 		if decoder.Decode(&m) != nil {
@@ -75,7 +77,38 @@ func TestCorePeerProcess(t *testing.T) {
 		case "session/new":
 			encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"sessionId": "fixture-session"}})
 		case "session/prompt":
-			if os.Getenv("SWITCHBACK_CORE_SCENARIO") == "frames" {
+			promptCount++
+			if (scenario == "cancel-resume" || scenario == "cancel-eof") && promptCount == 1 {
+				pendingPrompt = m.ID
+				os.Stdout.Write([]byte(knownFrame))
+				continue
+			}
+			if scenario == "invalid-known" {
+				os.Stdout.Write([]byte(invalidKnownFrame))
+			} else if scenario == "unknown-burst" {
+				for i := 0; i < 2048; i++ {
+					os.Stdout.Write([]byte(unknownFrame))
+				}
+				os.Stdout.Write([]byte(knownFrame))
+			} else if scenario == "cancel-next-turn" || scenario == "cancel-waiting-prefix" {
+				count := 256
+				if scenario == "cancel-waiting-prefix" {
+					count = 257
+				}
+				if promptCount > 1 {
+					count = 1
+				}
+				for i := 0; i < count; i++ {
+					text := fmt.Sprintf("old-%d", i)
+					if promptCount > 1 {
+						text = "next-turn"
+					}
+					encoder.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": "fixture-session", "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": text}}}})
+				}
+				if scenario == "cancel-waiting-prefix" && promptCount == 1 {
+					continue
+				}
+			} else if os.Getenv("SWITCHBACK_CORE_SCENARIO") == "frames" {
 				p := unknownFrame + knownFrame
 				os.Stdout.Write([]byte(p[:11]))
 				os.Stdout.Write([]byte(p[11:]))
@@ -94,6 +127,14 @@ func TestCorePeerProcess(t *testing.T) {
 				encoder.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": "fixture-session", "update": update}})
 			}
 			encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"stopReason": "end_turn"}})
+		case "session/cancel":
+			if scenario == "cancel-eof" {
+				return
+			}
+			if scenario == "cancel-resume" && len(pendingPrompt) != 0 {
+				encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": pendingPrompt, "result": map[string]any{"stopReason": "cancelled"}})
+				pendingPrompt = nil
+			}
 		}
 	}
 }

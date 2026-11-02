@@ -86,7 +86,7 @@ func (journal *RuntimeControlJournal) ClaimRuntimeControlStream(
 	record application.ClaimRuntimeControlStreamRecord,
 ) (application.RuntimeControlReplayPlan, error) {
 	var result application.RuntimeControlReplayPlan
-	err := platformpostgres.InTransaction(ctx, journal.pool, func(tx platformpostgres.Tx) error {
+	err := InCapacityTransaction(ctx, journal.pool, func(tx pgx.Tx, capacity *CapacityTx) error {
 		identity := runtimeControlIdentity{
 			workerSessionID: record.Command.WorkerSessionID,
 			runtimeID:       record.Command.RuntimeInstanceID,
@@ -109,6 +109,9 @@ func (journal *RuntimeControlJournal) ClaimRuntimeControlStream(
 			nil,
 			record.ClaimedAt,
 		); err != nil {
+			return err
+		}
+		if err := capacity.authorizeControlStarts(ctx, identity.runtimeID, record.Command.ActiveTurn); err != nil {
 			return err
 		}
 		state, err := lockRuntimeControlChannel(ctx, tx, identity)
@@ -336,7 +339,16 @@ func (journal *RuntimeControlJournal) ReserveRuntimeControlCommand(
 	record application.ReserveRuntimeControlCommandRecord,
 ) (application.RuntimeControlMessage, error) {
 	var result application.RuntimeControlMessage
-	err := platformpostgres.InTransaction(ctx, journal.pool, func(tx platformpostgres.Tx) error {
+	err := InCapacityTransaction(ctx, journal.pool, func(tx pgx.Tx, capacity *CapacityTx) error {
+		if record.LogicalEnvelope.MessageType == "agent_turn.start" {
+			e, a := record.LogicalEnvelope, record.Command.Authority
+			if string(e.WorkerSessionID) != a.WorkerSessionID || string(e.RuntimeInstanceID) != a.RuntimeInstanceID || uint64(e.RuntimeGeneration) != a.RuntimeGeneration || e.ChannelEpoch != a.ChannelEpoch {
+				return application.CapacityBindingMismatch
+			}
+			if err := capacity.authorizeStartEnvelope(ctx, record.LogicalEnvelope, true); err != nil {
+				return err
+			}
+		}
 		state, err := lockRuntimeControlAuthority(ctx, tx, record.Command.Authority)
 		if err != nil {
 			return err
@@ -476,10 +488,11 @@ WHERE runtime_instance_id=$1`,
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE runtime_instances
-SET last_command_sequence=$2,revision=revision+1
+SET last_command_sequence=$2,revision=revision+$3
 WHERE runtime_instance_id=$1`,
 		state.RuntimeInstanceID,
 		sequence,
+		runtimeControlLifecycleRevisionDelta(record.LogicalEnvelope),
 	); err != nil {
 		return application.RuntimeControlMessage{}, fmt.Errorf(
 			"advance Runtime command aggregate cursor: %w",
@@ -543,7 +556,8 @@ func (journal *RuntimeControlJournal) applyRuntimeControlEventTx(
 ) error {
 	// A terminal replay belongs to its original Turn, even after continuation
 	// changes the Runtime's active Run. Discover without graph/row locks, then
-	// serialize on that outcome before taking Session/Runtime/channel locks.
+	// serialize on that outcome and its existing settlement before taking
+	// Session/Runtime/channel locks, matching domain commit and replay.
 	terminalIdentity, err := lockTerminalApplyOutcomeBeforeGraph(ctx, tx, record)
 	if err != nil {
 		return err
@@ -714,6 +728,19 @@ WHERE runtime_instance_id=$1 AND direction='event' AND sequence=$2`, record.Comm
 		return nil, application.ErrRuntimeControlMessageConflict
 	}
 	if err := lockAgentTurnOutcome(ctx, tx, string(envelope.AgentTurnID)); err != nil {
+		return nil, err
+	}
+	// Domain commit/replay locks this settlement before the resident graph.
+	// Use the immutable terminal envelope's Turn, never the current active Turn
+	// or the caller's settlement authority; continuation may have advanced both.
+	settlementID, err := application.TurnSettlementID(string(envelope.AgentTurnID))
+	if err != nil {
+		return nil, application.ErrTurnSettlementConflict
+	}
+	if _, err := readTurnSettlement(ctx, tx, settlementID, true); err != nil {
+		if errors.Is(err, application.ErrTurnSettlementNotFound) {
+			return nil, application.ErrTurnSettlementConflict
+		}
 		return nil, err
 	}
 	return &terminalApplyOutcomeIdentity{AgentTurnID: envelope.AgentTurnID, Fingerprint: fingerprint}, nil
@@ -1174,10 +1201,11 @@ RETURNING revision`,
 		if !fencedTerminalEvidence {
 			if _, err := tx.Exec(ctx, `
 UPDATE runtime_instances
-SET last_event_sequence=$2,revision=revision+1
+SET last_event_sequence=$2,revision=revision+$3
 WHERE runtime_instance_id=$1`,
 				state.RuntimeInstanceID,
 				record.Command.Sequence,
+				runtimeControlLifecycleRevisionDelta(record.DecodedEnvelope),
 			); err != nil {
 				return fmt.Errorf(
 					"advance Runtime event aggregate cursor: %w",
@@ -1646,7 +1674,10 @@ func (journal *RuntimeControlJournal) LoadRuntimeControlReplayPlan(
 	authority application.RuntimeControlAuthority,
 ) (application.RuntimeControlReplayPlan, error) {
 	var result application.RuntimeControlReplayPlan
-	err := platformpostgres.InTransaction(ctx, journal.pool, func(tx platformpostgres.Tx) error {
+	err := InCapacityTransaction(ctx, journal.pool, func(tx pgx.Tx, capacity *CapacityTx) error {
+		if err := capacity.authorizeControlStarts(ctx, authority.RuntimeInstanceID, nil); err != nil {
+			return err
+		}
 		state, err := lockRuntimeControlAuthority(ctx, tx, authority)
 		if err != nil {
 			return err
@@ -1786,7 +1817,7 @@ func (journal *RuntimeControlJournal) CompleteRuntimeControlResume(
 	record application.CompleteRuntimeControlResumeRecord,
 ) (application.RuntimeControlChannelState, error) {
 	var result application.RuntimeControlChannelState
-	err := platformpostgres.InTransaction(ctx, journal.pool, func(tx platformpostgres.Tx) error {
+	err := InCapacityTransaction(ctx, journal.pool, func(tx pgx.Tx, capacity *CapacityTx) error {
 		receivedCommandThrough :=
 			record.Command.Ready.WorkerRXReceivedThroughSequence
 		if err := guardRuntimeControlSettlementAdmission(
@@ -1802,6 +1833,9 @@ func (journal *RuntimeControlJournal) CompleteRuntimeControlResume(
 			&receivedCommandThrough,
 			record.CompletedAt,
 		); err != nil {
+			return err
+		}
+		if err := capacity.authorizeControlStarts(ctx, record.Command.Authority.RuntimeInstanceID, record.Command.Ready.ActiveTurn); err != nil {
 			return err
 		}
 		state, err := lockRuntimeControlAuthority(ctx, tx, record.Command.Authority)
@@ -2850,3 +2884,13 @@ func timePointer(value time.Time) *time.Time {
 }
 
 var _ application.RuntimeControlJournal = (*RuntimeControlJournal)(nil)
+
+// Pure transport receipts advance channel versions and mirrored cursors without
+// changing Runtime lifecycle ownership. Every other kind/type pair retains CAS.
+func runtimeControlLifecycleRevisionDelta(envelope contractsv1.RuntimeControlEnvelope) int64 {
+	if (envelope.Kind == "heartbeat" && envelope.MessageType == "runtime.heartbeat") ||
+		(envelope.Kind == "ack" && envelope.MessageType == "runtime.control.ack") {
+		return 0
+	}
+	return 1
+}
