@@ -1,0 +1,3 @@
+# gRPC Worker Control With HTTPS Fallback
+
+Worker Runtime Shim initiates a transport-independent WorkerControlChannel to Switchback backend. P0 prefers a gRPC bidirectional stream for commands, acknowledgements, heartbeats, and realtime events, but falls back to HTTPS long-poll command retrieval plus batched event upload when HTTP/2, proxy, or transport connectivity prevents gRPC. Both transports share command/event ids, sequence, ACK, runtime generation, channel epoch, and idempotency semantics; only one epoch is active at a time. Authentication, authorization, policy, and protocol-version failures fail closed rather than triggering fallback. Trace and Artifact payloads use resumable HTTP upload regardless of control transport.

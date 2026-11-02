@@ -1,0 +1,267 @@
+{
+  "uid": "sb-platform-health",
+  "title": "Platform Health",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "switchback",
+    "local"
+  ],
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Backend scrape reachability",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"switchback-backend\"}",
+          "legendFormat": "{{status}} {{harness}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Sampling current / ever available",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "switchback_telemetry_sample_current",
+          "legendFormat": "switchback_telemetry_sample_current"
+        },
+        {
+          "refId": "B",
+          "expr": "switchback_telemetry_sample_available",
+          "legendFormat": "switchback_telemetry_sample_available"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Last successful sample age (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - switchback_telemetry_sample_last_success_timestamp_seconds",
+          "legendFormat": "{{status}} {{harness}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Backend dropped records (5m)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (increase(switchback_telemetry_dropped_total[5m]))",
+          "legendFormat": "{{status}} {{harness}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Alloy dropped entries (5m)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(loki_write_dropped_entries_total[5m]))",
+          "legendFormat": "{{status}} {{harness}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Alloy dropped bytes (5m)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(loki_write_dropped_bytes_total[5m]))",
+          "legendFormat": "{{status}} {{harness}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Backend queued / capacity",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "switchback-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "switchback_telemetry_queue_depth",
+          "legendFormat": "switchback_telemetry_queue_depth"
+        },
+        {
+          "refId": "B",
+          "expr": "switchback_telemetry_queue_capacity",
+          "legendFormat": "switchback_telemetry_queue_capacity"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Evidence boundary",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "PostgreSQL and Trace are authority. Missing or stale samples are unavailable, not healthy zeros. Runtime rows include historical generations. Only Backend lifecycle/sample transition logs are wired today; Worker logs and physical G3/G4 remain pending. Exact run-ID links may therefore return no records."
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "run_id",
+        "label": "Safe run ID (optional; Backend lifecycle events currently lack it)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Backend safe lifecycle logs",
+      "type": "link",
+      "targetBlank": true,
+      "url": "/explore?schemaVersion=1&panes=%7B%22local%22%3A%7B%22datasource%22%3A%22switchback-loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22expr%22%3A%22%7Bservice%3D%5C%22switchback-backend%5C%22%2Cenvironment%3D%5C%22local%5C%22}%20%7C%20json%22%2C%22queryType%22%3A%22range%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22switchback-loki%22}}%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22}}}"
+    },
+    {
+      "title": "Explore exact safe run ID",
+      "type": "link",
+      "targetBlank": true,
+      "url": "/explore?schemaVersion=1&panes=%7B%22local%22%3A%7B%22datasource%22%3A%22switchback-loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22expr%22%3A%22%7Bservice%3D%5C%22switchback-backend%5C%22%2Cenvironment%3D%5C%22local%5C%22}%20%7C%20json%20run_id%3D%5C%22scope.worker_run_id%5C%22%20%7C%20run_id%20%3D%20%5C%22${run_id}%5C%22%22%2C%22queryType%22%3A%22range%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22switchback-loki%22}}%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22}}}"
+    }
+  ]
+}

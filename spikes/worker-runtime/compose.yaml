@@ -1,0 +1,230 @@
+name: switchback-worker-runtime-spike
+
+x-langfuse-depends-on: &langfuse-depends-on
+  postgres:
+    condition: service_healthy
+  minio:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  clickhouse:
+    condition: service_healthy
+
+x-langfuse-env: &langfuse-env
+  HOSTNAME: "0.0.0.0"
+  NEXTAUTH_URL: ${NEXTAUTH_URL}
+  DATABASE_URL: ${DATABASE_URL}
+  SALT: ${SALT}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_USE_AZURE_BLOB: "false"
+  LANGFUSE_USE_OCI_NATIVE_OBJECT_STORAGE: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+  LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+  LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+  LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+  LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${REDIS_AUTH}
+  LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK: "false"
+  REDIS_TLS_ENABLED: "false"
+  LANGFUSE_MIGRATION_V4_WRITE_MODE: legacy
+
+services:
+  spike-backend:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: images/backend/Dockerfile
+      platforms:
+        - linux/arm64
+      args:
+        GO_IMAGE: ${SWITCHBACK_SPIKE_IMAGE_GOLANG}
+        DEBIAN_IMAGE: ${SWITCHBACK_SPIKE_IMAGE_DEBIAN}
+    image: switchback-spike-backend:local
+    restart: "no"
+    user: "0:0"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SWITCHBACK_SPIKE_DATA_ROOT: ${SWITCHBACK_SPIKE_DATA_ROOT}
+      SWITCHBACK_SPIKE_HOST_DATA_ROOT: ${SWITCHBACK_SPIKE_HOST_DATA_ROOT}
+      SWITCHBACK_SPIKE_FIXTURE_PATH: ${SWITCHBACK_SPIKE_FIXTURE_PATH}
+      SWITCHBACK_SPIKE_LISTEN_ADDR: ${SWITCHBACK_SPIKE_LISTEN_ADDR}
+      SWITCHBACK_SPIKE_GRPC_LISTEN_ADDR: ${SWITCHBACK_SPIKE_GRPC_LISTEN_ADDR}
+      SWITCHBACK_SPIKE_WORKER_IMAGE: ${SWITCHBACK_SPIKE_WORKER_IMAGE}
+      SWITCHBACK_SPIKE_WORKER_NETWORK: ${SWITCHBACK_SPIKE_WORKER_NETWORK}
+      SWITCHBACK_SPIKE_BACKEND_GRPC_TARGET: ${SWITCHBACK_SPIKE_BACKEND_GRPC_TARGET}
+      SWITCHBACK_SPIKE_BACKEND_HTTP_BASE_URL: ${SWITCHBACK_SPIKE_BACKEND_HTTP_BASE_URL}
+      SWITCHBACK_SPIKE_MODEL_KEY_FILE: ${SWITCHBACK_SPIKE_MODEL_KEY_FILE}
+      SWITCHBACK_SPIKE_UPSTREAM_MODEL: ${SWITCHBACK_SPIKE_UPSTREAM_MODEL}
+      SWITCHBACK_SPIKE_UPSTREAM_API_BASE: ${SWITCHBACK_SPIKE_UPSTREAM_API_BASE}
+      SWITCHBACK_SPIKE_AGENT_PROFILE: codex
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+    volumes:
+      - type: bind
+        source: ${SWITCHBACK_SPIKE_HOST_DATA_ROOT}
+        target: /var/lib/switchback-spike
+      - type: bind
+        source: ${SWITCHBACK_SPIKE_DOCKER_SOCKET}
+        target: /var/run/docker.sock
+    ports:
+      - 127.0.0.1:${SWITCHBACK_SPIKE_BACKEND_HTTP_PORT}:8080
+      - 127.0.0.1:${SWITCHBACK_SPIKE_BACKEND_GRPC_PORT}:9090
+    networks:
+      - control
+      - observability
+
+  langfuse-worker:
+    platform: linux/arm64
+    image: ${SWITCHBACK_SPIKE_IMAGE_LANGFUSE_WORKER}
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    environment: *langfuse-env
+    ports:
+      - 127.0.0.1:${SWITCHBACK_SPIKE_LANGFUSE_WORKER_PORT}:3030
+    networks:
+      - observability
+      - storage
+
+  langfuse-web:
+    platform: linux/arm64
+    image: ${SWITCHBACK_SPIKE_IMAGE_LANGFUSE_WEB}
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    ports:
+      - 127.0.0.1:${SWITCHBACK_SPIKE_LANGFUSE_WEB_PORT}:3000
+    networks:
+      - observability
+      - storage
+
+  postgres:
+    platform: linux/arm64
+    image: ${SWITCHBACK_SPIKE_IMAGE_POSTGRES}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: UTC
+      PGTZ: UTC
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    networks:
+      - storage
+
+  redis:
+    platform: linux/arm64
+    image: ${SWITCHBACK_SPIKE_IMAGE_REDIS}
+    restart: unless-stopped
+    command: --requirepass ${REDIS_AUTH} --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_AUTH\" ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - langfuse_redis_data:/data
+    networks:
+      - storage
+
+  clickhouse:
+    platform: linux/arm64
+    image: ${SWITCHBACK_SPIKE_IMAGE_CLICKHOUSE}
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    networks:
+      - storage
+
+  minio:
+    platform: linux/arm64
+    image: ${SWITCHBACK_SPIKE_IMAGE_MINIO}
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+    volumes:
+      - langfuse_minio_data:/data
+    networks:
+      - storage
+
+networks:
+  control:
+    name: switchback-spike-control
+  observability:
+    name: switchback-spike-observability
+  storage:
+    name: switchback-spike-storage
+    internal: true
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
+  langfuse_redis_data:

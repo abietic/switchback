@@ -1,0 +1,296 @@
+/* Content integrations stay bounded to rich text, code, Diff, and tree surfaces. */
+.content-markdown,
+.report-markdown,
+.timeline-rich {
+  overflow-wrap: anywhere;
+}
+
+.content-markdown pre,
+.report-markdown pre,
+.timeline-rich pre,
+.tool-details pre,
+.diff-pane,
+.file-tree-pane {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.content-markdown code,
+.report-markdown code,
+.timeline-rich code,
+.diff-pane code,
+.file-tree-pane {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* The focused Worker route owns one viewport-bounded execution region. */
+.product-shell[data-shell-mode="focused"] .worker-grid {
+  height: calc(100dvh - 52px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.worker-main,
+.worker-execution-scroll {
+  min-height: 0;
+}
+
+.worker-execution-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Artifact detail owns one bounded viewport for Markdown and patch review. */
+.artifact-detail {
+  width: min(calc(100% - 48px), 1080px);
+  max-height: calc(100dvh - 96px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 22px auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.artifact-toolbar {
+  min-height: 48px;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.artifact-toolbar > div,
+.artifact-toolbar > div > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  font-size: 12px;
+}
+
+.artifact-toolbar a {
+  text-decoration: none;
+}
+
+.artifact-toolbar .integrity-failed {
+  color: var(--red);
+}
+
+.artifact-heading {
+  min-width: 0;
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.artifact-heading > div {
+  min-width: 0;
+}
+
+.artifact-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.artifact-large-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--green);
+  background: var(--status-success-surface);
+}
+
+.artifact-provenance {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 7px 0 0;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.artifact-provenance > div {
+  min-width: 0;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.artifact-provenance dt {
+  color: var(--foreground-soft);
+  font-weight: 700;
+}
+
+.artifact-provenance dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.artifact-content-viewport {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.artifact-notice {
+  min-width: max-content;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  background: var(--surface-subtle);
+  font-size: 12px;
+}
+
+.artifact-integrity-error {
+  min-width: 0;
+  min-height: 180px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 32px;
+  color: var(--red);
+  background: var(--status-danger-surface);
+}
+
+.artifact-integrity-error strong {
+  font-size: 14px;
+}
+
+.artifact-integrity-error p {
+  max-width: 640px;
+  margin: 7px 0 0;
+  color: var(--status-danger);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.report-view {
+  min-width: 0;
+  padding: 28px;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.report-view > div > :first-child {
+  margin-top: 0;
+}
+
+.report-view pre {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.diff-view {
+  width: max-content;
+  min-width: 100%;
+  padding: 12px 0 24px;
+  background: var(--surface-subtle);
+}
+
+.diff-line {
+  min-width: 680px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  min-height: 24px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.diff-line > span {
+  padding-right: 10px;
+  color: var(--muted-foreground);
+  text-align: right;
+  user-select: none;
+}
+
+.diff-line code {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.diff-add {
+  color: var(--status-success);
+  background: var(--status-success-surface);
+}
+
+.diff-remove {
+  color: var(--status-danger);
+  background: var(--diff-remove-background);
+}
+
+.diff-hunk {
+  color: var(--status-active);
+  background: var(--status-active-surface);
+}
+
+@media (max-width: 900px) {
+  .product-shell[data-shell-mode="focused"] .worker-grid {
+    height: auto;
+    min-height: calc(100dvh - 52px);
+    overflow: visible;
+  }
+
+  .worker-execution-scroll {
+    overflow-y: visible;
+  }
+
+  .artifact-detail {
+    width: calc(100% - 28px);
+    max-height: calc(100dvh - 80px);
+    margin-top: 14px;
+  }
+
+  .artifact-heading {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .artifact-heading > .status-badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .artifact-heading,
+  .artifact-integrity-error,
+  .report-view {
+    padding: 14px;
+  }
+
+  .artifact-toolbar {
+    align-items: flex-start;
+  }
+}

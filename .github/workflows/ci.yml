@@ -1,0 +1,146 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  static:
+    name: Static & Contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.4
+          cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.17.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Run static and contract checks
+        run: make fmt-check migration-check generated-protocol-check worker-image-check vet secret-scan publication-check openspec-check
+      - name: Characterize integration evidence validator
+        run: ./scripts/test-integration-json
+      - name: Characterize native observability gate
+        run: |
+          ./scripts/test-observability-native-json
+          ./scripts/test-observability-native-preflight
+          GOMAXPROCS=2 ./scripts/check-observability-test-groups --manifest test/acceptance/observabilitygroups/baseline-v1.json
+      - name: Run isolated stdlib Python suites
+        run: |
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+          make python-check
+  go:
+    name: Go Unit & Race
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOFLAGS: -count=1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.4
+          cache: true
+      - run: make unit
+      - run: make race
+  integration:
+    name: PostgreSQL Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres@sha256:dbbeb22a65db2503050cdbbe5e78f017478f10a1002a226463f049dbb017e99b # PG17.10-1.pgdg13+1, linux/amd64
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      SWITCHBACK_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.4
+          cache: true
+      - name: Check PostgreSQL connectivity
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql "$SWITCHBACK_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'select 1'
+      - name: Run integration tests without skip fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          integration_log="$RUNNER_TEMP/go-integration.jsonl"
+          go test -json -count=1 -tags=integration ./... | tee "$integration_log"
+          ./scripts/check-integration-json "$integration_log"
+  web:
+    name: Production Web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.17.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+  browser:
+    name: Browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.17.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-failure-${{ github.run_id }}
+          path: web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+  required:
+    name: Required
+    if: always()
+    needs: [static, go, integration, web, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every quality job
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'keys == ["browser","go","integration","static","web"] and all(.[]; .result == "success")' <<<"$JOB_RESULTS"

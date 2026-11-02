@@ -1,0 +1,80 @@
+# Local observability collection foundation implementation plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox syntax for tracking.
+
+**Goal:** Ship independently testable safe log transport, snapshot metrics and a real local operational stack; retain physical G3/G4 and Worker-specific collection as explicit open work.
+
+**Architecture:** Telemetry is a derived observer, never execution authority. Typed bounded data feeds a private Prometheus registry and an asynchronous Alloy sender. Background PostgreSQL aggregation supplies immutable snapshots without adding scrape-time or dispatch-time I/O.
+
+**Tech Stack:** Go 1.26, released Prometheus client_golang v1.24.1, pgx v5, Docker Compose, Prometheus/Loki/Alloy/Grafana.
+
+## Global Constraints
+
+- PostgreSQL and Trace JSONL/ObjectStore remain authoritative; durable Langfuse frames remain immutable.
+- Backend cold start, readiness, terminal settlement and next-turn dispatch SHALL remain independent of Prometheus, Alloy, Loki, Grafana and Langfuse availability.
+- No tenant/user/workspace/session/run/turn ID, digest, revision, sequence, URI, free text or exception message is a label.
+- Only Backend accesses Docker Engine. Alloy, Grafana and Worker MUST NOT receive Docker Socket access.
+- Raw prompt, source, tool payload, headers, environment, credentials and arbitrary exception messages MUST NOT be exported.
+- Missing model TTFT/usage/cost MUST NOT be reported as measured zero.
+- All images require a verified released version, multi-architecture manifest and immutable digest.
+- No push, merge, PR creation, change archive, volume deletion, provider call, YHC enablement or modification of unrelated user files.
+
+## 📋 Scope and file boundaries
+
+This plan implements OpenSpec tasks 1.1, 1.2 and 2.1 only. Worker-specific collection/links and complete G3/G4 have separate reviewable acceptance work; no checkmark or claim is earned by this foundation. Existing September 5 design remains binding.
+
+| Area | Files | Responsibility |
+| --- | --- | --- |
+| Typed collection | `internal/platform/telemetry/*.go` | Safe envelope, bounded queue/transport, immutable registry |
+| Product observer | `internal/localproduct/telemetry_*.go` | PostgreSQL sampler and isolated service lifecycle |
+| Composition | `internal/localproduct/{app,config}.go` | Optional configuration and observer wiring |
+| Local stack | `deploy/local/observability/**`, `deploy/local/compose.yaml` | Collector/store/view configuration and tests |
+| Runbook | `docs/runbooks/local-observability.md` | Metric semantics, unavailable/gap interpretation, operators |
+
+### Task 1: Typed non-blocking telemetry core
+
+**Files:** Create `internal/platform/telemetry/{event,sender,metrics}.go` and matching tests; modify `go.mod`, `go.sum` for client_golang v1.24.1 only.
+
+**Interfaces:** Export `Event`, `Scope`, `Sender`, `SenderOptions`, `NewSender`, `Sender.Enqueue(Event) bool`, `Sender.Run(context.Context)`, `Metrics`, `NewMetrics`, `Metrics.Handler() http.Handler`, `Metrics.Replace(Snapshot) error`, `Metrics.SampleFailed()` and `Snapshot` plus explicitly typed measurements. Exported constructors return validation errors without interpolating input values. Metrics owns a private registry, never the global default. Sender consumes Metrics for bounded-reason loss/queue counters. `SenderOptions` carries an exact HTTP(S) push URL and a `ScanJSON(context.Context,string,any) error` scanner (required); caller supplies existing known-token scanner. Scan runs only in the background, within send context; enqueue never calls scanners or network.
+
+- [ ] Step 1: Add tests demonstrating unknown enum/high-cardinality label rejection or collapse, snapshot replacement without recount, missing observations omitted, pre-sample availability zero, failed sample preserves last data, and concurrent scrape/replace safety. Minimum concrete API test:
+
+```go
+func TestScrapeBeforeSampling(t *testing.T) {
+    m := NewMetrics()
+    w := httptest.NewRecorder()
+    m.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+    if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "switchback_telemetry_sample_available 0") { t.Fatal(w.Body.String()) }
+}
+```
+
+- [ ] Step 2: Run `GOCACHE=/private/tmp/Switchback-supplements-go-build go test ./internal/platform/telemetry -count=1`; retain expected compile/behavior RED evidence before production implementation.
+- [ ] Step 3: Implement typed Event with `ts/level/service/component/event/schema_version`, optional validated scope IDs, finite codes, nonnegative duration/byte/count values only. No arbitrary map, message, payload or caller-defined labels. Fixed service `switchback-backend`, environment `local`, schema `switchback.log.v1`; level `info|warn|error`, components `backend|worker|projection|telemetry`; event enum `backend_started|backend_stopped|sample_failed|sample_recovered|runtime_output_suppressed|run_terminal|turn_terminal|projection_failed|log_gap`. Identifier maximum 128 bytes and canonical safe grammar; full serialized event maximum 4 KiB. Harness kinds `codex|kimi|yhc|unknown` derive from verified configuration at integration, not this transport.
+- [ ] Step 4: Implement queue capacity 1,024, batch maximum 64, bounded JSON push requests with Loki nanosecond timestamp strings, labels only service/environment/component/level. One send context at most 1 second; redirects disabled; finite failure reasons `invalid|queue_full|scan_failed|remote_rejected|transport_failed|shutdown`. No indefinite retry or disk spool. Enqueue returns false when invalid/full/stopped; normal call never waits for I/O. Bound timestamps, string lengths and memory before serialization. On cancellation reject new events, discard/count backlog, cancel active request. Preserve loss first/last Unix timestamps and total counters through successful sends; emit one safe log_gap on next successful recovery, preserving concurrent drops. Response body is discarded with a byte bound and never logged. HTTP success means receiver acceptance, not Loki durability. Tests use a real httptest server for payload/labels, held request, rejection, redirect, secret scanner, queue overflow, recovery gap, cancellation, repeated Run protection and Enqueue after shutdown. Use fixed clock or synchronization rather than sleeps.
+- [ ] Step 5: Use explicit bounded metric families, not caller-supplied metric names or label maps. Snapshot includes sampled-at, WorkerRun/AgentTurn terminal result counts and duration histograms, current session/runtime/queue states, and candidate/fragment projection states/oldest pending age. A bounded typed count representation can select family/status/harness and validate enum domains. Numeric values reject NaN/Inf/negative. Histogram buckets are fixed seconds `{0.1,0.5,1,2,5,10,30,60,300,1800,86400}` and validate cumulative count/sum; duration unknown is omitted. Global service/environment labels are constants. Do not expose fake model TTFT/cost or arbitrary route/model labels. Missing family data is omitted, not fabricated. Telemetry health metrics expose sample availability/last success/failures, queue depth/capacity, drop totals/first/last timestamps and receiver accepted count. Document public types in Go comments.
+- [ ] Step 6: Run package tests and race tests once: `GOCACHE=/private/tmp/Switchback-supplements-go-build go test -race ./internal/platform/telemetry -count=1`; verify `git diff --check`; commit only task files. Record exact test output and self-review in report, without claiming integration completion.
+
+### Task 2: Bounded PostgreSQL sampling and Backend wiring
+
+**Files:** Create `internal/localproduct/telemetry_{sampler,runner}.go`, matching tests and integration tests; modify `internal/localproduct/{app,config}.go`, configuration tests, `docs/runbooks/local-observability.md`.
+
+**Interfaces:** Consume Task 1 `Metrics`, `Snapshot`, `Sender` and typed Event. Produce `newTelemetryRunner(Config) *telemetryRunner` and `Run(context.Context)` with no returned error into core App error channel. Constructor performs no remote I/O. The runner owns its separate pool/listener/sender, closes all on cancellation. `Config` adds `TelemetryAddress` and `AlloyPushURL`; env names `SWITCHBACK_TELEMETRY_ADDRESS`, `SWITCHBACK_ALLOY_PUSH_URL`, empty defaults disable listener/sender respectively. Invalid telemetry configuration disables that part with safe bounded diagnostic code; must not fail Config.Validate or App.New.
+
+- [ ] Step 1: Add tests for no I/O in constructor/scrape, telemetry bind failure not stopping App work, no telemetry configuration preserving old behavior, invalid URL/port degrading only telemetry, bounded cancellation, sampler source failure retaining data and repeated sampling leaving terminal counts unchanged. Use current real localproduct integration fixtures, not a new fake lifecycle.
+- [ ] Step 2: Run focused test names and retain RED. Verify current SQL schema and existing integration setup before writes; use CodeGraph first for call paths. Do not infer table fields from docs.
+- [ ] Step 3: Assemble isolated optional server `/metrics` only (no product router exposure), ReadHeaderTimeout 2 seconds and bounded shutdown. Address must be explicit host:port; standalone default disabled; Compose supplies internal `0.0.0.0:9091`. No host publication and production web proxy does not route it. Bind/config failure emits local safe code only and leaves core running. Sender scanner is existing runtime known-token scanner assembled without adding network to Enqueue; scanner failure disables logs, not metrics/core. Emit typed backend_started/backend_stopped and sample_failed/sample_recovered only; lifecycle per-Run and Docker output are outside this task.
+- [ ] Step 4: In Run asynchronously create separate pgxpool (MaxConns=2, MinConns=0) from configured database URL. Sample immediately and then every 15 seconds with total 2-second deadline. Use read-only transaction/snapshot for all queries and rollback on error. Aggregate worker_runs, agent_turns, worker_sessions, runtime_instances, queued tasks, observation_candidates and observation_fragment_jobs into bounded series; scope every relevant table to configured tenant/user using trusted joins, not unfiltered multi-tenant aggregation. Resolve terminal-run harness from immutable profile id/revision/digest against ProductionProfileRegistry; unknown identity becomes `unknown`. Normalize the verified finite profile references in SQL before GROUP BY, rather than returning unbounded arbitrary profile groups to Go. Both current Kimi and DeepSeek Worker model profiles use `codex-acp`, hence harness `codex`; model vendor is not harness identity. Turn harness uses owning Run. No new DB schema or whole-frame payload scanning for model metrics. Terminal duration is terminal_at-started_at only where both valid; never synthesize duration for unknown start. Count terminal records from primary keys, not joined fanout. Repeated sample replaces cumulative snapshots. Emit explicit documented unavailability for model TTFT/cost/usage coverage until canonical source support, rather than zeros. Sampling errors never expose raw DB/DSN errors. Queue/quota measures must have clear units and ownership; omit unsupported families rather than inventing state.
+- [ ] Step 5: Add real PostgreSQL tests with committed terminal rows, multiple Tenants, repeated/replayed rows, unknown profile IDs and failure/cancellation. Reuse repository test DB env conventions, run on an isolated task-owned PostgreSQL if required; no existing volume mutation. Tests must assert exact counts/series and no scope leak. Scrape while sample source blocked and assert no waiting on source.
+- [ ] Step 6: Run new tests, package suite and `go test -race ./internal/platform/telemetry ./internal/localproduct -short -count=1`; document exact skip/DB evidence separately. `git diff --check`, commit exact files. Update runbook with label contract, stale snapshots, log loss and counter reconstruction/reset interpretation.
+
+### Task 3: Provision and validate the local telemetry stack
+
+**Files:** Modify `deploy/local/compose.yaml` and `deploy/local/bootstrap-env.sh` (idempotently generate a Grafana password without changing existing values); create `deploy/local/observability/{prometheus.yaml,loki.yaml,alloy.alloy}`, Grafana datasource/dashboard/alert provisioning and four dashboard JSON files, `internal/architecture/local_observability_test.go`, update runbook.
+
+**Interfaces:** Backend internal `:9091/metrics`, Alloy source API `:12345/loki/api/v1/push` and separate Alloy own diagnostics `:12346/metrics` (set the global HTTP listen flag explicitly to avoid colliding with the source listener); Prometheus datasource UID `switchback-prometheus`, Loki UID `switchback-loki`. No backend depends_on edge to telemetry; only observability network membership for ingestion; Grafana/Prometheus also use local-access for loopback publication. Operator ports Grafana `127.0.0.1:${SWITCHBACK_GRAFANA_PORT:-3001}:3000`, Prometheus `127.0.0.1:${SWITCHBACK_PROMETHEUS_PORT:-9091}:9090`, Loki/Alloy not host-published. Use fixed local single-user scope, no external receivers/remediation.
+
+- [ ] Step 1: Verify official released versions and registry digests/arm64+amd64 manifests before selecting images. Current verified release candidates are Prometheus v3.15.0, Loki v3.7.8, Grafana v13.2.2, Alloy v1.20.0; manifests are not yet verified. Record sources and exact version→digest mapping. Do not fall back to `latest` or fabricate digest. Add config contract tests that fail before new services/configs exist.
+- [ ] Step 2: Add Prometheus 15-second scrape / 7-day TSDB retention, Loki filesystem TSDB v13 168-hour compactor retention, and Alloy HTTP push receiver with incoming timestamps preserved and Loki writer. Bound collector queues/retries and expose their own loss metrics; receiver success is not backend durability. Read official versioned configuration docs, use native validators. Services receive their own named data volumes, no core credentials, no Docker Socket, cap_drop ALL/no-new-privileges where image permits. Backend gains optional envs but no readiness dependency.
+- [ ] Step 3: Add four Grafana dashboards with actual metric names from Tasks 1/2: Platform Health, Worker Runtime, Harness & Model, Projection Health. Show unavailable model fields as explicit explanatory unavailable panels, not zero/success; no invented model data. Real Loki Explore links filter safe JSON IDs and time range without indexed identity labels. Grafana local rules: backend target-down, log drops, sample stale/unavailable, sustained projection backlog and lost/unhealthy runtime; explicitly set no-data/error behavior and pending windows. No external contact point. Provision read-only datasources/dashboard definitions and local Grafana authentication consistent with repository local-env secrets policy; do not hardcode a credential.
+- [ ] Step 4: Run architecture/config tests, Compose config with a throwaway env containing non-secret fixture values, native Prometheus `promtool check config`, Loki `-verify-config`, Alloy validate and Grafana startup provisioning on task-owned resources if Docker available. Avoid core Backend/real provider startup for this configuration check. Prove healthy datasource connectivity and dashboards/rules loaded via API if resources permit; label this infrastructure-only, not G3/G4. Clean only task-owned ephemeral containers after recording evidence; preserve volumes unless exact disposable targets are verified and authorized by the test workflow.
+- [ ] Step 5: Document bootstrap commands, URLs, metric/label catalog, alert meanings, local-only limits and separate pending G3/G4 requirements. Run focused configuration gates and `git diff --check`; commit exact files. Complete only OpenSpec task 2.1 if native validations pass, not the whole change.

@@ -1,0 +1,9 @@
+{
+  "name": "switchback-worker-runtime-spike-image",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@agentclientprotocol/codex-acp": "1.1.2",
+    "@openai/codex": "0.144.1"
+  }
+}

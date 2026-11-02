@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package switchback.spike.workercontrol.v1;
+
+option go_package = "switchback.local/spikes/worker-runtime/gen/workercontrol/v1;workercontrolv1";
+
+import "google/protobuf/timestamp.proto";
+
+service WorkerControl {
+  rpc Connect(stream WorkerEnvelope) returns (stream BackendEnvelope);
+}
+
+message Identity {
+  string worker_session_id = 1;
+  string worker_run_id = 2;
+  string runtime_instance_id = 3;
+  uint32 runtime_generation = 4;
+  string agent_turn_id = 5;
+}
+
+message EnvelopeMeta {
+  string message_id = 1;
+  uint64 stream_sequence = 2;
+  uint64 ack_sequence = 3;
+  Identity identity = 4;
+  google.protobuf.Timestamp sent_at = 5;
+}
+
+message BackendEnvelope {
+  EnvelopeMeta meta = 1;
+  oneof payload {
+    InitializeSession initialize_session = 10;
+    StartAgentTurn start_agent_turn = 11;
+    CancelAgentTurn cancel_agent_turn = 12;
+    ShutdownRuntime shutdown_runtime = 13;
+  }
+}
+
+message WorkerEnvelope {
+  EnvelopeMeta meta = 1;
+  oneof payload {
+    RuntimeReady runtime_ready = 10;
+    AgentSessionReady agent_session_ready = 11;
+    TurnStarted turn_started = 12;
+    ACPUpdate acp_update = 13;
+    ModelObservation model_observation = 14;
+    TurnCompleted turn_completed = 15;
+    TurnFailed turn_failed = 16;
+    RuntimeDiagnostic runtime_diagnostic = 17;
+  }
+}
+
+message InitializeSession {
+  string working_copy = 1;
+  string agent_state = 2;
+  string trace_spool = 3;
+  string agent_profile = 4;
+  string trace_id = 5;
+}
+
+message StartAgentTurn { string prompt = 1; }
+message CancelAgentTurn { string reason = 1; }
+message ShutdownRuntime { string reason = 1; }
+
+message RuntimeReady { string shim_version = 1; }
+
+message AgentSessionReady {
+  string agent_session_id = 1;
+  string protocol_version = 2;
+  bytes capability_snapshot_json = 3;
+}
+
+message TurnStarted {
+  google.protobuf.Timestamp started_at = 1;
+}
+
+message ACPUpdate {
+  string kind = 1;
+  bytes normalized_json = 2;
+}
+
+message ModelObservation {
+  string model_observation_id = 1;
+  string model = 2;
+  string route = 3;
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp ended_at = 5;
+  int64 latency_ms = 6;
+  int64 input_tokens = 7;
+  int64 output_tokens = 8;
+  int64 total_tokens = 9;
+  double cost_usd = 10;
+  string status = 11;
+  string error_kind = 12;
+  bytes metadata_json = 13;
+}
+
+message EvidencePointer {
+  string kind = 1;
+  string object_path = 2;
+  string sha256 = 3;
+  int64 size_bytes = 4;
+}
+
+message TurnCompleted {
+  string agent_session_id = 1;
+  repeated EvidencePointer evidence = 2;
+}
+
+message TurnFailed {
+  string code = 1;
+  string detail = 2;
+  repeated EvidencePointer partial_evidence = 3;
+}
+
+message RuntimeDiagnostic {
+  string level = 1;
+  string code = 2;
+  string detail = 3;
+}

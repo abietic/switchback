@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+go test ./internal/contracts/v1 -run 'TestJSONContractsRoundTrip|TestJSONSchemaTopLevelMatchesGoContract|TestRuntimeControlFrameJSONSchemaValidatesDeclaredWireSemantics' -count=1

@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=${1:-.}
+root=$(cd "$root" && pwd)
+
+worktree_state=$(git -C "$root" rev-parse --is-inside-work-tree 2>/dev/null) || {
+  printf '%s\n' 'publication blocked: root is not a Git worktree' >&2
+  exit 1
+}
+if test "$worktree_state" != true; then
+  printf '%s\n' 'publication blocked: root is not a Git worktree' >&2
+  exit 1
+fi
+
+legacy_one=$(printf '%s%s' 'hai' 'lix')
+legacy_two=$(printf '%s%s' 'he' 'lix')
+private_email=$(printf '%s%s%s' 'iam' 'yhc' '@live.cn')
+personal_path=$(printf '%s%s%s' '/Users/' 'yu' 'haichuan')
+failed=0
+
+grep_status=0
+set +e
+git -C "$root" grep -l -I -i -E "$legacy_one|$legacy_two" -- .
+grep_status=$?
+set -e
+case "$grep_status" in
+  0)
+    printf '%s\n' 'publication blocked: legacy product identity found' >&2
+    failed=1
+    ;;
+  1) ;;
+  *)
+    printf 'publication blocked: git grep failed (exit %s)\n' "$grep_status" >&2
+    failed=1
+    ;;
+esac
+
+grep_status=0
+set +e
+git -C "$root" grep -l -I -F "$private_email" -- .
+grep_status=$?
+set -e
+case "$grep_status" in
+  0)
+    printf '%s\n' 'publication blocked: private author email found' >&2
+    failed=1
+    ;;
+  1) ;;
+  *)
+    printf 'publication blocked: git grep failed (exit %s)\n' "$grep_status" >&2
+    failed=1
+    ;;
+esac
+
+grep_status=0
+set +e
+git -C "$root" grep -l -I -F "$personal_path" -- .
+grep_status=$?
+set -e
+case "$grep_status" in
+  0)
+    printf '%s\n' 'publication blocked: machine-specific personal path found' >&2
+    failed=1
+    ;;
+  1) ;;
+  *)
+    printf 'publication blocked: git grep failed (exit %s)\n' "$grep_status" >&2
+    failed=1
+    ;;
+esac
+
+tracked_files=$(mktemp)
+trap 'rm -f "$tracked_files"' EXIT
+if ! git -C "$root" ls-files -z >"$tracked_files"; then
+  printf '%s\n' 'publication blocked: tracked-file enumeration failed' >&2
+  exit 1
+fi
+
+while IFS= read -r -d '' file; do
+  case "$file" in
+    .env|.env.*|*/.env|*/.env.*|*.pem|*.key|*.p12)
+      case "$file" in
+        .env.example|*/.env.example) ;;
+        *)
+          printf 'publication blocked: tracked environment or key file: %s\n' "$file" >&2
+          failed=1
+          ;;
+      esac
+      ;;
+  esac
+
+  if test -f "$root/$file"; then
+    size=$(wc -c < "$root/$file" | tr -d '[:space:]')
+    if test "$size" -gt 1048576; then
+      printf 'publication blocked: tracked file exceeds 1 MiB: %s (%s bytes)\n' "$file" "$size" >&2
+      failed=1
+    fi
+  fi
+done < "$tracked_files"
+
+if ! (cd "$root" && ./scripts/check-secrets); then
+  printf '%s\n' 'publication blocked: repository secret scan failed' >&2
+  failed=1
+fi
+
+if test "$failed" -ne 0; then
+  exit 1
+fi
+
+printf '%s\n' 'publication audit passed'

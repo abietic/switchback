@@ -1,0 +1,2541 @@
+{
+  "version": 1,
+  "provenance": "commit-mode normalized AST and ordinary groups; strict preservation and five compilation groups verified; public CI contract exact policy delta sha256=e1d3c2d10733a74b958c39dc9acac27cb6239d7166ce02a657e24dd9a3b36fd4; retained501 replaced1; independent technical approval",
+  "packages": [
+    "internal/architecture",
+    "internal/localproduct",
+    "test/acceptance/observability"
+  ],
+  "functions": [
+    {
+      "id": "internal/architecture/TestAssistantLiteLLMFailClosedValidationRejectsWrongWiringAndDuplicatePolicy",
+      "sha256": "67d191ea1a523f5f91983f2d7afaaf77bd9fb9e4fcb4fd438ed81daac69f9eea"
+    },
+    {
+      "id": "internal/architecture/TestAssistantLiteLLMFailsClosedInsteadOfDroppingStructuredOutput",
+      "sha256": "f4720a672893cbef719c8086e2aeffe84932e7c64fcbffc4477b7158290c5860"
+    },
+    {
+      "id": "internal/architecture/TestAssistantLiteLLMImagePinsTheProxyAndKeepsProviderCredentialFileScoped",
+      "sha256": "1ff6be3b96e2653590c2dbb3b34331953da96cd4d13b709bf5da9981ac09daee"
+    },
+    {
+      "id": "internal/architecture/TestInitialPersistenceMigrationEnforcesCoreCardinality",
+      "sha256": "1ffc9a41643020864b4df9509d560d896e6959efd351351ac459f2a587e9d916"
+    },
+    {
+      "id": "internal/architecture/TestInitialPersistenceMigrationOwnsRequiredTables",
+      "sha256": "604a401ff996c3cc097d7e208344304764364738d63ba83555bda82c367e84c5"
+    },
+    {
+      "id": "internal/architecture/TestIntegrationEventV2Migration022LocksThenPreflightsBeforeDDL",
+      "sha256": "4d4bc62260779ffd5380e6a85df81c00abadc14639853cdc01b83ff9c4c069b1"
+    },
+    {
+      "id": "internal/architecture/TestLocalComposeKeepsM1TopologyAndDockerOwnership",
+      "sha256": "62694e656941e5fa874b3a3425a3d3bde56b66096a756998d46ab4f36d955d47"
+    },
+    {
+      "id": "internal/architecture/TestLocalMigrationRunnerTracksFreshAndLegacySchemas",
+      "sha256": "8e006632df706fd71e642c015c58699eca234fc3cd3a031c18551b9843eb186d"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityAlloyFreshVolumeNative",
+      "sha256": "3823d83bc55908b13114d9ae40ee0aebefc3626c9bf0b19042f0452dca885527"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityBootstrapPreservesPassword",
+      "sha256": "a51de511ae0a66297ccd7109ee872a8efd904041e678f6e0ff576a3564e62377"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityContracts",
+      "sha256": "c44515e076b6b49eaa3aa5f456552417361c659c790c552b83de2618104ac2d1"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityExploreEnvelopeContract",
+      "sha256": "e21ff1c278de04558c40ca53ae629de72942b4f9a796a04d7cdb198cf9561962"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityExploreNative",
+      "sha256": "f8d7487c6f1f8589b68c9fd8aad10a053e8c6b1d267aec430c8d1ee06fa2d52c"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityMonitoringNative",
+      "sha256": "ee198bb005b4a7186b7ce9fdb5a966d6098812c4ef67aeef1b793ee307ad0c62"
+    },
+    {
+      "id": "internal/architecture/TestLocalObservabilityPromQL",
+      "sha256": "565e9c2e4d1f7a81c65694cb06e82113daab60fb538f91cf8c9c2515e13ad0b3"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderAcceptancePreservesExistingPublishedSummary",
+      "sha256": "06e3d87785e1f5c6d0cd6047dbc3758fae57cce6220fe7e91569f751170d8952"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderAssistantRunsFailClosedWithoutAutomaticRetry",
+      "sha256": "9453e88000ec372a8b2ad93e7aa9f5c1b5b4a519e1824943c1670e7e537cf008"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderCredentialScanAcceptsCleanEvidence",
+      "sha256": "0e617df0de1da797718f1a0af413956f4d8576845252d0013e37560ed6e0eb36"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderCredentialScanDetectsLiteralCredentialInEvidence",
+      "sha256": "18188c21aed7483d276106e8d8f9c0cd08d780c6891ea0faade1026d551be4c0"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderCredentialScanMatcherArgvContainsOnlyPathsAndFlags",
+      "sha256": "3000cc25252e3fd62d2342fabd639a5babca132b49a27c16809adaa4a9562caa"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderCredentialScanNeverExpandsCredentialIntoMatcherArgv",
+      "sha256": "49061a6b3562964f7c90e356753032e4a5bf4b42cbb351bc6cc0dd0dbfe37710"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderCredentialScanRejectsMissingOrEmptyFileBeforePublication",
+      "sha256": "3a4b75ff3870b87bb0ed08dc78a2bfd45ec050aae183194f64b33abeb526f8be"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderExpectedAssistantProfileRefsTrackProductionRegistry",
+      "sha256": "1f2f2071ae7c113cde536d7bd3e43495c0192f98256610ce6bc1c9823f000e65"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderFinalValidationPrecedesPublication",
+      "sha256": "09f82b0a0272cbdb9715af6fc29b4c8bab85b1838df87277f9f6d17edae2a85c"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderOutputClaimIsExclusive",
+      "sha256": "b5e4a557e00fe3bc8797e38cd82e04a8d76c806691d4d50924e221805ef8c7b8"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderPrivacyGateScansEveryBrowserResponseJSON",
+      "sha256": "3297e5f5df3b094af7e4b457239ee9f52a9737abb187851eefd424973ec6b06c"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderPublicationDoesNotReplaceLateDestination",
+      "sha256": "1656724d59528691744b7debdf6e32caf3efee2759d9bafde81c4476cd11a96e"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderPublicationDoesNotTreatLateDirectoryAsDestination",
+      "sha256": "f6005d4647f815c6ad9234939011e6725b8e6528940a74936e7b5c68f1754cce"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderSummaryBindsEveryAssistantRunToExpectedProfile",
+      "sha256": "dc7f89737a0b44889279f917c5425ebbeaf705aab78f266f7c668b507ab581b8"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderSummaryCarriesDirectProjectionEvidence",
+      "sha256": "bd458e0348f8f3c6aba4344a787a8888e1fdf4030a83efb55ea6630e8b028dee"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderSummaryPublishesOnlyAfterFinalContractValidation",
+      "sha256": "2af4fcd34c02e8d6900bf5a63682d6de984b0f0b7f280ca97e37b889f71e7646"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderValidClaimPublishesOnceAndCleansOwnedFiles",
+      "sha256": "0c7245f4b5f1b2c2434f04dc218554481aa6031337b7ba9b70cc07b179dc8af8"
+    },
+    {
+      "id": "internal/architecture/TestM2RealProviderWaitsOnlyForMissingArtifactDetailProjection",
+      "sha256": "d50761845ad175a167fb33cab1b5933c5a9199d7a2a3d333844ba27afad7323e"
+    },
+    {
+      "id": "internal/architecture/TestManualAcceptanceCommandsUseTheCanonicalProfileSelector",
+      "sha256": "681fbf09ce0864db84d6df785403b8ed7f21b7be1bfbc3f81cce7b51dd3a07ac"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringAcceptsProvenEvidence",
+      "sha256": "79366ee478a37d1165283f08b07442e920002ed0640d389505216b06cf489546"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringHTTPRejectsErrorAndOversize",
+      "sha256": "19ae58d4463b77e086942f3fdf32bb8e075d04ba39fab578990bc63fbf45b87d"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringNoDataEvaluationHealth",
+      "sha256": "a9c170588349aa71c83879b370200916cbf06bcb77863a3b63f629a6710da8e0"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringRegistryFixture",
+      "sha256": "0b55dd668c848cdae464c9ef41e7ba33087c319e4d8bae9851b51609e118fc57"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringRejectInvalidEvidence",
+      "sha256": "25bd37c30ff25993abfd55d903fc2c805c91a90e69d1118455055f430b2f4ba8"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringRejectsDefinitionDrift",
+      "sha256": "e38e6459a901700c04d196c3bd88a9d245d7b1ac7b09ca1b53f48ae1faddf344"
+    },
+    {
+      "id": "internal/architecture/TestMonitoringRejectsMalformedFrames",
+      "sha256": "15bb5b18dc13bce74e10c57440efa7e64e71977f1b6e434051c3e48244198b74"
+    },
+    {
+      "id": "internal/architecture/TestObservationFragmentsMigration024IsAdditiveAndRetainsEvidence",
+      "sha256": "10efb5d6c3a1bc1335ee30feb49ff81b9843f47ef455591f55a73e1955673f93"
+    },
+    {
+      "id": "internal/architecture/TestPrivateCIContract",
+      "sha256": "5d174210178e8f1b610d46569e07bbcbed001a2aedbcb896f33e58a5d611e94b"
+    },
+    {
+      "id": "internal/architecture/TestPrivateCIRequiredRejectsIncompleteOrUnsuccessfulResults",
+      "sha256": "594e31f431ed93d56b850700c22240825a416811c1367e717bb36a8d5450c3c9"
+    },
+    {
+      "id": "internal/architecture/TestProductionPackageBoundaries",
+      "sha256": "27ac8a0ec1fde979cf9777b8e50cb248ce31fac8a64fa6d5158a12e69cd83ee6"
+    },
+    {
+      "id": "internal/architecture/TestProjectionCommandReceiptMigration021RemainsImmutable",
+      "sha256": "cf857fab79c3edeb2a92e7f58fc2c9d201f03e99054ce71ff88c97ac7d7e3f05"
+    },
+    {
+      "id": "internal/architecture/TestRuntimeControlFenceSnapshotMigrationOwnsImmutableFenceProof",
+      "sha256": "aece17822090a776f9e3416bb9d80a1a3ffb3766e6cef97e0bca6cf576288982"
+    },
+    {
+      "id": "internal/architecture/TestRuntimeControlResumeMigrationOwnsDurableAuthorityAndJournal",
+      "sha256": "cf9065cfb55213fa7a26f42904464d205839b90bd16cd47bfe113f6f4b62f609"
+    },
+    {
+      "id": "internal/architecture/TestRuntimeFirstHeartbeatWatchdogMigrationOwnsImmutableAnchorAndCrashProof",
+      "sha256": "a88423c78e947cb513bb283b63c5748037ac1e84cfb3124709754fc13eb7bdc9"
+    },
+    {
+      "id": "internal/architecture/TestRuntimeRecoveryAcceptanceReportsOnlyExecutedEvidence",
+      "sha256": "3441251c9900cc944d30d80213cba7e74169ab2fae3b691622ff2700f6f9e482"
+    },
+    {
+      "id": "internal/architecture/TestTrustedNetworkComposeKeepsOneNamedEgressBridgeAndInternalInfrastructure",
+      "sha256": "25bca2312854c7a6c9a48f2e728a6961e7e4ef64a9a6f2ddbf72a01694831f49"
+    },
+    {
+      "id": "internal/architecture/TestTrustedNetworkComposeRendersDefaultAndExplicitIsolatedWorkerNetwork",
+      "sha256": "5fc586592cb37b206d4e2571fd586b0cf829fbe37100e39f331182dcb862a88b"
+    },
+    {
+      "id": "internal/architecture/TestWorkerDockerNetworkCannotBeSelectedByClientAPIOrTaskSpec",
+      "sha256": "6c823e7b8af4a4b8f343678c993efbee1110fcedfdc9dfdff8be9611c083272e"
+    },
+    {
+      "id": "internal/architecture/TestWorkerImageProvenanceMatchesBuildAndDependencyLocks",
+      "sha256": "84189a66e12e7fad2288336750a9fe162c3751750d3fce7a2b11e08ec95a0651"
+    },
+    {
+      "id": "internal/architecture/TestWorkerTurnSettlementMigrationOwnsDurablePhaseLeaseAndUpgradeBackfill",
+      "sha256": "3dba68c5f36c613f958c40782fb67d077f2bcbd5aa137735d431ed5d8391971e"
+    },
+    {
+      "id": "internal/architecture/TestWorkerTurnSettlementSourceUnionMigrationOwnsRuntimeAndDeadlineSources",
+      "sha256": "0cdd54581498994156a2321e038ecad5318e492e990803f91467f1f25952ca9f"
+    },
+    {
+      "id": "internal/architecture/composeNetworkBlock",
+      "sha256": "15fbbff75f7487d5fc88ac4767ae381de3dac7de999e2ed1d926aaa73f3b227b"
+    },
+    {
+      "id": "internal/architecture/composeVolumeTarget",
+      "sha256": "aff79322a151f999dacbf6ba66a760927a4346835f3f1fab8bb64dc46db9948a"
+    },
+    {
+      "id": "internal/architecture/containsExactToken",
+      "sha256": "7b7d20abc1aef91471465a8dbafdd2c2c5c2369e9cba6dce6b3da540e4d1a310"
+    },
+    {
+      "id": "internal/architecture/docker/*monitoringFixture",
+      "sha256": "d9405f2484d3678f024d825f4a3852ff9848977163270d63503d66105e4a79a5"
+    },
+    {
+      "id": "internal/architecture/dockerInstructions",
+      "sha256": "8fed6d67711b6f7f7a3f762ccdf92ab66330bf975017669017a069d0c72e1f62"
+    },
+    {
+      "id": "internal/architecture/dockerLogicalLines",
+      "sha256": "640a5b914af2277b45475d741a5d0c750e80485136392c3dcbbd2f7b7f0a9106"
+    },
+    {
+      "id": "internal/architecture/exploreRunQueries",
+      "sha256": "dd948d075d160d225a25663b6e463340c0eea79f4c7031dda2f99125d7617153"
+    },
+    {
+      "id": "internal/architecture/extractM2ShellFunction",
+      "sha256": "3010adf5b2206c4f9c6b37a028cf045648c2e24c8c80eaeeadf4e7070f580ced"
+    },
+    {
+      "id": "internal/architecture/isDockerParserDirective",
+      "sha256": "ea4afb4069cce9a5749d6eaf79e20fdd7ebb429b2be9543255ab848010262ebe"
+    },
+    {
+      "id": "internal/architecture/loadPrivateCI",
+      "sha256": "aa42c0708478239cb13c09ad9abb26b339d787384f64e659b16c3b94a36e5fe9"
+    },
+    {
+      "id": "internal/architecture/monitoringAlertState",
+      "sha256": "f31c229b847e389f49fe67f6e589292ee7ced26662820d35df875388de0caec6"
+    },
+    {
+      "id": "internal/architecture/monitoringDashboardMatches",
+      "sha256": "17768dad58caba9a578a0cf45dda5d576df48c5dde13a040485f50579468401f"
+    },
+    {
+      "id": "internal/architecture/monitoringFrames",
+      "sha256": "407ebd21a231670a818eef7018a18a0448244c93bfecf9ad2301e0aa847396be"
+    },
+    {
+      "id": "internal/architecture/monitoringHTTP",
+      "sha256": "d6339d88a2f3598b8ae0db76f7c7fdd53a53a2422d76f0abdd1e95129230e73d"
+    },
+    {
+      "id": "internal/architecture/monitoringPoll",
+      "sha256": "76a01c0398d27aebdd5c3cd43bd92858658de45e11e35e8790b86728d88b9a08"
+    },
+    {
+      "id": "internal/architecture/monitoringRecovery",
+      "sha256": "79e6b228ed85a0038750e89951ed9963ae8d167afabef2fbe5b386bb4433a265"
+    },
+    {
+      "id": "internal/architecture/monitoringRuleMatches",
+      "sha256": "495becc9f9c5efcc36a8348362fd5f64e9dd34edfa60960b95859fbb23b74a19"
+    },
+    {
+      "id": "internal/architecture/monitoringRules",
+      "sha256": "4e48b50bdb91dc2e0d23f0598a5143cec63031b868476b852c3f7e3a30fc2d3c"
+    },
+    {
+      "id": "internal/architecture/monitoringSample",
+      "sha256": "d45ff99a26459cf783028dab1c572de0224561353ea4d0b0d3e311ad8c34254c"
+    },
+    {
+      "id": "internal/architecture/mountCoversAssistantLiteLLMConfig",
+      "sha256": "09d6cf9c5e5fb95556ba548b9031b2a3705b234ad923dff6431f99cd12db5a63"
+    },
+    {
+      "id": "internal/architecture/newMonitoringFixture",
+      "sha256": "8a7c6911f4b68f30fcbc5f84440410f6f1b701e4b0004bc01004060a6864cfa2"
+    },
+    {
+      "id": "internal/architecture/number",
+      "sha256": "47d7b0b6e6b7e965ad7c78dea816640954985098b33e42d97a463aa5de39d950"
+    },
+    {
+      "id": "internal/architecture/optionalYAMLMappingValue",
+      "sha256": "545edbb2aa9dc8e2572cdec8aeadfc33f2b7197d7105521922461d9abd23ac48"
+    },
+    {
+      "id": "internal/architecture/parseSingleYAMLMapping",
+      "sha256": "52701dd7cffe38740f59ba77f23a8e001dbb71deb501c5f459352938195d25df"
+    },
+    {
+      "id": "internal/architecture/readM2RealProviderAcceptance",
+      "sha256": "43983185658baf6e567327e43dac6830d6cb9c5440e7ba84abab24a42d3f1c17"
+    },
+    {
+      "id": "internal/architecture/rejectYAMLMergeKeys",
+      "sha256": "993c9e3658beb12540210dbdb41cb6f03618533e3c48a166bca3562bc3f6176e"
+    },
+    {
+      "id": "internal/architecture/renderLocalCompose",
+      "sha256": "bd65ad9d48dd9fa03590501ec7e14c111d68a94fd064f9a9a5c5521118628ee2"
+    },
+    {
+      "id": "internal/architecture/requiredYAMLMappingValue",
+      "sha256": "396276b6560fac4cf54e09c89b21b50d53d659ea391a7711fe4890091b58ae8a"
+    },
+    {
+      "id": "internal/architecture/validDirectTaskInput",
+      "sha256": "2d270ccf0ce5c08cbc83d8013157329678ee585b7a95b8a7f002950ae5b57048"
+    },
+    {
+      "id": "internal/architecture/validateAssistantLiteLLMCompose",
+      "sha256": "14e7d602f400f3304db9f979870dc5780b68af6ba1497a08cce085b8a53f89f6"
+    },
+    {
+      "id": "internal/architecture/validateAssistantLiteLLMDockerfileRecipe",
+      "sha256": "4b532cfbfe74ed91de7d8bfab8f1efebf2309a32a683a91c7f16bd226c501d1b"
+    },
+    {
+      "id": "internal/architecture/validateAssistantLiteLLMFailClosedPolicy",
+      "sha256": "a7b04b1d05d11d0699573ab3b9cd1d5c909d40a67504f94345ec576c315b0c65"
+    },
+    {
+      "id": "internal/architecture/validateAssistantLiteLLMProductionWiring",
+      "sha256": "b647f4f7b04f43f42c9c7b4468f5ae92308445428002c1ad463a4284deba015c"
+    },
+    {
+      "id": "internal/architecture/validateAssistantLiteLLMTmpfsMount",
+      "sha256": "db62eb6456125b6460d0eed12d200ab5389eb846f8613b75d19a566d67f33a65"
+    },
+    {
+      "id": "internal/architecture/verifyProvisionedRules/*monitoringFixture",
+      "sha256": "c77898bc6b17668232e9e13153acd334b51ee2b5c26faf121af3cbe53482729b"
+    },
+    {
+      "id": "internal/architecture/withoutEnvironmentVariable",
+      "sha256": "f69cc0822a583d924762864dc030fd084ea9cf6badfba727af594dcb0478c370"
+    },
+    {
+      "id": "internal/architecture/writeM2OutputProtocolLibrary",
+      "sha256": "f44d744456285da159e7f69e8a9a8bb3ac9cc6d346628fb615723c1e631f86fb"
+    },
+    {
+      "id": "internal/architecture/yamlMappingValues",
+      "sha256": "229cd26df9a184e946163fdb2302b860d230b3a176ff6316d2500b7a81dd5e38"
+    },
+    {
+      "id": "internal/localproduct/AcceptRuntimeControlEvent/*supplementJournal",
+      "sha256": "7cdea08c3a4f03798275b5389f6a1249eced7faecf7266690e4eb4e16caed158"
+    },
+    {
+      "id": "internal/localproduct/AdvanceBackendDeadlineSource/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "d14dcb5697e17c8b3590964afd4344b4f96e9e05a1241327ef2681c42e270912"
+    },
+    {
+      "id": "internal/localproduct/AdvanceTurnSettlement/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "7c646617a833024440a75db5b25af6fb0834d9e48ac757a963691e4c73f40ba3"
+    },
+    {
+      "id": "internal/localproduct/AdvanceTurnSettlement/*supplementSettlements",
+      "sha256": "d0fcbce7c47cc18981dced6bbeb1e8ae8f17566c3bedceb19303096230a85fe0"
+    },
+    {
+      "id": "internal/localproduct/Apply/*recordingWorkerControlDelivery",
+      "sha256": "ca5ed4758574873e55d65f02c231fed183cb5072a91b91f1c8c0ae16dce00ce7"
+    },
+    {
+      "id": "internal/localproduct/ApplyBackendDeadlineTurnSettlement/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "9bd19e02c4e2d8b1a3f4af5d40abf39b613d94934faa7dfe5b37ce92032518e2"
+    },
+    {
+      "id": "internal/localproduct/ApplyRuntimeControlEvent/*supplementJournal",
+      "sha256": "a81f296ffdb49f6fa2e3147f1419c83ab08daa5d1eabbde37834b46172c6d214"
+    },
+    {
+      "id": "internal/localproduct/BindRuntimeControlChannel/*deadlineCleanupJournal",
+      "sha256": "0d187fb9f89c21e1c9c59cefaed5684586b232601417a5b61a10436df7b75b61"
+    },
+    {
+      "id": "internal/localproduct/Claim/supplementFinish",
+      "sha256": "1db7912086507adbe42980b8276c6de5c0e1492b0e64e55f37aa8cc8def802d1"
+    },
+    {
+      "id": "internal/localproduct/ClaimBackendDeadlineTurnSettlement/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "5bb5d16c8d717e2775b110c25ad40e56430e1de9732ec22a4186db488ad21aae"
+    },
+    {
+      "id": "internal/localproduct/ClaimCandidate/supplementCandidateLease",
+      "sha256": "81dd32247f2facc43782c6c02dec0d67755d2df95e202cd57dd0bc5fcbb3c5bc"
+    },
+    {
+      "id": "internal/localproduct/ClaimNextPendingTurnSettlement/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "4efde6857bdb9a9778a0606519fc56b9e4235f2f13e923a841cf041f846a50ef"
+    },
+    {
+      "id": "internal/localproduct/ClaimTurnSettlement/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "0bdd0b0b3213f0bb8405acbef3f27874b15205d6ee976ed4727e3edbac132aa6"
+    },
+    {
+      "id": "internal/localproduct/Cleanup/*scriptedBackendDeadlineCleaner",
+      "sha256": "eaa53bbef1616a90d3e07f4ad2d326788abab5515d8520ebd0376b84f220ad1b"
+    },
+    {
+      "id": "internal/localproduct/Close/*continuousWorkerOutput",
+      "sha256": "e898f24250d40019d7b15c3216be4084ab7af22f05bb59d604b3f5192265a040"
+    },
+    {
+      "id": "internal/localproduct/Close/*trackedWorkerStream",
+      "sha256": "32f77514adf9511baa4b8ff790ac50fa9f0f90386b37297624f525fd779950fa"
+    },
+    {
+      "id": "internal/localproduct/Close/uninterruptibleWorkerReader",
+      "sha256": "762b9691becbafee09971929cce0a3b35e58e4ef90afb507586b1f8709378c67"
+    },
+    {
+      "id": "internal/localproduct/ContainerInspect/recoveryAbsentDocker",
+      "sha256": "ef2e1ceec346bbf5edaa5a0bc259803e50a84bb1800c49ab3fa6c5d86985a0a1"
+    },
+    {
+      "id": "internal/localproduct/ContainerLogs/*trackedWorkerEngine",
+      "sha256": "1b9b38ceb5da0019ad4a8db133c0d11d8e956bb14e5d38e3cacd7e8760e76b79"
+    },
+    {
+      "id": "internal/localproduct/ContainerLogs/*workerDockerFixture",
+      "sha256": "65789d59e5e85bd1f7ee682b850f934b78c29e3f951168f15ea32e21523ab743"
+    },
+    {
+      "id": "internal/localproduct/ContainerLogs/uninterruptibleWorkerDocker",
+      "sha256": "b22f2149908c69b94c854662cdde52426e6bcab15151198e1a2653f692ebfdc4"
+    },
+    {
+      "id": "internal/localproduct/ContinueQueuedTurn/*progressQueuedStore",
+      "sha256": "239e2a9f523e2368bd3f7008ee116afd2db8c528b1d68e7ce86b6d9757a184a0"
+    },
+    {
+      "id": "internal/localproduct/ContinueSettlementQueuedTurn/*progressQueuedStore",
+      "sha256": "28620c132922b937f9b73ecadd1b245a52214198faf6a46ec08f7f7621c9e624"
+    },
+    {
+      "id": "internal/localproduct/ExportAndVerify/*observationFixtureProjector",
+      "sha256": "dbf6f1a8a262870b9a36fa5ede462c4f33bbdbf1d8db1d8ecaa94c3cdb9925ca"
+    },
+    {
+      "id": "internal/localproduct/ExportAndVerify/*supplementBlockedProjector",
+      "sha256": "8af631fcb9eba013c41938e50d6d9850b901afa7e45734801bad3bb72cd02709"
+    },
+    {
+      "id": "internal/localproduct/FenceRuntimeControl/*deadlineCleanupJournal",
+      "sha256": "523550ed4be23e25467d676c84d857581c7a56d37089abb8ba916ba58d03ad47"
+    },
+    {
+      "id": "internal/localproduct/Finalize/*supplementCoreFinalize",
+      "sha256": "c01d8937074d9b5c8b618458fd7ab63e5371bc43bad0231044e83cb78a486933"
+    },
+    {
+      "id": "internal/localproduct/Finalize/supplementFinalize",
+      "sha256": "8396733143eb301dbdabb7364063f2d9ef11de0dac231a7def5b71614f27264f"
+    },
+    {
+      "id": "internal/localproduct/Finish/supplementFinish",
+      "sha256": "a08431321bbe727c7e2b135836776dbd0dced045bec0f347d00eee57e1485b51"
+    },
+    {
+      "id": "internal/localproduct/FreezeTurnSettlementCheckpoint/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "4c2b670b2bff70378b47cf7d68559b2bf0a658a5865207c9f09c53b8d3d2eec2"
+    },
+    {
+      "id": "internal/localproduct/FreezeTurnSettlementCheckpoint/*supplementSettlements",
+      "sha256": "aab69d50faf6a990439ec4b836fc75b7875b30e28911da2ebda860fe10fe688f"
+    },
+    {
+      "id": "internal/localproduct/Inspect/*exitedRuntimeProvisioner",
+      "sha256": "a15073fe5914c6612fe6c2abd98df24c12bf90be105cdeb34440a3ed11023650"
+    },
+    {
+      "id": "internal/localproduct/Inspect/*observationFixtureRuntime",
+      "sha256": "1d079fd53b2cfe95f92d7cf6972b9b7505d2ee868b0e175f96df2194185f39fb"
+    },
+    {
+      "id": "internal/localproduct/ListPendingTurnSettlementsForStartup/*startupSettlementCatalogStub",
+      "sha256": "a831264d8544fb6f0f065f0ba3a0b68b09a5fd3f3003bf34f2d126ac0f84f435"
+    },
+    {
+      "id": "internal/localproduct/LoadTurnSettlement/*recordingLocalTurnSettlementSourceStore",
+      "sha256": "cb99a6469e91d5324d547e9bd5b93c36df97a8cd1422d5a32dfa8ee5ae598020"
+    },
+    {
+      "id": "internal/localproduct/PrepareModelObservation/*supplementPreparer",
+      "sha256": "57265fe9862c7a3c538b9ebcbf92cbbace2b80494f3ec770caec0a88c642c6e8"
+    },
+    {
+      "id": "internal/localproduct/Provision/*exitedRuntimeProvisioner",
+      "sha256": "be7a4003525c073f1096f5636d25b1df2414b23a4584e5b3f37eeabe4e0dd3c2"
+    },
+    {
+      "id": "internal/localproduct/Provision/*initialCleanupEngine",
+      "sha256": "c1fbbef0533abec66bfb96a32e8af15c392f6644c095ecc9906383cdf707fc08"
+    },
+    {
+      "id": "internal/localproduct/Provision/*observationFixtureRuntime",
+      "sha256": "384a0b44a07ce80ffef338f464f84710ff922bd3c4090e029bc5e616ebfbdf4e"
+    },
+    {
+      "id": "internal/localproduct/Provision/*recoveryCleanupEngine",
+      "sha256": "2091bbedd7600f11266b1b7c53eb42ca0e9cb582a571be7c8a1c9da8e56dd5ab"
+    },
+    {
+      "id": "internal/localproduct/Provision/*supplementProvisioner",
+      "sha256": "4b75c65bfbdbb779539e9852e5936f64f47e4b4de6cc255d836d11a92d971dc2"
+    },
+    {
+      "id": "internal/localproduct/PublishSettlementEvidence/*progressPublicationStore",
+      "sha256": "dd89149c9430126ba4c5f7150f339378f926d114b67d659cdc93cbbb36b9bb6b"
+    },
+    {
+      "id": "internal/localproduct/PublishTurnEvidence/*progressPublicationStore",
+      "sha256": "34f69b5da7a8a4a16a6216c30c50d65c98ec945e24318ee052959b85069ae19c"
+    },
+    {
+      "id": "internal/localproduct/Read/*continuousWorkerOutput",
+      "sha256": "55c8f554537561cd11596fd8ab3af9ae0449756e3f0afb8d6d4e7bad1b1b7784"
+    },
+    {
+      "id": "internal/localproduct/Read/fragmentedOutput",
+      "sha256": "7d2700301a95c800d0234b1e38bf27c9aa5cf05d27a57e2a9b655afeec0f3543"
+    },
+    {
+      "id": "internal/localproduct/Read/uninterruptibleWorkerReader",
+      "sha256": "54904af1f3a1b69cfb9a7c6e2f63de1a1cb996eda671baeef73d76ecb73dd4d0"
+    },
+    {
+      "id": "internal/localproduct/ReleaseForRetry/*recordingWorkerControlDelivery",
+      "sha256": "fe08b9cde81fa0fd6823ebcf1f6b404d0e424ea210434002abd4b19eeda39231"
+    },
+    {
+      "id": "internal/localproduct/TestActiveTurnSupervisorsAllowsSameTurnAfterCompletedCleanup",
+      "sha256": "f6b751d64dc03643b672fb2975c1d4cd00cc6e87dd2b9eb8eb70d296b79e0317"
+    },
+    {
+      "id": "internal/localproduct/TestActiveTurnSupervisorsRejectsStartsAfterStopAndWait",
+      "sha256": "3a759c0bc88033a7ef041d3d4eba3b08477e0188da5a93f8fce1b8967a1f3f9d"
+    },
+    {
+      "id": "internal/localproduct/TestAgentErrorTerminalClassificationIsBusinessTerminalNotBackendFailure",
+      "sha256": "fed8f5db1e6aef8b38fc0394d874c7572c5cdd142e4ab0ea54b53cd93e2ac387"
+    },
+    {
+      "id": "internal/localproduct/TestApplyRuntimeRecoverySignalBeforeOpenDoesNotOpenAfterApplyFailure",
+      "sha256": "532e321436c7372f76497394be50e6b470ef272bf7aece36f061c673165f89b2"
+    },
+    {
+      "id": "internal/localproduct/TestApplyRuntimeRecoverySignalBeforeOpenOrdersDurableInboxFirst",
+      "sha256": "1275aa442ef64c32642f1e5df4db8ec48c5f5315e3b469239f0635f49964b3a8"
+    },
+    {
+      "id": "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithDurableTerminalWitness",
+      "sha256": "fea648f5c55d0c8f396f65dc56efc779d74f49ae6abcc426d0746a2b0eba649b"
+    },
+    {
+      "id": "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithoutTerminalEvent",
+      "sha256": "f7ca53a8f81edb330459f756095c5e5ce4a897b3c80a7aa9536988ec4c3a9ebd"
+    },
+    {
+      "id": "internal/localproduct/TestApplyRuntimeSettlementSourceRejectsPartialBackendDeadlineWitness",
+      "sha256": "8c8aca6b28ded5124adaab4a34e2b55ef82b8132cbfa8325728dbc6a6cec02d6"
+    },
+    {
+      "id": "internal/localproduct/TestAssistantBackendRestartMakesUnknownModelEffectVisibleWithoutRetry",
+      "sha256": "1f2d8b5d69bf9fe3275b7e713eafc446508833ba4adebd713af2c7b542be8388"
+    },
+    {
+      "id": "internal/localproduct/TestAssistantClarificationConfirmsTaskAndDispatchesFakeWorker",
+      "sha256": "05b6c3321743ece5ffac80f736e7dfcbd3e429b09940afde82edc8171941c40d"
+    },
+    {
+      "id": "internal/localproduct/TestAssistantRunnerOptionalExporterCannotPreventConstruction",
+      "sha256": "1a770a000775b916300eef97902020738a35715f8ccd9b458c6285bb1a6e5a0b"
+    },
+    {
+      "id": "internal/localproduct/TestAwaitStartupRuntimeRestoreCancelsOnDeadlineWorkerFailure",
+      "sha256": "650e936d1f2dc4c69a11af84e98b99f5f9b5d5644c5922d6cfbd5295f50536fc"
+    },
+    {
+      "id": "internal/localproduct/TestAwaitStartupRuntimeRestoreRejectsUnexpectedDeadlineWorkerStop",
+      "sha256": "0b9c4dcb0bfce653a73e1cd31fca36ea36106e6b6c3e7b2b004678fb3f8f535f"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineClaimHandlerPersistsSourceWithoutLiveRuntimeAndLeavesDomainUnchanged",
+      "sha256": "7d8576de1da4f1999a36c7297fe77dcfff8d961bdda4aa85c95a66becda9d7ed"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineClaimHandlerReplaysExactCommandWithoutRevisionAdvance",
+      "sha256": "9697101b7cd26c2177b23b6fb397394ec213c09af58172ff836627c3aaf0c956"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineClaimHandlerRetriesWhenCurrentRuntimeGraphIsMissing",
+      "sha256": "0942a54805ec5873c497f9730b33d70befee780a7f4f26647471c71cf2079d4d"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineClaimHandlerTreatsTerminalTurnAsSafeNoOp",
+      "sha256": "32752b53880bcc533da7afa6965ea6d70f13bf6625087950c9bf735b58a7e63c"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineClaimTransactionRejectsReplacedCurrentRuntime",
+      "sha256": "88ebfe70c31fae84e424bb761e0ffe0299d46aa7ed4413b2e0915af671a59bdf"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineSourceWaiterHandoffStartsOnlyAtDurableForce",
+      "sha256": "b66f27e760c46ea6cac44baccc5fc320b5e8fabe6d58232adadaf4d021752581"
+    },
+    {
+      "id": "internal/localproduct/TestBackendDeadlineSourceWorkerQueuesInterruptThenFencesWithoutLiveRuntime",
+      "sha256": "a953e4586f4b3eed03e225c35ce59f219a3cd654f9a0e5f53a5f58d2599fa8ef"
+    },
+    {
+      "id": "internal/localproduct/TestBackendShutdownLeavesRestoredActiveTurnDurable",
+      "sha256": "7fb9080894eec5a763bbf13000b554a6f399045d4f1382894f4c17cdd0380810"
+    },
+    {
+      "id": "internal/localproduct/TestBindInitialAgentSessionUsesPostRuntimeReadyRevisions",
+      "sha256": "be2cc06638e6e0649501f54d112446724ea5d446711519a3496ecbd2b8223d5f"
+    },
+    {
+      "id": "internal/localproduct/TestBlockedDurableProjectionDoesNotDelayTerminalSettlementOrNextTurn",
+      "sha256": "112c3d848863beb29d91ee99b120fdd0f64103ca67b2358d16f91c07e9fdcfab"
+    },
+    {
+      "id": "internal/localproduct/TestCleanupDurablyFencedRuntimeRemovesExactPreparedRuntimeWithoutSecondFence",
+      "sha256": "8f21e6ca13f0fe06027b70793078b4aa56c9b4e58e2a4dc489240de1afd25e19"
+    },
+    {
+      "id": "internal/localproduct/TestCleanupDurablyFencedRuntimeReopensStorageAfterBackendRestart",
+      "sha256": "0fa812316a9e38239a1bb70f156fc932111181f38d1d4851fbacfd228d076776"
+    },
+    {
+      "id": "internal/localproduct/TestCleanupDurablyFencedRuntimeRequiresExactPreparedIdentity",
+      "sha256": "a53f02ede696867eeebe4ec79933083f902d436a2a2bfd8bb1f51dab784a6c95"
+    },
+    {
+      "id": "internal/localproduct/TestConfigRejectsNetworkProfileOutsideCurrentDeployment",
+      "sha256": "2ee80d2c95730ee06bd82628aa9044ad4e8905586b7c633743472ab60d7d9188"
+    },
+    {
+      "id": "internal/localproduct/TestConfigValidateRejectsAssistantModelOutsideDeploymentScopeBeforeProviderValidation",
+      "sha256": "90a4efd2105fa86504e539a1c619cd3f739930a278315faad0ad9a01aa6a16ef"
+    },
+    {
+      "id": "internal/localproduct/TestConfigValidateRejectsStaleOrTamperedKimiProfileBeforeProviderStartup",
+      "sha256": "78cd19121403526e232c825d206d6ea47cd6ebb7073a4d28b77114e97b9b40cf"
+    },
+    {
+      "id": "internal/localproduct/TestCopyWorkspaceSourceRejectsSymlinksAndProducesStableDigest",
+      "sha256": "2e06cc9a0d5d95aab4a4a5729d95338e66d654452c10511179c5e49609ac7a78"
+    },
+    {
+      "id": "internal/localproduct/TestFinishInterruptCommandsBindsTerminalReasonAsText",
+      "sha256": "4104eefd2ae36ebf5219648ca6025c2d53a566287270308503267d4d0a63b4c0"
+    },
+    {
+      "id": "internal/localproduct/TestFragmentCutoverActivationPrecedesHandlerAndDispatch",
+      "sha256": "30cba73f0a113815c7d48a55bd15a077b2d5c417269623ceda07ee1f9a7635f2"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplement",
+      "sha256": "08c8fbaee34880fc7ed9a64107e5b781e7d779fbd7af15e1247166859e813b68"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplementBlockedProjector",
+      "sha256": "87acfe02665e71e65ead8b8ca72161631bb16b17d39ca17fed8aeb97d136b1cc"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplementIgnoredStaleReplay",
+      "sha256": "c55ca99b9b49e85b8d20f86bfdd8bd041d0bf47e49cb5991cec8b9a1e2576a64"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplementPermanentScanFailureAllowsHeartbeat",
+      "sha256": "83e6fed3fe7b64e88111043767835d786529262f0eb7480e5892d5cf74e95f14"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplementPostgresFailureRollsBack",
+      "sha256": "ca18dafff7f7c8ca8d9e86ee2da796ef9a057751b1b178991f768023d0757484"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplementPublicationAssertionFaultSensitivity",
+      "sha256": "89b57b16aa1755b8f2696be30d46a5bb75f11895cc2d999076a8cf39f0a5445c"
+    },
+    {
+      "id": "internal/localproduct/TestImmutableModelSupplementRecovery",
+      "sha256": "1032e9d930b947d1ec27daa27af258f8e7da93b815c3c3ad192c12531b0fc845"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigAcceptsExactExecutionAndLangfuseInputs",
+      "sha256": "276f662fefec11334aa9eaef6bc533f2d8a5ac6143c129e7964d7b329a8ab771"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigCanDisableWorkerDisplayProjection",
+      "sha256": "968b01634d2e39cd044e8b91d06f340f0a58477148f70c19e4c9b7dff38aa552"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigDisablesPartialOptionalAssistantLangfuseInputs",
+      "sha256": "9afe5bd0aaf73b42f2bdb7387eb3ebdea36a8b32bc1867110a096065369dc961"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigRejectsNonCanonicalAssistantProxyInputs",
+      "sha256": "c6d92fbd73252fd2d9b84a80ea675fda56f376b2da8d958c3885af4369f393b8"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigRejectsRuntimeRecoveryWithoutWorkerDelivery",
+      "sha256": "118bf389b74df23c3577027026a5d7e547e09acfbea3c0a2ea4bc1cb89890530"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigRequiresAssistantProxyOnlyWhenAssistantIsEnabled",
+      "sha256": "bd6901e93ae703a742c7936322b5f8446482f54404af5664adf1f1cd66556dc0"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigRequiresOnlyPersistenceWhenExecutionIsDisabled",
+      "sha256": "29bf00da416606ca4d25a2d24a51bc08920d0cb8e6f0fe3906a1b11ed676976e"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigRequiresServerOwnedRuntimeInputsWhenExecutionIsEnabled",
+      "sha256": "12725f7374bba6e4148e158bcf1ed1e1f44f87532d21a62bbe1ff9916413c837"
+    },
+    {
+      "id": "internal/localproduct/TestLoadConfigResolvesTrustedFullNetworkFromDeploymentProfile",
+      "sha256": "c8dd48930e3b29a86ac9a7a5a16b58bee298e5d776a26f47ae6460ed9e1196ae"
+    },
+    {
+      "id": "internal/localproduct/TestLoadStartupRuntimeCandidatesRestoresCurrentTurnFromOriginalBootstrapRun",
+      "sha256": "175755a8ed7c268486224812958b6e0734a186eb1fde3e72d0e46a579b107de0"
+    },
+    {
+      "id": "internal/localproduct/TestLocalScheduledDeadlineRequiresDurableSourceClaimHandler",
+      "sha256": "e42b586cdc5c8acb753f1086767178ac59fd2b299b97a78be5addfe4cd9f8f4f"
+    },
+    {
+      "id": "internal/localproduct/TestLocalScheduledDeadlineRoutesToDurableSourceWithoutLiveRuntime",
+      "sha256": "727a9bca872b9b975ddc16f8009cc1fe53431e6761b74433b2ea6500661b502e"
+    },
+    {
+      "id": "internal/localproduct/TestObservabilityConstructsOnlyFragmentWorkers",
+      "sha256": "9f5b2af6510da777f9c3d1c9f03f895142206dbb9a64c98640e381047dce843b"
+    },
+    {
+      "id": "internal/localproduct/TestObservabilityDisabledOrPartialIsNonfatal",
+      "sha256": "a1fa8ac0754cdd984b4d9e5fc388e35fa76631110d855b6438385ee91d2b6e38"
+    },
+    {
+      "id": "internal/localproduct/TestObservationFixtureRuntimeHeartbeatsRemainIndependentAndMonotonic",
+      "sha256": "19a99152a8dc2267d4032d8bd68ac5046c2b8bf4cddb3a2aca6e03915779db52"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupDiscardAfterRestart",
+      "sha256": "f05e6c9ccdeec37ba222bd0fe690ce17913a09eeb4669538ded3c429380e9737"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupInitialStartFailureHasDurableOwner",
+      "sha256": "437f18211362b0ee01f3a1d62c69ae205d4487ae459c03a1a3e3e722cb347dc9"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupLostDiscoveryRespectsExistingOwners",
+      "sha256": "197e4931cce6588b48be2098cd844e7e066c68788b4b0383d769b21c70dbeaa4"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupRealJournalTerminalAndRestart",
+      "sha256": "b81a104803dd1492179df19139ff51ee7dbde1075fd7b3cc3f4cf26ffb4cfbb2"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupRecoveryFailureHasDurableOwner",
+      "sha256": "c8e357547cd2a76786f6965651104b592bba0d49b49546af32892fed859cfc43"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupRejectsIncompleteOrMismatchedProof",
+      "sha256": "772927188df1bc8ee59617027bcb4281896bf1627d71d7d1cff2207f456f7097"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupRejectsRedirectedRuntimeParent",
+      "sha256": "b513d509c78467b40201028f0b96c73485054ab4b3aa8ec54e0c984b196afe68"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupScannerBarriers",
+      "sha256": "000762678f7f968dbf3ba1d7ed4ccf3af785bc1fb2afad26a80fe57dc9820aed"
+    },
+    {
+      "id": "internal/localproduct/TestObservationRegistryCleanupUnconfirmedFencePreservesRegistryAndRetry",
+      "sha256": "7704255966b64008f2aa8586c4bfd5aed48934338cb1c07d833a95f43566ce61"
+    },
+    {
+      "id": "internal/localproduct/TestOptionalDiagnosticConfigurationNeverRejectsCore",
+      "sha256": "841d61b447da416e759be45cb52b57a502b02e5865578e34e8110d5a9b8cf2b6"
+    },
+    {
+      "id": "internal/localproduct/TestOptionalObservabilityConfigurationNeverRejectsCore",
+      "sha256": "63dabe580deed7ca72260cce04ee657849ef468e0f92b980f0b62a24813453d4"
+    },
+    {
+      "id": "internal/localproduct/TestPendingSettlementScannerIncludesBackendDeadlineTerminalWitness",
+      "sha256": "c92ca66654aebbfc5900649c34e8080eb7aeccacc8eb7ee4d7316faf71370f18"
+    },
+    {
+      "id": "internal/localproduct/TestProcessWorkerControlEffectEventCarriesExplicitDisposition",
+      "sha256": "db27ce29a35c5acccb705ca2cdc791af7851e58a5d5d44e691dec0ebecfc7115"
+    },
+    {
+      "id": "internal/localproduct/TestProcessWorkerControlEventAppliesOnlyAfterBusinessSuccess",
+      "sha256": "0eb5767718a79dc7edd1a92a1a87037e13a4edf3a51d037c8cf1fbeacbc112ee"
+    },
+    {
+      "id": "internal/localproduct/TestProcessWorkerControlEventDoesNotHideDeliveryFailure",
+      "sha256": "b570aaddabb9fe7abba79fb972608e9e80fe47adcdfe84a0c7a9f40c26010532"
+    },
+    {
+      "id": "internal/localproduct/TestProductCompositionProcessesAssistantRunThroughLiteLLMAndFrontier",
+      "sha256": "9861f03882cf8cd25dd70677f85e87ff0bf75e57d1d9b1eca5b6f32452441e52"
+    },
+    {
+      "id": "internal/localproduct/TestProductCompositionServesGatewayAndLiveFrontierViews",
+      "sha256": "958771dbc86636fbffa1a351113df1c76e567e5bd8bf957eee239c23d97543cf"
+    },
+    {
+      "id": "internal/localproduct/TestReadBoundedStartupTraceRecordRejectsOversizeRecord",
+      "sha256": "7f02bdfd514a0d68752025bfb0e79e9c3697f6c760f6eaeff0d75f47a4c0d7b8"
+    },
+    {
+      "id": "internal/localproduct/TestRequireSchemaRequiresDurableWorkerTurnSettlement",
+      "sha256": "0c28ed386738a7efe8ce951c49fdb8543c4aa15bf0aab1376ba5caf52aeb1b4f"
+    },
+    {
+      "id": "internal/localproduct/TestResidentTargetsForTerminalIncludesAgentFailure",
+      "sha256": "89969ab49e8b6b2765a1b54cc3072553979e0e3d20dc6cc0c1c81e150be7cafd"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreLiveRuntimeAfterTransientInputsAreRemoved",
+      "sha256": "0dbfd7f1b843820a5e91094e4827cf33c8c86ffaa64f5d0c88c4fa13179840d1"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreOneUnownedRuntimeStartsBlockingAdoptionOnce",
+      "sha256": "a4444d946e142b7e2413602ef204b594485b478934c37a22a72473c2e107a843"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeKeepsRunningContainerAndOpensNoIncident",
+      "sha256": "e731c2a16df289cc5be4c0b3f300643dfe7e883e6092b9ed14bb0ecfac19fde7"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeLegacyMissingCredentialOpensRecovery",
+      "sha256": "7ad0b5748a92bf4985c945473dd42923ff6ac949aa29bda57a60fa3d465685bc"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeMissingContainerImmediatelyOpensOneIncident",
+      "sha256": "4cbe437cd1b068aa044dfa94d7ee57cc094994464a7105893a1f26b96586da44"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeMissingContainerLetsSettlementAuthorityWinBeforeFence",
+      "sha256": "d20e7f5dcd003ff319a6a7553b0a3164a1260d167180c63edcc8651ff0f05f83"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeResumeCompleteWinnerDoesNotOpenFailure",
+      "sha256": "67544ca61b9a57ff82dffcf0ee5ef43af0c7c36967ff70feaaa9d037a1c50bce"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeSettlementOwnedMissingContainerDefersWithoutOrdinaryRecovery",
+      "sha256": "642d5853a6bece6e4ee9a6e9ddff2f4cef334790ac007251ac5a69e20735d041"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeSettlementOwnedReconnectDefersImmediatelyWithoutOrdinaryRecovery",
+      "sha256": "7409649635d201cbb9cc4ee195bd6c18fcd962c7b7bedaa583f377b18782a6c3"
+    },
+    {
+      "id": "internal/localproduct/TestRestoreStartupRuntimeTimeoutClaimsRecoveryBeforeFencing",
+      "sha256": "cd616a060893a921420dfbddbf3aef7d452623663a4a864a56ff225b5b63bca1"
+    },
+    {
+      "id": "internal/localproduct/TestRestoredTurnTraceOffsetFailsClosedForAmbiguousOrInvalidAuthority",
+      "sha256": "5096b3f525f01be8e14b03e3d0944e8114ba11b001cedb27cf0105e99696438d"
+    },
+    {
+      "id": "internal/localproduct/TestRestoredTurnTraceOffsetFailsClosedWithoutMatchingPrompt",
+      "sha256": "2c4a30c5cb69b2e09ee060e8b50fa813df2c9d6751ec662851c8090531fb1026"
+    },
+    {
+      "id": "internal/localproduct/TestRestoredTurnTraceOffsetIncludesPreRestartAndPostRestartFrames",
+      "sha256": "909e7bc896dd89ec99f1e7e4a125cd35f62471fb24e24dd3ce4dca07e6d6a090"
+    },
+    {
+      "id": "internal/localproduct/TestRunOnceContinuesWhileUnownedRuntimeAdoptionBlocks",
+      "sha256": "d8e1cb5a6559bb0231b0574e14926822101ec59b6715d0afb4b32113b0fbad6f"
+    },
+    {
+      "id": "internal/localproduct/TestRunOnceIsFrozenUntilStartupRestoreCompletes",
+      "sha256": "e963fde0615f6b723262c790421707f05546ed7f6240f0dc603761f8052c0152"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeControlCompositionUsesPostgresJournal",
+      "sha256": "fbfdb7d937c9c2210dcb1bdb57ca37e956ba70eef2003f53ed764b43133ec936"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeEnvironmentFailedPrepareMaterializationBoundary",
+      "sha256": "22fea93f53167a65c9aa2ffc8e64f0851c88009975e28edcf8dcce3279e7a342"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeEnvironmentReplacementBindRetryClassification",
+      "sha256": "257a652974ab969bc05d496f3feaa7837a6f82771cb0961d4efa8a26b52a7d50"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeEnvironmentReplacementRegistrationFailureRetainsOriginalScopeForRetry",
+      "sha256": "6bbc5fc4578fa8bbe19ec7add6e86f701dbd73d6bca76ba667db6071b68ecdc0"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeHistoricalObservationMissingOriginalDependenciesIsNoContent",
+      "sha256": "4488cfe7c2ebc000a96a2a1a5717dfbe06d6d25fcdbbd5755a289acf43d49bcc"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeModelObservationMissingOriginalDependenciesIsNoContent",
+      "sha256": "5ec06a8cb41549ed569e9d1dbe6264e009ca872cb119305b74d762cb410956fa"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationBasisCheckpointDigestExcludesSidecar",
+      "sha256": "6da2c431bc666b3186edc435eca4c0d6051d3bd7c73f99c1de6377f76fc197d6"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationBasisDatabaseFailureIsCoreError",
+      "sha256": "b9d7e61dc17a3730575897dfcaaccd8189e223d449bcc192944516e2e0fc6102"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationBasisFirstFreezeResponseLossSkipsRegistryAndPreparation",
+      "sha256": "a7a39695a72a6c9854bfc659749e3709fb60580b380d19d9deade0d5d60ea3b8"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationBasisForcedStopMissingOriginalRegistryCannotBorrowGeneration",
+      "sha256": "d0be30b9b5487c53f89ecf4c1dab3ba31b2e7949e4215ac532431fa091c751a6"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationBasisZeroModelsAndSecretFiltering",
+      "sha256": "1b6be510a2d212977a1e245f3e1bbb62ec529e4a1716e6bb3e0f39b40ecec9f0"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationCaptureDoesNotHideDatabaseFailure",
+      "sha256": "7c6cb1753440be351208af11e345a2826701eafbe16c7f3fc0a5ff5ece052b79"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationCaptureScansPureProspectiveReport",
+      "sha256": "47a419539bddddb4d890a95a808a19e318894c3f68a320d7f3683ee969229fd4"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationSnapshotReplaysExactBytesWithoutLiveState",
+      "sha256": "6c5edaa7f5ae7b386bac9c61b9af7a0e4b2b38efcbc23316e62a69e8ef7d7a5c"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationSourceConflictsAndStaleIdentityBecomeMarkers",
+      "sha256": "9c2eaee3adccdbc7a4721c0679a048f10c447076d3d123036312d25a2268e1a8"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationSourceDeduplicatesAndCutsJournal",
+      "sha256": "65b6fa5f143a19928c1b66765dd65cadbbff8c41228d30af591f135db675abff"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeObservationSourceScansReportAndFinalMarker",
+      "sha256": "ebabea8dae07ee2dab61be075b27d9e8af8c5ea777aae2eadafeddc197911c5b"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeRunnerAllocatesIndependentTaskWhileExitedRuntimeHasNoTerminal",
+      "sha256": "01c31e1646769ca5888c8e56b9cc0c25b53cea884bdaa9e62f9607d31212da84"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeScannerRetainsAvailableConfigurationTokens",
+      "sha256": "65d023b422de16bc9fa912c78a9577fe2dde473ec9c1f820bf47b9e944e73038"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeSettlementCheckpointPreservesBackendDeadlineSourceProof",
+      "sha256": "c9a646b892062f763c104da656aaf94e235cd4789b14c3f40ffc02a8d66e358b"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeSettlementDomainPlanUsesPostTerminalGraphRevisions",
+      "sha256": "b9e20af0c063bfbdfa4a9159de437aa364fa15d31569d4ec31b96d2958743419"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeSettlementPatchSnapshotIsDurableAndContentAddressed",
+      "sha256": "f17495967efcbe18bf0ada0de86924126774f496e2ee87398c0ecb5cfb31ce90"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeSettlementRecoveryRestoresBackendDeadlineAuthority",
+      "sha256": "6d0dd2d323fa39bab0e521f5e9a0570bf1fdf20c4fb9b841c169c1898e9677fe"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeSettlementTerminalClassificationUsesDurableAcceptanceTime",
+      "sha256": "ae015a7ac9bff89157756efb40d7bdf7af163cc5e3d6fdd5f6cb27310b4c5217"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeSettlementWaitsForDeliveryOnlyBeforeAtomicSourceApply",
+      "sha256": "ec7a398a885a1a9b894b6fb955124c1e6ff047f30fedd47b8fb5407538747b7d"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTerminalAuthorityDeadlineWinsOverACPEOFAtBoundary",
+      "sha256": "0549e5c97c35b72367deee299dfe3ac82fb05cd19272481b6ce5d56186889e88"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotPersistAfterLeaseHeartbeatFails",
+      "sha256": "565af8c1da90bff871cf53d1b4bfc939cd1cd815114e1da4d062f00d9f8fa370"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotPersistWhenPostEffectRenewalFails",
+      "sha256": "793ea974c6469271ab0460412b866c9f697350f1a178d48a7cd50dcde74c7507"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotRepeatCommittedEffectAfterResponseLoss",
+      "sha256": "dbf97e30cefb65d9dc4538ad9db6a86ab7f2281e37ed828e3191575032435fc6"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTurnSettlementCoordinatorRejectsIncompleteEffectProofBeforeAdvance",
+      "sha256": "e9f685fad4d83840d6d75ad9886c00d6a372e7d1ada97d9a062e85a19bec110c"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTurnSettlementCoordinatorRenewsLeaseWhileEffectIsRunning",
+      "sha256": "8520827e50c267914f9fd401336cd67c345b9392e78aa3545388b439d2372bd1"
+    },
+    {
+      "id": "internal/localproduct/TestRuntimeTurnSettlementCoordinatorResumesFromEveryDurablePhase",
+      "sha256": "528c829bbb623fae97a483c288135ccd3de9774f7e43ec319e72bbf3d0e2fb7f"
+    },
+    {
+      "id": "internal/localproduct/TestSettlementContinuationRuntimeProgress",
+      "sha256": "88d10f556691513b4589294fe15bc2c1ed2cecdcacd26215e74acfa3d5936469"
+    },
+    {
+      "id": "internal/localproduct/TestSettlementProgressLeaseReclaimSerializesEffects",
+      "sha256": "3533381b0540128fbb8bde29785053c7ad2ede1dbe4144511382c08bc18748f3"
+    },
+    {
+      "id": "internal/localproduct/TestSettlementPublicationRuntimeProgress",
+      "sha256": "1f0613d8717e1ce8c6ec68971b46f5b629061c60ebb8c87e26f7409ac345d018"
+    },
+    {
+      "id": "internal/localproduct/TestSettlementStartupBarrierAllowsOnlyExactInterruptedRuntimeReconnect",
+      "sha256": "f52e9b78b5ffee64290256a80093c9865fdb438dbeb6257d0e1e4cabf880a524"
+    },
+    {
+      "id": "internal/localproduct/TestSettlementStartupBarrierQuarantinesForeignTerminalOwnerWithoutBlockingStartup",
+      "sha256": "70772f41dcb5b94bdb247fef216e7ebd9437a85047240029883e535c9601379a"
+    },
+    {
+      "id": "internal/localproduct/TestSettlementStartupBarrierReconcilesImmediatelyRunnableWorkBeforeRestore",
+      "sha256": "8a16038c356e3f75d9a5e63228a0ff9ba9ad23453d31fc22413b0a9f7cf9dbc6"
+    },
+    {
+      "id": "internal/localproduct/TestStartupDeadlineDrainCancellationDoesNotReportSuccess",
+      "sha256": "3a26333effd7fee3ff10a2d006c1d73679b0eb1411396716df8dac9cf7129621"
+    },
+    {
+      "id": "internal/localproduct/TestStartupDeadlineDrainClaimsDueAgentTurnBeforeRuntimeRestore",
+      "sha256": "83715400d061b6a07c15697d696a5a5d36586ed840c94d24aaf56ed3eaebd47e"
+    },
+    {
+      "id": "internal/localproduct/TestStartupDeadlineDrainWaitsForForeignLeaseBeforeRuntimeRestore",
+      "sha256": "79e2f183c1b5f43191d66d14a94769eec1ddb65ad945c4b4efe41456f59eab28"
+    },
+    {
+      "id": "internal/localproduct/TestStartupDeadlineWorkerClaimsDeadlineThatExpiresDuringRuntimeRestore",
+      "sha256": "12449d830b729d250932c95629323e25bccf9e7e0b8f9f2a0e7e877ba63caf4d"
+    },
+    {
+      "id": "internal/localproduct/TestStartupPendingTerminalIsSettledBeforeFreshHeartbeatBarrier",
+      "sha256": "246a29bcfa0817708761b9e25d1232c64c6ee8d7dce825ec76e184bc560d3b52"
+    },
+    {
+      "id": "internal/localproduct/TestStartupRecoverySignalStopsReconnectBeforeFreshHeartbeat",
+      "sha256": "1e500890d1f6fad42ef63fee9f29c80cf0247c6900b57a750f2ad2428688381b"
+    },
+    {
+      "id": "internal/localproduct/TestStartupSafetyDrainOpensOverdueFirstHeartbeatRecoveryBeforeRestore",
+      "sha256": "fff18c8630e036fa7ad48de471a9fa5f857c6fffde8b245bc2b362f6f98ee44b"
+    },
+    {
+      "id": "internal/localproduct/TestStartupSafetyPollerDrainsDeadlinesAndFirstHeartbeatWatchdogs",
+      "sha256": "bc7f92eed98604e0daebc98fa1a8e28ff91fccc9acab637f9ad680bced26fbef"
+    },
+    {
+      "id": "internal/localproduct/TestStartupSettlementDrainsPredecessorBeforeExactTerminalDelivery",
+      "sha256": "bfa9d27148966df601763f27a6e8f71ce9ffb1033a72c5533c48234133327b51"
+    },
+    {
+      "id": "internal/localproduct/TestSuccessfulUnownedRuntimeAdoptionStartsOneTurnSupervisor",
+      "sha256": "df768c17539317f3cdabce680c8e94923add8e93446927b6248947a632c66c83"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryBlockedSourceKeepsSnapshotAndScrapeIndependent",
+      "sha256": "bf667e64cc9d8a2827bbab2a3ebd3441cba2c37e5916f8ab9bfc43f68e4481da"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryConfigurationIsOptional",
+      "sha256": "4cd1e37607ae3d9809f7e027cbd7ecf46d313f9ceff4fecb8c824e9171b1251c"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryConstructorAndScrapePerformNoIO",
+      "sha256": "141e86d71e211afbac57fb96d71ec06b73a03190fb1401c3e940b683118cb352"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryFailureDoesNotStopProductOutbox",
+      "sha256": "63b22cb42d16f6415ce129c4bbbd88654aaa80173da8a0ee8f653cc46e9bd962"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryLogFailureLeavesMetricsListenerAvailable",
+      "sha256": "b7a09ab5e6ad117aacab30aee6be9999f57a56388e7b6cce5e8857354215d1e7"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryRunnerUsesDedicatedPoolAndOwnsCancellation",
+      "sha256": "bdc73083a0e7408112284a020187edd862ea34b84c57bb03f5aeefa4ef46c5d6"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetrySampleCommittedRowsScopedAndReplayStable",
+      "sha256": "97593ef9a1907681d50946c7712875c4de10ea4b0defc6b53a90900abd3e2149"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetrySenderEndpointRejectsInvalidPortsAndCredentials",
+      "sha256": "e560104db19403dca0b41c3c0ae8c460d8334046c4d90673f584c98fae673007"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetrySenderUsesSafeLifecycleEvents",
+      "sha256": "40fc66f116b3aad79dbfe5f119b278b6a7a65fc15b1de3c4f64524f0b1e179fd"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerBackendClock",
+      "sha256": "f1b0b790d9677091f3e2c32364412fe0e5b1008dac2ea563cba5c48be5232f04"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerCollectorCapacityIsBounded",
+      "sha256": "f619d92e67da4b28d7d7fe87795848c7fae40116bb1dac0bf3e975a6eb75bf1d"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerCollectorFailedAndStaleAuthorityCloseReaders",
+      "sha256": "0ea80f7c9cb04a0477a6a60bde98ac7b6ee31102b5805303ff5e7a3d8ddbab94"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerCollectorReplacementClosesRealStream",
+      "sha256": "b3f0140db5757aeccd42ffe2df9aa77ddcb002c47b53f28ac900cb66528eb2e1"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerCommittedFactsAndReplay",
+      "sha256": "d60248cc3cf2a6d9431afc30f258a8fdcce38100acd118b68472dcba3d781e10"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerDockerNativeCollectionAndReplacement",
+      "sha256": "bf473718f27c546ed16a6a5c0123caa1df3519ea4596b0d0823e451bad78424f"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerLabelsIgnoreStaleRunButRejectImmutableMismatch",
+      "sha256": "5493edc4eb425a8d4eda2eb29838f43f136691397cc273d903c021cc98fbd3fd"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerLateCommitWindowAndOverflow",
+      "sha256": "68331eae18280c1f3aa38a0e7a8a028b7e87b304d8348172c3dbdb7030beb22c"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerOutputCancellationClosesBlockedRead",
+      "sha256": "1c6d7af9031e04451913d7501ffb1aa2f79957bc2d8b200c6729953e6f80d869"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerOutputRateWaitIsBoundedAndCancellable",
+      "sha256": "f6a51d89e0a9a293ba3f42983f46d4d2c71b7afe139239271664bb5b7c33c31c"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerOutputRejectsMalformedFrames",
+      "sha256": "3b440150d07c510374538cc18f678c58d037beb3aae321786a650f36461e1af5"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerOutputSuppressesFragmentedSensitiveBytes",
+      "sha256": "d1f20c2153e20dc40caccfa37e4751dbdb2010198a0dbb54a5a2635fbf377c3d"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerPostgresAuthorityReplacement",
+      "sha256": "2c17ad9180a2e21c91b18e61482060095981c0c4b44c31fdd206d14941ddaf1c"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerRunnerEmitsCommittedTerminal",
+      "sha256": "187bf19f469195f7aeae30d0f6c10c92f24ebdb8a809bf6cb2b826e605fb36b6"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerShutdownBoundDisclosesUncooperativeReader",
+      "sha256": "2a0ac9f2c23a7e016c3c3ae2885a52abd7f8401a1b50d33830daa7775aae6d91"
+    },
+    {
+      "id": "internal/localproduct/TestTelemetryWorkerTTYAggregatesWhileReadIsBlocked",
+      "sha256": "d94f4f3e6372edc301fee33b099a93d8c9012ad92ac14da400c10d0a87e67222"
+    },
+    {
+      "id": "internal/localproduct/TestTerminalAndIgnoredEffectDeliveryDeclareReconciliationDisposition",
+      "sha256": "6e83ea8ee5deac88ed769f6fde360cb9b830ea7c940e277d400808ef8f402f3a"
+    },
+    {
+      "id": "internal/localproduct/TestUnownedRuntimeAdoptionContextIsCancelledWithRunner",
+      "sha256": "929c246d4ef0bbf5944ac5b1e95c759c07d0279552f8b29d1563764fe8f29e39"
+    },
+    {
+      "id": "internal/localproduct/TestWaitWorkerEventFailsClosedWithoutApplyingUnexpectedBusinessEvent",
+      "sha256": "62e857dc830ee570bd52d692a510a06c5f68ec57b4e90417d8f8f737827cab73"
+    },
+    {
+      "id": "internal/localproduct/TestWorkerDiagnosticsExactAuthority",
+      "sha256": "1e3ffc4cfc92c2ad74128ca70a558961ab7277ddc4dcf5e43635a3e2d94e5141"
+    },
+    {
+      "id": "internal/localproduct/VerifyHostPaths/recoveryAbsentDocker",
+      "sha256": "3f0b6870cb60d758d5bbd625b46f298aa98a823ea6cd6f5d6c7351210ac4491c"
+    },
+    {
+      "id": "internal/localproduct/VolumeInspect/recoveryAbsentDocker",
+      "sha256": "68eaed535add1cd5946625bf6669d9de11fa51e086efc55ec7111fcceda1ffc6"
+    },
+    {
+      "id": "internal/localproduct/advance/*recordingRuntimeSettlementController",
+      "sha256": "b168b9695d767e0bc479426e1236affd10119d1f4edfb6119097598ec3d18044"
+    },
+    {
+      "id": "internal/localproduct/applySource/*recordingRuntimeSettlementController",
+      "sha256": "4f663f3586f81661ad1a5828e0d790891c9bffd10cd474a9ce4383b560aae7e6"
+    },
+    {
+      "id": "internal/localproduct/assertContinuation/*supplementFixture",
+      "sha256": "a4dfdf0852d74fab7702d820c12439efd00e2696bbf67bb37b78585707cbc2fe"
+    },
+    {
+      "id": "internal/localproduct/assertDeadlineCleanupPathAbsent",
+      "sha256": "ea90d4358a3ab5d3c34c91d80297e66ab96e614dc99515637bec85f925da73cc"
+    },
+    {
+      "id": "internal/localproduct/assertModel/*supplementFixture",
+      "sha256": "a467f2863b5d02d0396da74ef8e431b3c3697c8f51e1b88b5b750a1ac638ebac"
+    },
+    {
+      "id": "internal/localproduct/assertNoModel/*supplementFixture",
+      "sha256": "58a3c309b21e699ba94c1543e16eed0e2f4a723a4f16b8884537d5b1df813206"
+    },
+    {
+      "id": "internal/localproduct/assertReplay/*supplementHTTP",
+      "sha256": "f3822faabfd22363fb6c6f42d8e4011d800ef02ea0452bf53ec9bb1265202abb"
+    },
+    {
+      "id": "internal/localproduct/assertSettlementProgressFencing",
+      "sha256": "8b00197ef2e5a729a3e10075657a26d04a2e4a5c944325df63a4819d7c9e75a1"
+    },
+    {
+      "id": "internal/localproduct/assertSettlementProgressFrozen",
+      "sha256": "ce9fa339cb51afebeb9a7174007bb8e6c9aa9b1ac5d3408fa088702b50ab2314"
+    },
+    {
+      "id": "internal/localproduct/assertStartupDeadlineClaimed",
+      "sha256": "c50d177b419c3e49b2c11cd5d0ad6a991dada918e0bcbeab430b4613249ab41f"
+    },
+    {
+      "id": "internal/localproduct/assertStartupDeadlineClaimedWithDelivery",
+      "sha256": "f23e6a2e853c751f8adf90153aadaee182d20ff8fe26f789a4dbf3326436f906"
+    },
+    {
+      "id": "internal/localproduct/assertWorkerTelemetryTerminal",
+      "sha256": "12c98d4735b8af5edb8159bb76113aa67ee77d63d510cc1048d4a6db88e5d3f6"
+    },
+    {
+      "id": "internal/localproduct/assistantClarificationDecision",
+      "sha256": "b8b4b15668078e7de4c1b62c2f6540bc5e6e187a33b23bbf3055fb599c2cf40a"
+    },
+    {
+      "id": "internal/localproduct/assistantReadyDecision",
+      "sha256": "9b37b41b480645854c3a17bc4ea6d32ee805917aa1e9255b7d393357af172949"
+    },
+    {
+      "id": "internal/localproduct/awaitDatabaseTime/*supplementFixture",
+      "sha256": "5ad9f9ee91288da5e5b9398e723fd1864c53ec8f245f6acbee52d05c889abac4"
+    },
+    {
+      "id": "internal/localproduct/backendDeadlineCleanupSettlementForSourceRoutingTest",
+      "sha256": "5fa4794237a94232607dba8c921d7fa9c1bb4fb4a085c1cdf3564533d061e49e"
+    },
+    {
+      "id": "internal/localproduct/block/supplementBarrier",
+      "sha256": "5aba85dc2e38db5389266ea3dcd465a2c9f8433fa6a72febb25d11e9d979b4d6"
+    },
+    {
+      "id": "internal/localproduct/boolInt",
+      "sha256": "cfe5780ab424b11295a926e5aba28a37c13056dc194881daa0780d7ba0203e56"
+    },
+    {
+      "id": "internal/localproduct/checkpoint/*basisResponseLossController",
+      "sha256": "55949a17ae74f25bc82b7dffb73d5f2523ca26837681c034dda16bacebd8e3ca"
+    },
+    {
+      "id": "internal/localproduct/checkpoint/*recordingRuntimeSettlementController",
+      "sha256": "82c9a49478a5644cc894529590b20b032b4440207e75aeebf65658eff40dce7c"
+    },
+    {
+      "id": "internal/localproduct/cleanupRegistryRequest",
+      "sha256": "19cb785ad4edf474bbe30667e01ac4cf57f2cd9abecb97e80c058c7e137f0468"
+    },
+    {
+      "id": "internal/localproduct/commitDomain/*recordingRuntimeSettlementController",
+      "sha256": "89ad0306e478f14af6751e710e55cb964c7c71c99449ac5761d962cbd463bf40"
+    },
+    {
+      "id": "internal/localproduct/completeRuntimeSettlementCheckpointThrough",
+      "sha256": "9281f85dc7521dad8abe95946677aa4f45ff2fb5e5d5c190878214d2e7204cd6"
+    },
+    {
+      "id": "internal/localproduct/completeWorkerTelemetryStage",
+      "sha256": "8f074ca360f7add063373cbd2d526bc0c702bd5549fa21f54f5773f7f2a8c249"
+    },
+    {
+      "id": "internal/localproduct/configureCleanupPrepare",
+      "sha256": "a178500603bec9ab435778cd70a6e4633e93082b317e0a2cc0b9cbc1d2630b5c"
+    },
+    {
+      "id": "internal/localproduct/count/*supplementFixture",
+      "sha256": "c493828191a95e925642f5d742316bac432a784e685306e5daa58c02a6b9ec20"
+    },
+    {
+      "id": "internal/localproduct/countRuntimeSettlementCall",
+      "sha256": "0952355b4ea5caf3099d3f3e5e0e6eb4fdefaa57d35be006bbaa14de476fe844"
+    },
+    {
+      "id": "internal/localproduct/createDeadlineCleanupSecretRoot",
+      "sha256": "379c28feefe845b6bf2d8420ed0a216edcd6d86ee46401f1fc8165099d83f7b6"
+    },
+    {
+      "id": "internal/localproduct/createRuntimeRunnerTask",
+      "sha256": "80f285a66216e43feafb9202c06f6d79e34b0848ead7cdf2b8a8b910a0aced47"
+    },
+    {
+      "id": "internal/localproduct/deadlineCleanupAuthority",
+      "sha256": "c192f5412f724a78a6bd01c2dfd990ec11cdff8cd253694e46548831d8a9f030"
+    },
+    {
+      "id": "internal/localproduct/deadlineCleanupCredential",
+      "sha256": "55f9e301200d0939a88dbffb514d3a471886f6d65206c742e88a65c706b25d56"
+    },
+    {
+      "id": "internal/localproduct/deadlineCleanupFence",
+      "sha256": "28ad23416daa9550b5426b6b2386a3072d75fd50436636cb329ec7f23073cb87"
+    },
+    {
+      "id": "internal/localproduct/decodeBackendDeadlineSourceStateForTest",
+      "sha256": "2053aa9c77252a4d79e5facc8639f9137767b6066c5d597df4025d491e204942"
+    },
+    {
+      "id": "internal/localproduct/discover/*workerAuthorityFixture",
+      "sha256": "24b8d0f6375f78daf63367683abfc640ac9c5bcaf9663da39d0b3d7a11e3d6dc"
+    },
+    {
+      "id": "internal/localproduct/discoverV2/*supplementFixture",
+      "sha256": "6dcbd7b805de6ec76cab0e5a55d90546195ef31f70185cbe52ab0435701114ec"
+    },
+    {
+      "id": "internal/localproduct/expectedModelPublication/*supplementFixture",
+      "sha256": "ee0f3fa8981c7c9788344e5a11e3c5e04239784f9d3dd26f1982171aa29eb40e"
+    },
+    {
+      "id": "internal/localproduct/fail/*exitedRuntimeProvisioner",
+      "sha256": "2a92a14f877295a2de995c75f9ca73452df7d410d2bdf3a2b163e35c1bc0e0ef"
+    },
+    {
+      "id": "internal/localproduct/fenceAndStop/*supplementFixture",
+      "sha256": "3bcd8f5354e07ee7667f14dc4747d3138056e7c43c4a921adc81ea7b18243b78"
+    },
+    {
+      "id": "internal/localproduct/finish/*supplementFixture",
+      "sha256": "c1c08aadf75de781ef7cff46973012a1fc9966aad686147453f904a7f287dc19"
+    },
+    {
+      "id": "internal/localproduct/finish/observationFixtureTurn",
+      "sha256": "940257ab18de0e074fb7f43b7ce9c790641cd6ac4ecfa58c9edcd7682f8017c4"
+    },
+    {
+      "id": "internal/localproduct/fixtureWorkerAuthority",
+      "sha256": "2e0ea76ef7e05aa814aff44124d5a7ee0328f9f70f2d438770acec47b3a1a138"
+    },
+    {
+      "id": "internal/localproduct/fixtureWorkerLabels",
+      "sha256": "b0472011c67203c901b23b2326f7665a6c48972025d9e64f01b7cec9ea1872e9"
+    },
+    {
+      "id": "internal/localproduct/frozen/*supplementFixture",
+      "sha256": "039eed401e59971df7c7b31b04a2e0145810f68266a759e0525df63224ed78f8"
+    },
+    {
+      "id": "internal/localproduct/inspect/*workerDockerFixture",
+      "sha256": "2d5d123d0f80b8554b540bae6c0a6d1bd5355706f76e135ca75ad30fa13cb999"
+    },
+    {
+      "id": "internal/localproduct/integrationNetworkProfile",
+      "sha256": "ea3842719ee4a1081c3b1e32289b1aaa1778e0d223c6ad994eb3efc02fe21c5b"
+    },
+    {
+      "id": "internal/localproduct/jsonRow/*supplementFixture",
+      "sha256": "ca604800c507c7520490e55faa29f779fb29cc58011a2a3341193b90cf76e8ed"
+    },
+    {
+      "id": "internal/localproduct/loadBackendDeadlineClaimDomainSnapshot",
+      "sha256": "8c934423de68015ec98f5b835894e73786ce49278fa8a869e641a70f5f37c483"
+    },
+    {
+      "id": "internal/localproduct/loadBackendDeadlineClaimDomainSnapshotWithoutRuntime",
+      "sha256": "aa40ba4af5b8a14175018ec6de7d3a99cbcfdcb13fc094000ace1b212d2c2190"
+    },
+    {
+      "id": "internal/localproduct/mapLookup",
+      "sha256": "f8726bc3993fbb55a61ea9e41f0fd08ba1ffd8d0c546ed1df81fb70b2c43a761"
+    },
+    {
+      "id": "internal/localproduct/materializeCleanupRegistry",
+      "sha256": "1942318c0ca7f7406c46b8f8af09110ec209a87c920dded9fc5dc01a15ae733a"
+    },
+    {
+      "id": "internal/localproduct/modelPublicationError/*supplementFixture",
+      "sha256": "8636b960b0e9bc010b79528ad4a54561b38805380d7cdd89066284d716a48feb"
+    },
+    {
+      "id": "internal/localproduct/mustRuntimeSettlementCheckpoint",
+      "sha256": "77892c60cba663c919f1657dbe56645de5cf66ad011957efe2f005b49909f9e9"
+    },
+    {
+      "id": "internal/localproduct/newBackendDeadlineClaimHandler",
+      "sha256": "b0199f283a38d7b41e7c4f6c0d2010b3a08316c922126e21dcd05131aad4c30e"
+    },
+    {
+      "id": "internal/localproduct/newDeadlineCleanupTestEnvironment",
+      "sha256": "d41e86cec2d820ce7db66030bd39100a00f9fc6eae28c343086eef12a03c32f2"
+    },
+    {
+      "id": "internal/localproduct/newExitedRuntimeProvisioner",
+      "sha256": "54435c194c7232ad37e2183dca9eb87632d870677a7783a8bc5130439d7eb378"
+    },
+    {
+      "id": "internal/localproduct/newSupplementBarrier",
+      "sha256": "c6781ae9f3ae6c6117287e09532f45724fcdccccfb969ddf070ab0311d2f9d50"
+    },
+    {
+      "id": "internal/localproduct/newSupplementFixture",
+      "sha256": "57f48354ed718452ca9551da600617090329f7f2aae8db885281644cbc646b90"
+    },
+    {
+      "id": "internal/localproduct/newSupplementHTTP",
+      "sha256": "a1d3a9635f7438611eba69083241ee606a97c862379096550357504bbc88a40b"
+    },
+    {
+      "id": "internal/localproduct/newSupplementSealed",
+      "sha256": "4cdd758f30dfb6c0b7827545cbaedf95b47ff055697497acb85b508ae0a7dfce"
+    },
+    {
+      "id": "internal/localproduct/next/*observationFixtureRuntime",
+      "sha256": "2c5a3cb6167850771224ef1494fc5757b4b80ee04cf831ee872a385be9d4d6b4"
+    },
+    {
+      "id": "internal/localproduct/next/*supplementFixture",
+      "sha256": "41768635e484f95905704bf822291305c92501294d94b1ecf02f533137fa2512"
+    },
+    {
+      "id": "internal/localproduct/observationCaptureFixture",
+      "sha256": "1875eff96b2f0b13ea8913221b14366cb05435838a6064f1bcc76bc9171ab967"
+    },
+    {
+      "id": "internal/localproduct/post/*supplementFixture",
+      "sha256": "672fc096ad112ed3063a05f4a077f5b7f06f827586cf44a50c3e6b2950d6c3fc"
+    },
+    {
+      "id": "internal/localproduct/postAssistantCommand",
+      "sha256": "6f799bd87ac265911e020c26b501a14e7108885e0c891444f26abaea5282a253"
+    },
+    {
+      "id": "internal/localproduct/prepareWorkerTelemetryStage",
+      "sha256": "ff339d0004da4b11083694b0c54a1395ed4d1bfad3f2dc93ce162a7c2356f688"
+    },
+    {
+      "id": "internal/localproduct/publishAll/*supplementFixture",
+      "sha256": "bc2d0b4ecc4a002748ae78f36b36901d4263a9eb3584dec127729a6438bd5c7b"
+    },
+    {
+      "id": "internal/localproduct/queue/*supplementFixture",
+      "sha256": "f1a12a6049d01e7821445c2679609751ed31bdff5239172f8f47991b3ed36928"
+    },
+    {
+      "id": "internal/localproduct/rawACPTraceLine",
+      "sha256": "15446266b27f5c5b3c430632150fa95f11966de5af64d4987953f3f5656c40e1"
+    },
+    {
+      "id": "internal/localproduct/readRuntimeRunnerTaskState",
+      "sha256": "e0098020e0163248fa827af24f375a8e3fbc12fab5c47d3126ca81f77b94bf5c"
+    },
+    {
+      "id": "internal/localproduct/renew/*heartbeatRuntimeSettlementController",
+      "sha256": "65626b21134fea90a9f63ab80a021437c62db164515b012ff7eb17269340b6ab"
+    },
+    {
+      "id": "internal/localproduct/renew/*recordingRuntimeSettlementController",
+      "sha256": "24a44d88fff92bc0a7ffb0bd50f2ec422586d93f3377e4584aa75b719cf2d968"
+    },
+    {
+      "id": "internal/localproduct/reserveRuntimeRunnerAddress",
+      "sha256": "629fce27f2c7db284caca9b653a314ae6431e46d8c7ae0bb315d311197164ab0"
+    },
+    {
+      "id": "internal/localproduct/restartPool/*supplementFixture",
+      "sha256": "77d13a42e0ec90de14ce8481dad9947e4df1eff0412b3736f45089e98b53d40d"
+    },
+    {
+      "id": "internal/localproduct/revisions/*supplementFixture",
+      "sha256": "a73ec088ab10230759725754d80ff36fd2b4c3146ccdb4e5a790afbec7594da8"
+    },
+    {
+      "id": "internal/localproduct/run/*observationFixtureRuntime",
+      "sha256": "212ed348e113eac81f18586f0b82aaecd203113100e14ad53c7687902b460463"
+    },
+    {
+      "id": "internal/localproduct/runFirstRuntime/*exitedRuntimeProvisioner",
+      "sha256": "c78884845d460bada1c689710e4cc9f66709bde2c9f196f4f58e00844fb8df99"
+    },
+    {
+      "id": "internal/localproduct/runHeartbeats/*observationFixtureRuntime",
+      "sha256": "700496809314aafbc2c8290f62b8c3cd461e817cd557d0784079aedf17cd4dab"
+    },
+    {
+      "id": "internal/localproduct/runtimeControlAuthorityForDeadlineSourceTest",
+      "sha256": "d523c82e7c07a2b2e0b563c5dd5442877f18eef95c1dbea0360f8ef2823b7fd6"
+    },
+    {
+      "id": "internal/localproduct/sealedProof/*supplementFixture",
+      "sha256": "e57df8f486f6d2079df93b3cfa7ea3094ea2e1e3ccd39b71b4387ba9feda72cd"
+    },
+    {
+      "id": "internal/localproduct/seedBackendDeadlineClaimGraph",
+      "sha256": "aad6358c3fee30efea195c31eedc40d2300c34b4922f32be38eecabc694d0faa"
+    },
+    {
+      "id": "internal/localproduct/seedInitialCleanupStart",
+      "sha256": "2e710fba8f5d60f75dd40e214da0863277e2032f451f3cdafd7d9812d786a6d5"
+    },
+    {
+      "id": "internal/localproduct/seedTelemetryRows",
+      "sha256": "fa5a7603edfa675c984aa26cfb15b7e55e62a67b023d56f9763099864b66d7ca"
+    },
+    {
+      "id": "internal/localproduct/seedWorkerTelemetry",
+      "sha256": "51522f1d5c3d2b4b7c5bf3c10957a7812b4d7e7ab37f9c1851d80589920b7aec"
+    },
+    {
+      "id": "internal/localproduct/send/*supplementFixture",
+      "sha256": "eb52513aa2a628f92beea6f85abe48debcc3287b78a4551da2e33742711e63ae"
+    },
+    {
+      "id": "internal/localproduct/settled/*supplementFixture",
+      "sha256": "9dabb989d6698a8aa30b3cb8eb032c95707ad1644efca004dd1f500fe9ba907c"
+    },
+    {
+      "id": "internal/localproduct/settlementEffectDatabaseSnapshot",
+      "sha256": "5b4c5b1c88d985038288b32bd2ef1ee31fe18a145e2751856d2a4e12543e1040"
+    },
+    {
+      "id": "internal/localproduct/settlementLeaseRenewInterval/*heartbeatRuntimeSettlementController",
+      "sha256": "c0f5671287b4f828da850cb0a49f47e77604d773b978aff96f4fbb72f60b2739"
+    },
+    {
+      "id": "internal/localproduct/shutdownFailure/*supplementFixture",
+      "sha256": "110925b546dd16f85f4107c0764a5942973c7394de3398404bc05160830a98d4"
+    },
+    {
+      "id": "internal/localproduct/snapshot/*supplementHTTP",
+      "sha256": "db44214592568ef6a99973161bd99098ea09fb52848f711aacd9bb79b131395c"
+    },
+    {
+      "id": "internal/localproduct/standalone/*supplementFixture",
+      "sha256": "f08767f43f4fc51392b9b8f301eaaf2398c5ff17fa4c0d7ede8f555abb2f86e6"
+    },
+    {
+      "id": "internal/localproduct/startupBarrierDeadlineSettlement",
+      "sha256": "b3c557e3e1f7649d0b243a5ebe125c0e6a427a8e2d796835056a8944853edfa1"
+    },
+    {
+      "id": "internal/localproduct/startupBarrierRuntimeEventSettlement",
+      "sha256": "2569c779c3f4df3075660bed978673d6eaf566ab24b77ce596374474a62cd85c"
+    },
+    {
+      "id": "internal/localproduct/startupDeadlineTestRunner",
+      "sha256": "13d9f76e2226efa95510b8c19a486239472c7966d318337403a989425d7ba504"
+    },
+    {
+      "id": "internal/localproduct/startupSequentialTokens",
+      "sha256": "1d3ac4068f7ca20a802f569324629ebe184a4329b13ed09eb0c9b05a23783ef0"
+    },
+    {
+      "id": "internal/localproduct/steps/recordingRuntimeSettlementEffects",
+      "sha256": "22f95bf6187a2d2772712952f0f0476e7160a437fe2432a1f7c46dd8f7fe3e47"
+    },
+    {
+      "id": "internal/localproduct/stop/*supplementFixture",
+      "sha256": "931edee79ccf8e521d28ff3190e07dfefc36f609b34346ca6e293c3d714400a6"
+    },
+    {
+      "id": "internal/localproduct/stop/*supplementProvisioner",
+      "sha256": "6156bc9deb8abd0fc16793379be13445afc73e2dfda89129477f345754240f16"
+    },
+    {
+      "id": "internal/localproduct/supplementMust",
+      "sha256": "9f5e15fb922d65c9c20de95706fd897ee5752071b46c4b1150e7419c648b1b67"
+    },
+    {
+      "id": "internal/localproduct/supplementReceive",
+      "sha256": "792ae5308e30235863fe9e8e49cdf6839e297fdc8daed7c87486c8eec24561a0"
+    },
+    {
+      "id": "internal/localproduct/telemetryScopedDatabaseURL",
+      "sha256": "80780a5e9d1f4f287fc00a797bd6125c8bd94a039a528bd4adf3368c14e70235"
+    },
+    {
+      "id": "internal/localproduct/telemetryScrape",
+      "sha256": "97bed24fa7902f6c5249810bf699bd21265983b1dbda6e385d7b86f51a5292e9"
+    },
+    {
+      "id": "internal/localproduct/testImmutableModelSupplementFirstTurnMarkerSubsequentTurnNormal",
+      "sha256": "6fa2a72816a9f1f58365f2e20502002a8597519723241306f5e0d5fef4a9f2d0"
+    },
+    {
+      "id": "internal/localproduct/testInitialCleanupFailure",
+      "sha256": "8a861167a05a749dd30a14979b66eb598108594c1941ca6bf80ed8bce60819ee"
+    },
+    {
+      "id": "internal/localproduct/unchanged/*supplementFixture",
+      "sha256": "cd18e59ff668416842b970b3fbc98803ec630f7ba9e95368069c80298d75ac06"
+    },
+    {
+      "id": "internal/localproduct/waitApplied/*supplementFixture",
+      "sha256": "bca95781ef2eab208e275e7c12787bfe02ab0d08aba8803f6a7b54323ecdadf0"
+    },
+    {
+      "id": "internal/localproduct/waitAssistantProjection",
+      "sha256": "18816fd60d71a206c57404df6073fb75ae1ad04de951f1cd54d534e7f5ec840d"
+    },
+    {
+      "id": "internal/localproduct/waitRuntimeRunnerTaskState",
+      "sha256": "f65673e928291bf6af03ba7bd20e536a3a20d1063095c21c684b0636c4dd2bc8"
+    },
+    {
+      "id": "internal/localproduct/waitWorkerTelemetryReady",
+      "sha256": "2fe46f3fd66174e03d802f6fc904d8515dca5f0cb837d4a6d2119d337c5e5bcc"
+    },
+    {
+      "id": "internal/localproduct/workerOutputFrame",
+      "sha256": "8d46565be5ff5c415c9d6b42dd50729ddb0afb159c955c545dce76175bf998de"
+    },
+    {
+      "id": "internal/localproduct/workerTelemetryReceiver",
+      "sha256": "b10b49d83ea5d81aa913cbed7530f924090da4dfccfae12b3dbd6b7a05591b0a"
+    },
+    {
+      "id": "test/acceptance/observability/LoadProjectionSourceMetadata/frozenMetadata",
+      "sha256": "38807d593d09a067a084951ca6d4cb6f82623d55a5781dcd37cae179e29cb28d"
+    },
+    {
+      "id": "test/acceptance/observability/NewID/*frozenIDs",
+      "sha256": "8a8b9691d9cd38000a03f100c574ae4b35015a6898c97887a8d8b210195ed050"
+    },
+    {
+      "id": "test/acceptance/observability/TestAcceptanceQueriesAgainstMigratedPostgres",
+      "sha256": "70541bbe1315620f2f7d20c3dfa6c10d8037ae6e2a1d5ba14fa65c0fc4b338eb"
+    },
+    {
+      "id": "test/acceptance/observability/TestCaptureInspectTemplateExcludesSecretBearingFields",
+      "sha256": "ede7c068cb987f69d7a3883b70799d5aa2dc418195d682fbc281dd1836d6567c"
+    },
+    {
+      "id": "test/acceptance/observability/TestCaptureTemplateSupportsContainerWithoutHealthcheck",
+      "sha256": "17d0e47e3f71c90de3dbeb07a8a0ab3da495b56267e9978d8466aa2f023b4cd3"
+    },
+    {
+      "id": "test/acceptance/observability/TestClaimRejectsDefaultsAndExistingOutput",
+      "sha256": "c0b4c86756aeaa21f4cd8834bb8b32c948c880beeee7f5cc0423b99ab32c4487"
+    },
+    {
+      "id": "test/acceptance/observability/TestClaimReportRoutingPreservesNewOutputAndRejectsForeignEvidence",
+      "sha256": "a799fb4043956d6709f492e8eb3d85340b1dcf3ca696a567ada2ca58a8e6c74e"
+    },
+    {
+      "id": "test/acceptance/observability/TestColdSmokeOutsideCaptureWindowRejected",
+      "sha256": "aea0b09b09608fd1d8fa7b92e8b655fc0778d44badcb77a75ad34de31a5ddc85"
+    },
+    {
+      "id": "test/acceptance/observability/TestCollectIntervalsCombinesSaveFailureWithFinishCause",
+      "sha256": "fd921632a7e42a9d6594034ef13fba19521ddba5acff26d229a0e5c401de3cb8"
+    },
+    {
+      "id": "test/acceptance/observability/TestCollectIntervalsJoinsAndPersistsFailedDeadlineCollection",
+      "sha256": "084f71859ef719c973601aecca86ac111d92ba456c0d2d9d1c9eea0ce4738d1b"
+    },
+    {
+      "id": "test/acceptance/observability/TestCollectorRejectsEOFCancellationAndClosingProbeFailure",
+      "sha256": "0fd8c0f42d4729936de3ad5be2d3ca18eb96c058ee9f3c2ae710af4d806b113e"
+    },
+    {
+      "id": "test/acceptance/observability/TestCompletedCoverageGateRejectsGapBeforeCleanup",
+      "sha256": "d083e68fb6aa7b1095c89698af1cc4f29727da0f3b7fef5b8022476e56c728f6"
+    },
+    {
+      "id": "test/acceptance/observability/TestCompletedReadersRejectLateFailureOrWrongIdentity",
+      "sha256": "a1a26e744b688ad68b4f2c3e4b6ea6c1fe3e0f64de2d08ac2ccd2c5f927b5e49"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationClaimRequiresFreshMonitoringValues",
+      "sha256": "4ad568c47f7e2ff78644ebd637b120dd8d62be50d881b876a20a0a969a249ccc"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationLangfuseReadAPI",
+      "sha256": "6bc55ccedc800d292b70149f0d2334dd9a1c54581915a7ffee9252f170ecaf7a"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationLokiIndexedSeriesFailClosed",
+      "sha256": "f980d0d8d1dfd15b5ac72ac80d038827ee668c193936bc6d21b0fa3ba6d95643"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationLokiReadAPI",
+      "sha256": "b5732687baa0da1a928e08df2794760e44dae774026a1b26cfa37438c10b95d0"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationLokiRejectsEmptyPositive",
+      "sha256": "5f6e14098d76059304c215cb6212d32e5dd508a30a8f171276d042fb1e97d278"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationLokiRequiresExactDatabaseTerminalTimes",
+      "sha256": "7f80af613449dd6840ebf78be07efcf4a0aa91560a2c89ff0dab7e7785612f34"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationPrometheusReadAPI",
+      "sha256": "036986aad1b58523036dd12f28bb95f548130f57a931a6e09cc1ead7b0e9eb7b"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationRejectsRedirect",
+      "sha256": "6f643ee3621a771e4ecb75d5d277bce1483f3d7e5a5227acb121c2e42b86feb2"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationSnapshotNeedsSourceProofsNotColdOutage",
+      "sha256": "8e7a7d294dd33332a729ecb51b93f747df7f99945ca1d4ddb9d6162d1e3fb5f6"
+    },
+    {
+      "id": "test/acceptance/observability/TestCorrelationTraceReadAPI",
+      "sha256": "afed9a6ab4827e5a9ace8efbfa32e63c1c4f515ceba0d0dfd65b7d6310c5ead3"
+    },
+    {
+      "id": "test/acceptance/observability/TestDerivedImageContextOnlyContainsFixtureInputs",
+      "sha256": "ca3f01f9355315b34893eda9122f6b57261fbd232c5b35c669f265a0af2cb0a6"
+    },
+    {
+      "id": "test/acceptance/observability/TestEventEOFCannotBecomeRequestedStop",
+      "sha256": "5f3168e24ac6d20e37215f6ca54e0aeb282eacda450a99a342fd9839e5c7eda4"
+    },
+    {
+      "id": "test/acceptance/observability/TestEveryPhysicalScenarioRejectsInvalidLatency",
+      "sha256": "241718dcace96ae84e0b18cf53d2b1bccaf88cc08b24d9ba8cb496346d6a168e"
+    },
+    {
+      "id": "test/acceptance/observability/TestFaultRecoveryBindsOriginalRequestAndClass",
+      "sha256": "37417a200f6fa9f583c95687692a37e42be0e495e5ca3cea0ac1b4fd14296dad"
+    },
+    {
+      "id": "test/acceptance/observability/TestFaultRequiresIndependentHealthyCoverage",
+      "sha256": "a3a19f87aae7a708eb5ec2dcf979bb47aef979bbc45da20442bff1ddf627e986"
+    },
+    {
+      "id": "test/acceptance/observability/TestFinalEvidenceCoverageValidatedBeforeInfrastructureCleanup",
+      "sha256": "11a15fb18ffdc1827c80203363c38936b0cf877c3af1e5704f0cf0696dc53f3c"
+    },
+    {
+      "id": "test/acceptance/observability/TestFrozenLegacyMarkerRemainsValidImmutableEvidence",
+      "sha256": "61cbebe7d1a8e76e397601661873e057ee821b7a1ec5fcb49f7d327e68a71137"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullReportRejectsLabelsWithoutPhysicalEvidence",
+      "sha256": "cf4695f68141ea345b0004f4a625858e49aa13383c58ed88de4e09b4a958baf3"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullReportRejectsMissingPairsCoverageAndSlowSamples",
+      "sha256": "12292247f8d3590bd40a92c954d565c791124896bfae9f62f8e31f3c5049b671"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackColdCollectorRequiresNinthActualProbe",
+      "sha256": "04729a66180bea9d17682be76a8b8c42134f53ca56ef9578b218ea5e3bc1d922"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackColdRejectsBrokenClaimEvidence",
+      "sha256": "ae7a688a429c37f52039dbf0b15a3cd60f753ef2a9a2cb92ef5a5af281e89ded"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackColdRejectsCoverageSplicedAcrossSubscriptions",
+      "sha256": "c5592e4d914a944d41eaba8a09214f89f267844a34458618c3d68a569b6cff17"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackColdRejectsLegacyFiveServiceCapture",
+      "sha256": "0407fdc3986a848e528076534f63601ac99dc77ff720ce1416d4fc42d10e9834"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackColdVerifierAcceptsOnlySeparateProof",
+      "sha256": "5be364af307b1b98f2cba7bd3de84d80175ccadfa83f4d19a222562471b26778"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixEventScopeKeepsOnlyOwnedProjectAndExactWorker",
+      "sha256": "a179c0221e996960d131c2f90e9a8786c94bbfa26796f3e4788d9f54fe4c9029"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixMeasurementRejectsMissingNinthProbe",
+      "sha256": "6fbae815af610441376f767fff310f863cc09a953ccc9989ade5ee467cfd82be"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixRejectsDispatchBeforeSecondTurnCreation",
+      "sha256": "726cdc4671660094dc3b881fef364602d43c34a7797d30c9e992ba0be778f7c0"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixRejectsMissingWorkerSubscriptionCoverage",
+      "sha256": "93c19b9142e6a01478defe0122e50458f079f256fb5bc1b3a7e7458512476d5f"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixRejectsUnrelatedWorkerLifecycleEvent",
+      "sha256": "4c19bcfce338df7c2a62778ff4bf01cd4f9b18fadbf3d296edce86bd7ad10e77"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixVerifierAcceptsCompletePairedEvidence",
+      "sha256": "934eac64d9a019df851d9d2fe6fb7956a9b1454f36f37edb0b311b62f8aa1e7e"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackMatrixVerifierRejectsBrokenEvidence",
+      "sha256": "153caec28aa5386afcda8031e0472d72b2b15b9fee086b6ed3040d3faac215a2"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyCLI",
+      "sha256": "cfd93b28b32b84b5a83bb486eeeb0644dccc4d3288507746cd9a53ba3a129ebb"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyClaimPrecheck",
+      "sha256": "bdb50de5ebe397303bf0851af70be480cc2ee08e2c7d0634b17abad5cc774e73"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyColdPreservesEvidence",
+      "sha256": "e565c6b3d77a70523ccdcbf2ced4064f0484b0cc27e99d3299773f645edcdb6d"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyColdRejectsBrokenEvidence",
+      "sha256": "cfbc456ca872452faba948660c575673012654f44c2f6c7b3673d28296a6d7fe"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyExistingPassAndRepeat",
+      "sha256": "462ce127e8764498dccf2f6260843a75437fe5138fdead47d7695debe537cafa"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyMatrixPreservesEvidence",
+      "sha256": "717653ced794e39c38577f967aeb0255e02889d1ef58e6257864a65de91c47de"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyMatrixRejectsBrokenEvidence",
+      "sha256": "657fd1a1d3886c6675fc617055f3271282ab14770a1d993e64f0f215179d9cde"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyOutputFailure",
+      "sha256": "b27b2803a27835f9b44d806a6f64104cb5bc6c4d0a86a12ec391b6ca73c051a0"
+    },
+    {
+      "id": "test/acceptance/observability/TestFullStackReadOnlyRejectsRouteBeforeReading",
+      "sha256": "4c2a906b03be714e763e37ab9807f5ad3d6e5f2363d0745e3d2ef0d079a8b6d2"
+    },
+    {
+      "id": "test/acceptance/observability/TestHealthySnapshotsPlacedInOutageSlotCannotPassPairCoverage",
+      "sha256": "e62f998ecc44a6f8453288b83572d0c32f7dff63f92722d542cb4e8676703530"
+    },
+    {
+      "id": "test/acceptance/observability/TestIntervalsCannotBridgeRestartEventsOrCollectorEOF",
+      "sha256": "8b9927d51ed35a7d1810357a0394653f2ed1814dfbe554f72766ed8ac458b27f"
+    },
+    {
+      "id": "test/acceptance/observability/TestIntervalsRequireProbeBoundAndCurrentStartIdentity",
+      "sha256": "b65e891b34fc0fbb8621661677dc81af48382129c24fa492de3f244d145d0b18"
+    },
+    {
+      "id": "test/acceptance/observability/TestMeasuredLatencyRequiresOriginalTimestampAndAck",
+      "sha256": "bbf3d210bf7594d3b36038d3cf7986402f4384f19eae05736411e373a6ec02d5"
+    },
+    {
+      "id": "test/acceptance/observability/TestMeasurementCannotRestoreStateBeforeRecordedClosingProbe",
+      "sha256": "99b0d81fd237d39f71c80e76fc62cdd6e6b4936abfbb7730b2a28ba8e5b5d111"
+    },
+    {
+      "id": "test/acceptance/observability/TestMeasurementKeepsAttemptSeparateFromAcceptedHandshake",
+      "sha256": "3a44cf53e4fe8fd4426d564b8b65d2a69f602236466b0474613fbc4df5f36cd0"
+    },
+    {
+      "id": "test/acceptance/observability/TestMeasurementPreservesFailedHandshakeCommandWithoutOutput",
+      "sha256": "b280c9ea36445eeb8e733a5282f50332b161311bad1b49245192e7a160c80cdb"
+    },
+    {
+      "id": "test/acceptance/observability/TestMeasurementPreservesUnmatchedHandshakeAttempt",
+      "sha256": "a2b227e532f9a3947ed1f7514a3c3519a1a52a428c95f661ff21ee4efbdb00b6"
+    },
+    {
+      "id": "test/acceptance/observability/TestMeasurementWaitsForRecordedInitialProbe",
+      "sha256": "132e6162af5104cd3cf608788e04b0662b31b8ff5c48c537012e2c3c441cc702"
+    },
+    {
+      "id": "test/acceptance/observability/TestPairP95StillRejectsMoreThanOneSecondIncrease",
+      "sha256": "96ae08b6cd44a7b19fd3cdc002a32a5df18a778d7d5acb27528d8454eaba55fb"
+    },
+    {
+      "id": "test/acceptance/observability/TestPostgresOverlayPreservesCoreNetworksAndLoopbackAccess",
+      "sha256": "f4caa196a20f14de9f1690225bd825056270fa94f2c3dc8ea3d2070325f6591d"
+    },
+    {
+      "id": "test/acceptance/observability/TestStrictPhysicalEvidenceRejectsBrokenRelationships",
+      "sha256": "7e20844c9bd7b7c7d47be8bf3b374d0f3a234dc8fda6c5876ea0ca1f1645776f"
+    },
+    {
+      "id": "test/acceptance/observability/TestSubscriptionReadyRequiresCurrentRecordedExactExec",
+      "sha256": "8e041dbcfa13b4bc9270b720ed4e3d1dd23a60bff0f0aa185c439ad820ad955d"
+    },
+    {
+      "id": "test/acceptance/observability/TestSupplementProofsReadPublishedClaimThroughProductionLoader",
+      "sha256": "e3a5a086d3bb0aca9c6739bde37962609113d89b27b2446c5236f7cddf32cfa7"
+    },
+    {
+      "id": "test/acceptance/observability/Write/readonlyOutputWriter",
+      "sha256": "1df00f590b9e764239bb22a0dbb88f5853471655a5d7fbc574318f6f99bd2eeb"
+    },
+    {
+      "id": "test/acceptance/observability/blockedClosingCollectorIO",
+      "sha256": "9186d640cf2fd0aabc6879f59fff8593d63e881bfb02db950cb6883f04d882dc"
+    },
+    {
+      "id": "test/acceptance/observability/controlledCollectorIO",
+      "sha256": "bed62e3f4c725a31e2702061bf5c988ed75706a3408e0c030be9c42e062175db"
+    },
+    {
+      "id": "test/acceptance/observability/correlationSeriesFixture",
+      "sha256": "c86aec2dd2e4f8206bf01d86b4f11ce41686a67cef1d2af4258814abab1d3bc9"
+    },
+    {
+      "id": "test/acceptance/observability/evidenceReport",
+      "sha256": "fbed85c3033e0f22b9ce569826b18c06d93b9276cd1e04aa9f7f975fedd8dc16"
+    },
+    {
+      "id": "test/acceptance/observability/fullStackColdFixture",
+      "sha256": "60303c9ec8f27497519a6d3b58fa924401a4f8c29e6164fc15c8fe6c347061fb"
+    },
+    {
+      "id": "test/acceptance/observability/fullStackMatrixFixture",
+      "sha256": "94071fcd6c3d85e51cb21c210642bbd50c77be640195dcbdb389bf25bf40412a"
+    },
+    {
+      "id": "test/acceptance/observability/nativeProbes",
+      "sha256": "823127563baf27912c9791a1a5109cd70603466672b8790a12767dfae99052a1"
+    },
+    {
+      "id": "test/acceptance/observability/nativeTiming",
+      "sha256": "60265fbad532a1224ba97ed300ae313ea2f93e99976cf1487e7aabd0e19b3746"
+    },
+    {
+      "id": "test/acceptance/observability/readonlyDirectorySnapshot",
+      "sha256": "bc03729ab19add34f519f7b7e0844ad56138a3c984766474553b64895a0fd9ca"
+    },
+    {
+      "id": "test/acceptance/observability/readonlyFixture",
+      "sha256": "a0ed97c371757a17042cb2e429fcde45a8ad9946cb813e75fbf2c86bf550be18"
+    },
+    {
+      "id": "test/acceptance/observability/readonlyReject",
+      "sha256": "073efa70f992273ce1c954e469b7b084425036f79a281a7a05eb155a11da4397"
+    },
+    {
+      "id": "test/acceptance/observability/recordNativeHandshake",
+      "sha256": "c7ee90a405e1f4a81ebcdac7081a54c02008cd8b12ddc2b76cd4fe9c3a48584b"
+    },
+    {
+      "id": "test/acceptance/observability/repeatCorrelationLine",
+      "sha256": "bf1188273dbc9e5fe87e7fe9edee6c50f0e66d8a3ebb1265497f0ac0951bf9cc"
+    },
+    {
+      "id": "test/acceptance/observability/rewriteFullStackFile",
+      "sha256": "69daad76b959911a71122ee06b46c78c541583f5effe695fc7c8d4293b81be3f"
+    },
+    {
+      "id": "test/acceptance/observability/writeNativeCollectorClaim",
+      "sha256": "b4cd3749ddeec0ecef49341a0101f1dfe4e5494f188026dd4927c981a64ddb02"
+    }
+  ],
+  "groups": [
+    {
+      "tags": "",
+      "tests": [
+        "internal/architecture/TestAssistantLiteLLMFailClosedValidationRejectsWrongWiringAndDuplicatePolicy",
+        "internal/architecture/TestAssistantLiteLLMFailsClosedInsteadOfDroppingStructuredOutput",
+        "internal/architecture/TestAssistantLiteLLMImagePinsTheProxyAndKeepsProviderCredentialFileScoped",
+        "internal/architecture/TestInitialPersistenceMigrationEnforcesCoreCardinality",
+        "internal/architecture/TestInitialPersistenceMigrationOwnsRequiredTables",
+        "internal/architecture/TestIntegrationEventV2Migration022LocksThenPreflightsBeforeDDL",
+        "internal/architecture/TestLocalComposeKeepsM1TopologyAndDockerOwnership",
+        "internal/architecture/TestLocalMigrationRunnerTracksFreshAndLegacySchemas",
+        "internal/architecture/TestLocalObservabilityBootstrapPreservesPassword",
+        "internal/architecture/TestLocalObservabilityContracts",
+        "internal/architecture/TestLocalObservabilityExploreEnvelopeContract",
+        "internal/architecture/TestM2RealProviderAcceptancePreservesExistingPublishedSummary",
+        "internal/architecture/TestM2RealProviderAssistantRunsFailClosedWithoutAutomaticRetry",
+        "internal/architecture/TestM2RealProviderCredentialScanAcceptsCleanEvidence",
+        "internal/architecture/TestM2RealProviderCredentialScanDetectsLiteralCredentialInEvidence",
+        "internal/architecture/TestM2RealProviderCredentialScanMatcherArgvContainsOnlyPathsAndFlags",
+        "internal/architecture/TestM2RealProviderCredentialScanNeverExpandsCredentialIntoMatcherArgv",
+        "internal/architecture/TestM2RealProviderCredentialScanRejectsMissingOrEmptyFileBeforePublication",
+        "internal/architecture/TestM2RealProviderExpectedAssistantProfileRefsTrackProductionRegistry",
+        "internal/architecture/TestM2RealProviderFinalValidationPrecedesPublication",
+        "internal/architecture/TestM2RealProviderOutputClaimIsExclusive",
+        "internal/architecture/TestM2RealProviderPrivacyGateScansEveryBrowserResponseJSON",
+        "internal/architecture/TestM2RealProviderPublicationDoesNotReplaceLateDestination",
+        "internal/architecture/TestM2RealProviderPublicationDoesNotTreatLateDirectoryAsDestination",
+        "internal/architecture/TestM2RealProviderSummaryBindsEveryAssistantRunToExpectedProfile",
+        "internal/architecture/TestM2RealProviderSummaryCarriesDirectProjectionEvidence",
+        "internal/architecture/TestM2RealProviderSummaryPublishesOnlyAfterFinalContractValidation",
+        "internal/architecture/TestM2RealProviderValidClaimPublishesOnceAndCleansOwnedFiles",
+        "internal/architecture/TestM2RealProviderWaitsOnlyForMissingArtifactDetailProjection",
+        "internal/architecture/TestManualAcceptanceCommandsUseTheCanonicalProfileSelector",
+        "internal/architecture/TestMonitoringAcceptsProvenEvidence",
+        "internal/architecture/TestMonitoringHTTPRejectsErrorAndOversize",
+        "internal/architecture/TestMonitoringNoDataEvaluationHealth",
+        "internal/architecture/TestMonitoringRejectInvalidEvidence",
+        "internal/architecture/TestMonitoringRejectsDefinitionDrift",
+        "internal/architecture/TestMonitoringRejectsMalformedFrames",
+        "internal/architecture/TestObservationFragmentsMigration024IsAdditiveAndRetainsEvidence",
+        "internal/architecture/TestPrivateCIContract",
+        "internal/architecture/TestPrivateCIRequiredRejectsIncompleteOrUnsuccessfulResults",
+        "internal/architecture/TestProductionPackageBoundaries",
+        "internal/architecture/TestProjectionCommandReceiptMigration021RemainsImmutable",
+        "internal/architecture/TestRuntimeControlFenceSnapshotMigrationOwnsImmutableFenceProof",
+        "internal/architecture/TestRuntimeControlResumeMigrationOwnsDurableAuthorityAndJournal",
+        "internal/architecture/TestRuntimeFirstHeartbeatWatchdogMigrationOwnsImmutableAnchorAndCrashProof",
+        "internal/architecture/TestRuntimeRecoveryAcceptanceReportsOnlyExecutedEvidence",
+        "internal/architecture/TestTrustedNetworkComposeKeepsOneNamedEgressBridgeAndInternalInfrastructure",
+        "internal/architecture/TestTrustedNetworkComposeRendersDefaultAndExplicitIsolatedWorkerNetwork",
+        "internal/architecture/TestWorkerDockerNetworkCannotBeSelectedByClientAPIOrTaskSpec",
+        "internal/architecture/TestWorkerImageProvenanceMatchesBuildAndDependencyLocks",
+        "internal/architecture/TestWorkerTurnSettlementMigrationOwnsDurablePhaseLeaseAndUpgradeBackfill",
+        "internal/architecture/TestWorkerTurnSettlementSourceUnionMigrationOwnsRuntimeAndDeadlineSources",
+        "internal/localproduct/TestActiveTurnSupervisorsAllowsSameTurnAfterCompletedCleanup",
+        "internal/localproduct/TestActiveTurnSupervisorsRejectsStartsAfterStopAndWait",
+        "internal/localproduct/TestAgentErrorTerminalClassificationIsBusinessTerminalNotBackendFailure",
+        "internal/localproduct/TestApplyRuntimeRecoverySignalBeforeOpenDoesNotOpenAfterApplyFailure",
+        "internal/localproduct/TestApplyRuntimeRecoverySignalBeforeOpenOrdersDurableInboxFirst",
+        "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithDurableTerminalWitness",
+        "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithoutTerminalEvent",
+        "internal/localproduct/TestApplyRuntimeSettlementSourceRejectsPartialBackendDeadlineWitness",
+        "internal/localproduct/TestAssistantRunnerOptionalExporterCannotPreventConstruction",
+        "internal/localproduct/TestAwaitStartupRuntimeRestoreCancelsOnDeadlineWorkerFailure",
+        "internal/localproduct/TestAwaitStartupRuntimeRestoreRejectsUnexpectedDeadlineWorkerStop",
+        "internal/localproduct/TestBackendDeadlineSourceWaiterHandoffStartsOnlyAtDurableForce",
+        "internal/localproduct/TestBackendShutdownLeavesRestoredActiveTurnDurable",
+        "internal/localproduct/TestCleanupDurablyFencedRuntimeRemovesExactPreparedRuntimeWithoutSecondFence",
+        "internal/localproduct/TestCleanupDurablyFencedRuntimeReopensStorageAfterBackendRestart",
+        "internal/localproduct/TestCleanupDurablyFencedRuntimeRequiresExactPreparedIdentity",
+        "internal/localproduct/TestConfigRejectsNetworkProfileOutsideCurrentDeployment",
+        "internal/localproduct/TestConfigValidateRejectsAssistantModelOutsideDeploymentScopeBeforeProviderValidation",
+        "internal/localproduct/TestConfigValidateRejectsStaleOrTamperedKimiProfileBeforeProviderStartup",
+        "internal/localproduct/TestCopyWorkspaceSourceRejectsSymlinksAndProducesStableDigest",
+        "internal/localproduct/TestFinishInterruptCommandsBindsTerminalReasonAsText",
+        "internal/localproduct/TestLoadConfigAcceptsExactExecutionAndLangfuseInputs",
+        "internal/localproduct/TestLoadConfigCanDisableWorkerDisplayProjection",
+        "internal/localproduct/TestLoadConfigDisablesPartialOptionalAssistantLangfuseInputs",
+        "internal/localproduct/TestLoadConfigRejectsNonCanonicalAssistantProxyInputs",
+        "internal/localproduct/TestLoadConfigRejectsRuntimeRecoveryWithoutWorkerDelivery",
+        "internal/localproduct/TestLoadConfigRequiresAssistantProxyOnlyWhenAssistantIsEnabled",
+        "internal/localproduct/TestLoadConfigRequiresOnlyPersistenceWhenExecutionIsDisabled",
+        "internal/localproduct/TestLoadConfigRequiresServerOwnedRuntimeInputsWhenExecutionIsEnabled",
+        "internal/localproduct/TestLoadConfigResolvesTrustedFullNetworkFromDeploymentProfile",
+        "internal/localproduct/TestLocalScheduledDeadlineRequiresDurableSourceClaimHandler",
+        "internal/localproduct/TestObservabilityConstructsOnlyFragmentWorkers",
+        "internal/localproduct/TestObservabilityDisabledOrPartialIsNonfatal",
+        "internal/localproduct/TestObservationRegistryCleanupDiscardAfterRestart",
+        "internal/localproduct/TestObservationRegistryCleanupRejectsIncompleteOrMismatchedProof",
+        "internal/localproduct/TestObservationRegistryCleanupRejectsRedirectedRuntimeParent",
+        "internal/localproduct/TestObservationRegistryCleanupScannerBarriers",
+        "internal/localproduct/TestObservationRegistryCleanupUnconfirmedFencePreservesRegistryAndRetry",
+        "internal/localproduct/TestOptionalDiagnosticConfigurationNeverRejectsCore",
+        "internal/localproduct/TestOptionalObservabilityConfigurationNeverRejectsCore",
+        "internal/localproduct/TestProcessWorkerControlEffectEventCarriesExplicitDisposition",
+        "internal/localproduct/TestProcessWorkerControlEventAppliesOnlyAfterBusinessSuccess",
+        "internal/localproduct/TestProcessWorkerControlEventDoesNotHideDeliveryFailure",
+        "internal/localproduct/TestReadBoundedStartupTraceRecordRejectsOversizeRecord",
+        "internal/localproduct/TestResidentTargetsForTerminalIncludesAgentFailure",
+        "internal/localproduct/TestRestoreLiveRuntimeAfterTransientInputsAreRemoved",
+        "internal/localproduct/TestRestoreOneUnownedRuntimeStartsBlockingAdoptionOnce",
+        "internal/localproduct/TestRestoreStartupRuntimeKeepsRunningContainerAndOpensNoIncident",
+        "internal/localproduct/TestRestoreStartupRuntimeLegacyMissingCredentialOpensRecovery",
+        "internal/localproduct/TestRestoreStartupRuntimeMissingContainerImmediatelyOpensOneIncident",
+        "internal/localproduct/TestRestoreStartupRuntimeMissingContainerLetsSettlementAuthorityWinBeforeFence",
+        "internal/localproduct/TestRestoreStartupRuntimeResumeCompleteWinnerDoesNotOpenFailure",
+        "internal/localproduct/TestRestoreStartupRuntimeSettlementOwnedMissingContainerDefersWithoutOrdinaryRecovery",
+        "internal/localproduct/TestRestoreStartupRuntimeSettlementOwnedReconnectDefersImmediatelyWithoutOrdinaryRecovery",
+        "internal/localproduct/TestRestoreStartupRuntimeTimeoutClaimsRecoveryBeforeFencing",
+        "internal/localproduct/TestRestoredTurnTraceOffsetFailsClosedForAmbiguousOrInvalidAuthority",
+        "internal/localproduct/TestRestoredTurnTraceOffsetFailsClosedWithoutMatchingPrompt",
+        "internal/localproduct/TestRestoredTurnTraceOffsetIncludesPreRestartAndPostRestartFrames",
+        "internal/localproduct/TestRunOnceContinuesWhileUnownedRuntimeAdoptionBlocks",
+        "internal/localproduct/TestRunOnceIsFrozenUntilStartupRestoreCompletes",
+        "internal/localproduct/TestRuntimeControlCompositionUsesPostgresJournal",
+        "internal/localproduct/TestRuntimeEnvironmentFailedPrepareMaterializationBoundary",
+        "internal/localproduct/TestRuntimeEnvironmentReplacementBindRetryClassification",
+        "internal/localproduct/TestRuntimeEnvironmentReplacementRegistrationFailureRetainsOriginalScopeForRetry",
+        "internal/localproduct/TestRuntimeHistoricalObservationMissingOriginalDependenciesIsNoContent",
+        "internal/localproduct/TestRuntimeModelObservationMissingOriginalDependenciesIsNoContent",
+        "internal/localproduct/TestRuntimeObservationBasisCheckpointDigestExcludesSidecar",
+        "internal/localproduct/TestRuntimeObservationBasisDatabaseFailureIsCoreError",
+        "internal/localproduct/TestRuntimeObservationBasisFirstFreezeResponseLossSkipsRegistryAndPreparation",
+        "internal/localproduct/TestRuntimeObservationBasisForcedStopMissingOriginalRegistryCannotBorrowGeneration",
+        "internal/localproduct/TestRuntimeObservationBasisZeroModelsAndSecretFiltering",
+        "internal/localproduct/TestRuntimeObservationCaptureDoesNotHideDatabaseFailure",
+        "internal/localproduct/TestRuntimeObservationCaptureScansPureProspectiveReport",
+        "internal/localproduct/TestRuntimeObservationSnapshotReplaysExactBytesWithoutLiveState",
+        "internal/localproduct/TestRuntimeObservationSourceConflictsAndStaleIdentityBecomeMarkers",
+        "internal/localproduct/TestRuntimeObservationSourceDeduplicatesAndCutsJournal",
+        "internal/localproduct/TestRuntimeObservationSourceScansReportAndFinalMarker",
+        "internal/localproduct/TestRuntimeScannerRetainsAvailableConfigurationTokens",
+        "internal/localproduct/TestRuntimeSettlementCheckpointPreservesBackendDeadlineSourceProof",
+        "internal/localproduct/TestRuntimeSettlementPatchSnapshotIsDurableAndContentAddressed",
+        "internal/localproduct/TestRuntimeSettlementRecoveryRestoresBackendDeadlineAuthority",
+        "internal/localproduct/TestRuntimeSettlementTerminalClassificationUsesDurableAcceptanceTime",
+        "internal/localproduct/TestRuntimeSettlementWaitsForDeliveryOnlyBeforeAtomicSourceApply",
+        "internal/localproduct/TestRuntimeTerminalAuthorityDeadlineWinsOverACPEOFAtBoundary",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotPersistAfterLeaseHeartbeatFails",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotPersistWhenPostEffectRenewalFails",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotRepeatCommittedEffectAfterResponseLoss",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorRejectsIncompleteEffectProofBeforeAdvance",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorRenewsLeaseWhileEffectIsRunning",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorResumesFromEveryDurablePhase",
+        "internal/localproduct/TestSettlementStartupBarrierAllowsOnlyExactInterruptedRuntimeReconnect",
+        "internal/localproduct/TestSettlementStartupBarrierQuarantinesForeignTerminalOwnerWithoutBlockingStartup",
+        "internal/localproduct/TestSettlementStartupBarrierReconcilesImmediatelyRunnableWorkBeforeRestore",
+        "internal/localproduct/TestStartupPendingTerminalIsSettledBeforeFreshHeartbeatBarrier",
+        "internal/localproduct/TestStartupRecoverySignalStopsReconnectBeforeFreshHeartbeat",
+        "internal/localproduct/TestStartupSafetyPollerDrainsDeadlinesAndFirstHeartbeatWatchdogs",
+        "internal/localproduct/TestStartupSettlementDrainsPredecessorBeforeExactTerminalDelivery",
+        "internal/localproduct/TestSuccessfulUnownedRuntimeAdoptionStartsOneTurnSupervisor",
+        "internal/localproduct/TestTelemetryConfigurationIsOptional",
+        "internal/localproduct/TestTelemetryConstructorAndScrapePerformNoIO",
+        "internal/localproduct/TestTelemetryLogFailureLeavesMetricsListenerAvailable",
+        "internal/localproduct/TestTelemetrySenderEndpointRejectsInvalidPortsAndCredentials",
+        "internal/localproduct/TestTelemetrySenderUsesSafeLifecycleEvents",
+        "internal/localproduct/TestTelemetryWorkerCollectorCapacityIsBounded",
+        "internal/localproduct/TestTelemetryWorkerCollectorFailedAndStaleAuthorityCloseReaders",
+        "internal/localproduct/TestTelemetryWorkerCollectorReplacementClosesRealStream",
+        "internal/localproduct/TestTelemetryWorkerLabelsIgnoreStaleRunButRejectImmutableMismatch",
+        "internal/localproduct/TestTelemetryWorkerOutputCancellationClosesBlockedRead",
+        "internal/localproduct/TestTelemetryWorkerOutputRateWaitIsBoundedAndCancellable",
+        "internal/localproduct/TestTelemetryWorkerOutputRejectsMalformedFrames",
+        "internal/localproduct/TestTelemetryWorkerOutputSuppressesFragmentedSensitiveBytes",
+        "internal/localproduct/TestTelemetryWorkerShutdownBoundDisclosesUncooperativeReader",
+        "internal/localproduct/TestTelemetryWorkerTTYAggregatesWhileReadIsBlocked",
+        "internal/localproduct/TestTerminalAndIgnoredEffectDeliveryDeclareReconciliationDisposition",
+        "internal/localproduct/TestUnownedRuntimeAdoptionContextIsCancelledWithRunner",
+        "internal/localproduct/TestWaitWorkerEventFailsClosedWithoutApplyingUnexpectedBusinessEvent",
+        "test/acceptance/observability/TestCaptureInspectTemplateExcludesSecretBearingFields",
+        "test/acceptance/observability/TestCaptureTemplateSupportsContainerWithoutHealthcheck",
+        "test/acceptance/observability/TestClaimRejectsDefaultsAndExistingOutput",
+        "test/acceptance/observability/TestClaimReportRoutingPreservesNewOutputAndRejectsForeignEvidence",
+        "test/acceptance/observability/TestColdSmokeOutsideCaptureWindowRejected",
+        "test/acceptance/observability/TestCollectIntervalsCombinesSaveFailureWithFinishCause",
+        "test/acceptance/observability/TestCollectIntervalsJoinsAndPersistsFailedDeadlineCollection",
+        "test/acceptance/observability/TestCollectorRejectsEOFCancellationAndClosingProbeFailure",
+        "test/acceptance/observability/TestCompletedCoverageGateRejectsGapBeforeCleanup",
+        "test/acceptance/observability/TestCompletedReadersRejectLateFailureOrWrongIdentity",
+        "test/acceptance/observability/TestCorrelationClaimRequiresFreshMonitoringValues",
+        "test/acceptance/observability/TestCorrelationLangfuseReadAPI",
+        "test/acceptance/observability/TestCorrelationLokiIndexedSeriesFailClosed",
+        "test/acceptance/observability/TestCorrelationLokiReadAPI",
+        "test/acceptance/observability/TestCorrelationLokiRejectsEmptyPositive",
+        "test/acceptance/observability/TestCorrelationLokiRequiresExactDatabaseTerminalTimes",
+        "test/acceptance/observability/TestCorrelationPrometheusReadAPI",
+        "test/acceptance/observability/TestCorrelationRejectsRedirect",
+        "test/acceptance/observability/TestCorrelationSnapshotNeedsSourceProofsNotColdOutage",
+        "test/acceptance/observability/TestCorrelationTraceReadAPI",
+        "test/acceptance/observability/TestDerivedImageContextOnlyContainsFixtureInputs",
+        "test/acceptance/observability/TestEventEOFCannotBecomeRequestedStop",
+        "test/acceptance/observability/TestEveryPhysicalScenarioRejectsInvalidLatency",
+        "test/acceptance/observability/TestFaultRecoveryBindsOriginalRequestAndClass",
+        "test/acceptance/observability/TestFaultRequiresIndependentHealthyCoverage",
+        "test/acceptance/observability/TestFinalEvidenceCoverageValidatedBeforeInfrastructureCleanup",
+        "test/acceptance/observability/TestFrozenLegacyMarkerRemainsValidImmutableEvidence",
+        "test/acceptance/observability/TestFullReportRejectsLabelsWithoutPhysicalEvidence",
+        "test/acceptance/observability/TestFullReportRejectsMissingPairsCoverageAndSlowSamples",
+        "test/acceptance/observability/TestFullStackColdCollectorRequiresNinthActualProbe",
+        "test/acceptance/observability/TestFullStackColdRejectsBrokenClaimEvidence",
+        "test/acceptance/observability/TestFullStackColdRejectsCoverageSplicedAcrossSubscriptions",
+        "test/acceptance/observability/TestFullStackColdRejectsLegacyFiveServiceCapture",
+        "test/acceptance/observability/TestFullStackColdVerifierAcceptsOnlySeparateProof",
+        "test/acceptance/observability/TestFullStackMatrixEventScopeKeepsOnlyOwnedProjectAndExactWorker",
+        "test/acceptance/observability/TestFullStackMatrixMeasurementRejectsMissingNinthProbe",
+        "test/acceptance/observability/TestFullStackMatrixRejectsDispatchBeforeSecondTurnCreation",
+        "test/acceptance/observability/TestFullStackMatrixRejectsMissingWorkerSubscriptionCoverage",
+        "test/acceptance/observability/TestFullStackMatrixRejectsUnrelatedWorkerLifecycleEvent",
+        "test/acceptance/observability/TestFullStackMatrixVerifierAcceptsCompletePairedEvidence",
+        "test/acceptance/observability/TestFullStackMatrixVerifierRejectsBrokenEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyCLI",
+        "test/acceptance/observability/TestFullStackReadOnlyClaimPrecheck",
+        "test/acceptance/observability/TestFullStackReadOnlyColdPreservesEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyColdRejectsBrokenEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyExistingPassAndRepeat",
+        "test/acceptance/observability/TestFullStackReadOnlyMatrixPreservesEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyMatrixRejectsBrokenEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyOutputFailure",
+        "test/acceptance/observability/TestFullStackReadOnlyRejectsRouteBeforeReading",
+        "test/acceptance/observability/TestHealthySnapshotsPlacedInOutageSlotCannotPassPairCoverage",
+        "test/acceptance/observability/TestIntervalsCannotBridgeRestartEventsOrCollectorEOF",
+        "test/acceptance/observability/TestIntervalsRequireProbeBoundAndCurrentStartIdentity",
+        "test/acceptance/observability/TestMeasuredLatencyRequiresOriginalTimestampAndAck",
+        "test/acceptance/observability/TestMeasurementCannotRestoreStateBeforeRecordedClosingProbe",
+        "test/acceptance/observability/TestMeasurementKeepsAttemptSeparateFromAcceptedHandshake",
+        "test/acceptance/observability/TestMeasurementPreservesFailedHandshakeCommandWithoutOutput",
+        "test/acceptance/observability/TestMeasurementPreservesUnmatchedHandshakeAttempt",
+        "test/acceptance/observability/TestMeasurementWaitsForRecordedInitialProbe",
+        "test/acceptance/observability/TestPairP95StillRejectsMoreThanOneSecondIncrease",
+        "test/acceptance/observability/TestPostgresOverlayPreservesCoreNetworksAndLoopbackAccess",
+        "test/acceptance/observability/TestStrictPhysicalEvidenceRejectsBrokenRelationships",
+        "test/acceptance/observability/TestSubscriptionReadyRequiresCurrentRecordedExactExec"
+      ]
+    },
+    {
+      "tags": "integration",
+      "tests": [
+        "internal/architecture/TestAssistantLiteLLMFailClosedValidationRejectsWrongWiringAndDuplicatePolicy",
+        "internal/architecture/TestAssistantLiteLLMFailsClosedInsteadOfDroppingStructuredOutput",
+        "internal/architecture/TestAssistantLiteLLMImagePinsTheProxyAndKeepsProviderCredentialFileScoped",
+        "internal/architecture/TestInitialPersistenceMigrationEnforcesCoreCardinality",
+        "internal/architecture/TestInitialPersistenceMigrationOwnsRequiredTables",
+        "internal/architecture/TestIntegrationEventV2Migration022LocksThenPreflightsBeforeDDL",
+        "internal/architecture/TestLocalComposeKeepsM1TopologyAndDockerOwnership",
+        "internal/architecture/TestLocalMigrationRunnerTracksFreshAndLegacySchemas",
+        "internal/architecture/TestLocalObservabilityBootstrapPreservesPassword",
+        "internal/architecture/TestLocalObservabilityContracts",
+        "internal/architecture/TestLocalObservabilityExploreEnvelopeContract",
+        "internal/architecture/TestM2RealProviderAcceptancePreservesExistingPublishedSummary",
+        "internal/architecture/TestM2RealProviderAssistantRunsFailClosedWithoutAutomaticRetry",
+        "internal/architecture/TestM2RealProviderCredentialScanAcceptsCleanEvidence",
+        "internal/architecture/TestM2RealProviderCredentialScanDetectsLiteralCredentialInEvidence",
+        "internal/architecture/TestM2RealProviderCredentialScanMatcherArgvContainsOnlyPathsAndFlags",
+        "internal/architecture/TestM2RealProviderCredentialScanNeverExpandsCredentialIntoMatcherArgv",
+        "internal/architecture/TestM2RealProviderCredentialScanRejectsMissingOrEmptyFileBeforePublication",
+        "internal/architecture/TestM2RealProviderExpectedAssistantProfileRefsTrackProductionRegistry",
+        "internal/architecture/TestM2RealProviderFinalValidationPrecedesPublication",
+        "internal/architecture/TestM2RealProviderOutputClaimIsExclusive",
+        "internal/architecture/TestM2RealProviderPrivacyGateScansEveryBrowserResponseJSON",
+        "internal/architecture/TestM2RealProviderPublicationDoesNotReplaceLateDestination",
+        "internal/architecture/TestM2RealProviderPublicationDoesNotTreatLateDirectoryAsDestination",
+        "internal/architecture/TestM2RealProviderSummaryBindsEveryAssistantRunToExpectedProfile",
+        "internal/architecture/TestM2RealProviderSummaryCarriesDirectProjectionEvidence",
+        "internal/architecture/TestM2RealProviderSummaryPublishesOnlyAfterFinalContractValidation",
+        "internal/architecture/TestM2RealProviderValidClaimPublishesOnceAndCleansOwnedFiles",
+        "internal/architecture/TestM2RealProviderWaitsOnlyForMissingArtifactDetailProjection",
+        "internal/architecture/TestManualAcceptanceCommandsUseTheCanonicalProfileSelector",
+        "internal/architecture/TestMonitoringAcceptsProvenEvidence",
+        "internal/architecture/TestMonitoringHTTPRejectsErrorAndOversize",
+        "internal/architecture/TestMonitoringNoDataEvaluationHealth",
+        "internal/architecture/TestMonitoringRejectInvalidEvidence",
+        "internal/architecture/TestMonitoringRejectsDefinitionDrift",
+        "internal/architecture/TestMonitoringRejectsMalformedFrames",
+        "internal/architecture/TestObservationFragmentsMigration024IsAdditiveAndRetainsEvidence",
+        "internal/architecture/TestPrivateCIContract",
+        "internal/architecture/TestPrivateCIRequiredRejectsIncompleteOrUnsuccessfulResults",
+        "internal/architecture/TestProductionPackageBoundaries",
+        "internal/architecture/TestProjectionCommandReceiptMigration021RemainsImmutable",
+        "internal/architecture/TestRuntimeControlFenceSnapshotMigrationOwnsImmutableFenceProof",
+        "internal/architecture/TestRuntimeControlResumeMigrationOwnsDurableAuthorityAndJournal",
+        "internal/architecture/TestRuntimeFirstHeartbeatWatchdogMigrationOwnsImmutableAnchorAndCrashProof",
+        "internal/architecture/TestRuntimeRecoveryAcceptanceReportsOnlyExecutedEvidence",
+        "internal/architecture/TestTrustedNetworkComposeKeepsOneNamedEgressBridgeAndInternalInfrastructure",
+        "internal/architecture/TestTrustedNetworkComposeRendersDefaultAndExplicitIsolatedWorkerNetwork",
+        "internal/architecture/TestWorkerDockerNetworkCannotBeSelectedByClientAPIOrTaskSpec",
+        "internal/architecture/TestWorkerImageProvenanceMatchesBuildAndDependencyLocks",
+        "internal/architecture/TestWorkerTurnSettlementMigrationOwnsDurablePhaseLeaseAndUpgradeBackfill",
+        "internal/architecture/TestWorkerTurnSettlementSourceUnionMigrationOwnsRuntimeAndDeadlineSources",
+        "internal/localproduct/TestActiveTurnSupervisorsAllowsSameTurnAfterCompletedCleanup",
+        "internal/localproduct/TestActiveTurnSupervisorsRejectsStartsAfterStopAndWait",
+        "internal/localproduct/TestAgentErrorTerminalClassificationIsBusinessTerminalNotBackendFailure",
+        "internal/localproduct/TestApplyRuntimeRecoverySignalBeforeOpenDoesNotOpenAfterApplyFailure",
+        "internal/localproduct/TestApplyRuntimeRecoverySignalBeforeOpenOrdersDurableInboxFirst",
+        "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithDurableTerminalWitness",
+        "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithoutTerminalEvent",
+        "internal/localproduct/TestApplyRuntimeSettlementSourceRejectsPartialBackendDeadlineWitness",
+        "internal/localproduct/TestAssistantBackendRestartMakesUnknownModelEffectVisibleWithoutRetry",
+        "internal/localproduct/TestAssistantClarificationConfirmsTaskAndDispatchesFakeWorker",
+        "internal/localproduct/TestAssistantRunnerOptionalExporterCannotPreventConstruction",
+        "internal/localproduct/TestAwaitStartupRuntimeRestoreCancelsOnDeadlineWorkerFailure",
+        "internal/localproduct/TestAwaitStartupRuntimeRestoreRejectsUnexpectedDeadlineWorkerStop",
+        "internal/localproduct/TestBackendDeadlineClaimHandlerPersistsSourceWithoutLiveRuntimeAndLeavesDomainUnchanged",
+        "internal/localproduct/TestBackendDeadlineClaimHandlerReplaysExactCommandWithoutRevisionAdvance",
+        "internal/localproduct/TestBackendDeadlineClaimHandlerRetriesWhenCurrentRuntimeGraphIsMissing",
+        "internal/localproduct/TestBackendDeadlineClaimHandlerTreatsTerminalTurnAsSafeNoOp",
+        "internal/localproduct/TestBackendDeadlineClaimTransactionRejectsReplacedCurrentRuntime",
+        "internal/localproduct/TestBackendDeadlineSourceWaiterHandoffStartsOnlyAtDurableForce",
+        "internal/localproduct/TestBackendDeadlineSourceWorkerQueuesInterruptThenFencesWithoutLiveRuntime",
+        "internal/localproduct/TestBackendShutdownLeavesRestoredActiveTurnDurable",
+        "internal/localproduct/TestBindInitialAgentSessionUsesPostRuntimeReadyRevisions",
+        "internal/localproduct/TestBlockedDurableProjectionDoesNotDelayTerminalSettlementOrNextTurn",
+        "internal/localproduct/TestCleanupDurablyFencedRuntimeRemovesExactPreparedRuntimeWithoutSecondFence",
+        "internal/localproduct/TestCleanupDurablyFencedRuntimeReopensStorageAfterBackendRestart",
+        "internal/localproduct/TestCleanupDurablyFencedRuntimeRequiresExactPreparedIdentity",
+        "internal/localproduct/TestConfigRejectsNetworkProfileOutsideCurrentDeployment",
+        "internal/localproduct/TestConfigValidateRejectsAssistantModelOutsideDeploymentScopeBeforeProviderValidation",
+        "internal/localproduct/TestConfigValidateRejectsStaleOrTamperedKimiProfileBeforeProviderStartup",
+        "internal/localproduct/TestCopyWorkspaceSourceRejectsSymlinksAndProducesStableDigest",
+        "internal/localproduct/TestFinishInterruptCommandsBindsTerminalReasonAsText",
+        "internal/localproduct/TestFragmentCutoverActivationPrecedesHandlerAndDispatch",
+        "internal/localproduct/TestImmutableModelSupplement",
+        "internal/localproduct/TestImmutableModelSupplementBlockedProjector",
+        "internal/localproduct/TestImmutableModelSupplementIgnoredStaleReplay",
+        "internal/localproduct/TestImmutableModelSupplementPermanentScanFailureAllowsHeartbeat",
+        "internal/localproduct/TestImmutableModelSupplementPostgresFailureRollsBack",
+        "internal/localproduct/TestImmutableModelSupplementPublicationAssertionFaultSensitivity",
+        "internal/localproduct/TestImmutableModelSupplementRecovery",
+        "internal/localproduct/TestLoadConfigAcceptsExactExecutionAndLangfuseInputs",
+        "internal/localproduct/TestLoadConfigCanDisableWorkerDisplayProjection",
+        "internal/localproduct/TestLoadConfigDisablesPartialOptionalAssistantLangfuseInputs",
+        "internal/localproduct/TestLoadConfigRejectsNonCanonicalAssistantProxyInputs",
+        "internal/localproduct/TestLoadConfigRejectsRuntimeRecoveryWithoutWorkerDelivery",
+        "internal/localproduct/TestLoadConfigRequiresAssistantProxyOnlyWhenAssistantIsEnabled",
+        "internal/localproduct/TestLoadConfigRequiresOnlyPersistenceWhenExecutionIsDisabled",
+        "internal/localproduct/TestLoadConfigRequiresServerOwnedRuntimeInputsWhenExecutionIsEnabled",
+        "internal/localproduct/TestLoadConfigResolvesTrustedFullNetworkFromDeploymentProfile",
+        "internal/localproduct/TestLoadStartupRuntimeCandidatesRestoresCurrentTurnFromOriginalBootstrapRun",
+        "internal/localproduct/TestLocalScheduledDeadlineRequiresDurableSourceClaimHandler",
+        "internal/localproduct/TestLocalScheduledDeadlineRoutesToDurableSourceWithoutLiveRuntime",
+        "internal/localproduct/TestObservabilityConstructsOnlyFragmentWorkers",
+        "internal/localproduct/TestObservabilityDisabledOrPartialIsNonfatal",
+        "internal/localproduct/TestObservationFixtureRuntimeHeartbeatsRemainIndependentAndMonotonic",
+        "internal/localproduct/TestObservationRegistryCleanupDiscardAfterRestart",
+        "internal/localproduct/TestObservationRegistryCleanupInitialStartFailureHasDurableOwner",
+        "internal/localproduct/TestObservationRegistryCleanupLostDiscoveryRespectsExistingOwners",
+        "internal/localproduct/TestObservationRegistryCleanupRealJournalTerminalAndRestart",
+        "internal/localproduct/TestObservationRegistryCleanupRecoveryFailureHasDurableOwner",
+        "internal/localproduct/TestObservationRegistryCleanupRejectsIncompleteOrMismatchedProof",
+        "internal/localproduct/TestObservationRegistryCleanupRejectsRedirectedRuntimeParent",
+        "internal/localproduct/TestObservationRegistryCleanupScannerBarriers",
+        "internal/localproduct/TestObservationRegistryCleanupUnconfirmedFencePreservesRegistryAndRetry",
+        "internal/localproduct/TestOptionalDiagnosticConfigurationNeverRejectsCore",
+        "internal/localproduct/TestOptionalObservabilityConfigurationNeverRejectsCore",
+        "internal/localproduct/TestPendingSettlementScannerIncludesBackendDeadlineTerminalWitness",
+        "internal/localproduct/TestProcessWorkerControlEffectEventCarriesExplicitDisposition",
+        "internal/localproduct/TestProcessWorkerControlEventAppliesOnlyAfterBusinessSuccess",
+        "internal/localproduct/TestProcessWorkerControlEventDoesNotHideDeliveryFailure",
+        "internal/localproduct/TestProductCompositionProcessesAssistantRunThroughLiteLLMAndFrontier",
+        "internal/localproduct/TestProductCompositionServesGatewayAndLiveFrontierViews",
+        "internal/localproduct/TestReadBoundedStartupTraceRecordRejectsOversizeRecord",
+        "internal/localproduct/TestRequireSchemaRequiresDurableWorkerTurnSettlement",
+        "internal/localproduct/TestResidentTargetsForTerminalIncludesAgentFailure",
+        "internal/localproduct/TestRestoreLiveRuntimeAfterTransientInputsAreRemoved",
+        "internal/localproduct/TestRestoreOneUnownedRuntimeStartsBlockingAdoptionOnce",
+        "internal/localproduct/TestRestoreStartupRuntimeKeepsRunningContainerAndOpensNoIncident",
+        "internal/localproduct/TestRestoreStartupRuntimeLegacyMissingCredentialOpensRecovery",
+        "internal/localproduct/TestRestoreStartupRuntimeMissingContainerImmediatelyOpensOneIncident",
+        "internal/localproduct/TestRestoreStartupRuntimeMissingContainerLetsSettlementAuthorityWinBeforeFence",
+        "internal/localproduct/TestRestoreStartupRuntimeResumeCompleteWinnerDoesNotOpenFailure",
+        "internal/localproduct/TestRestoreStartupRuntimeSettlementOwnedMissingContainerDefersWithoutOrdinaryRecovery",
+        "internal/localproduct/TestRestoreStartupRuntimeSettlementOwnedReconnectDefersImmediatelyWithoutOrdinaryRecovery",
+        "internal/localproduct/TestRestoreStartupRuntimeTimeoutClaimsRecoveryBeforeFencing",
+        "internal/localproduct/TestRestoredTurnTraceOffsetFailsClosedForAmbiguousOrInvalidAuthority",
+        "internal/localproduct/TestRestoredTurnTraceOffsetFailsClosedWithoutMatchingPrompt",
+        "internal/localproduct/TestRestoredTurnTraceOffsetIncludesPreRestartAndPostRestartFrames",
+        "internal/localproduct/TestRunOnceContinuesWhileUnownedRuntimeAdoptionBlocks",
+        "internal/localproduct/TestRunOnceIsFrozenUntilStartupRestoreCompletes",
+        "internal/localproduct/TestRuntimeControlCompositionUsesPostgresJournal",
+        "internal/localproduct/TestRuntimeEnvironmentFailedPrepareMaterializationBoundary",
+        "internal/localproduct/TestRuntimeEnvironmentReplacementBindRetryClassification",
+        "internal/localproduct/TestRuntimeEnvironmentReplacementRegistrationFailureRetainsOriginalScopeForRetry",
+        "internal/localproduct/TestRuntimeHistoricalObservationMissingOriginalDependenciesIsNoContent",
+        "internal/localproduct/TestRuntimeModelObservationMissingOriginalDependenciesIsNoContent",
+        "internal/localproduct/TestRuntimeObservationBasisCheckpointDigestExcludesSidecar",
+        "internal/localproduct/TestRuntimeObservationBasisDatabaseFailureIsCoreError",
+        "internal/localproduct/TestRuntimeObservationBasisFirstFreezeResponseLossSkipsRegistryAndPreparation",
+        "internal/localproduct/TestRuntimeObservationBasisForcedStopMissingOriginalRegistryCannotBorrowGeneration",
+        "internal/localproduct/TestRuntimeObservationBasisZeroModelsAndSecretFiltering",
+        "internal/localproduct/TestRuntimeObservationCaptureDoesNotHideDatabaseFailure",
+        "internal/localproduct/TestRuntimeObservationCaptureScansPureProspectiveReport",
+        "internal/localproduct/TestRuntimeObservationSnapshotReplaysExactBytesWithoutLiveState",
+        "internal/localproduct/TestRuntimeObservationSourceConflictsAndStaleIdentityBecomeMarkers",
+        "internal/localproduct/TestRuntimeObservationSourceDeduplicatesAndCutsJournal",
+        "internal/localproduct/TestRuntimeObservationSourceScansReportAndFinalMarker",
+        "internal/localproduct/TestRuntimeRunnerAllocatesIndependentTaskWhileExitedRuntimeHasNoTerminal",
+        "internal/localproduct/TestRuntimeScannerRetainsAvailableConfigurationTokens",
+        "internal/localproduct/TestRuntimeSettlementCheckpointPreservesBackendDeadlineSourceProof",
+        "internal/localproduct/TestRuntimeSettlementDomainPlanUsesPostTerminalGraphRevisions",
+        "internal/localproduct/TestRuntimeSettlementPatchSnapshotIsDurableAndContentAddressed",
+        "internal/localproduct/TestRuntimeSettlementRecoveryRestoresBackendDeadlineAuthority",
+        "internal/localproduct/TestRuntimeSettlementTerminalClassificationUsesDurableAcceptanceTime",
+        "internal/localproduct/TestRuntimeSettlementWaitsForDeliveryOnlyBeforeAtomicSourceApply",
+        "internal/localproduct/TestRuntimeTerminalAuthorityDeadlineWinsOverACPEOFAtBoundary",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotPersistAfterLeaseHeartbeatFails",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotPersistWhenPostEffectRenewalFails",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorDoesNotRepeatCommittedEffectAfterResponseLoss",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorRejectsIncompleteEffectProofBeforeAdvance",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorRenewsLeaseWhileEffectIsRunning",
+        "internal/localproduct/TestRuntimeTurnSettlementCoordinatorResumesFromEveryDurablePhase",
+        "internal/localproduct/TestSettlementContinuationRuntimeProgress",
+        "internal/localproduct/TestSettlementProgressLeaseReclaimSerializesEffects",
+        "internal/localproduct/TestSettlementPublicationRuntimeProgress",
+        "internal/localproduct/TestSettlementStartupBarrierAllowsOnlyExactInterruptedRuntimeReconnect",
+        "internal/localproduct/TestSettlementStartupBarrierQuarantinesForeignTerminalOwnerWithoutBlockingStartup",
+        "internal/localproduct/TestSettlementStartupBarrierReconcilesImmediatelyRunnableWorkBeforeRestore",
+        "internal/localproduct/TestStartupDeadlineDrainCancellationDoesNotReportSuccess",
+        "internal/localproduct/TestStartupDeadlineDrainClaimsDueAgentTurnBeforeRuntimeRestore",
+        "internal/localproduct/TestStartupDeadlineDrainWaitsForForeignLeaseBeforeRuntimeRestore",
+        "internal/localproduct/TestStartupDeadlineWorkerClaimsDeadlineThatExpiresDuringRuntimeRestore",
+        "internal/localproduct/TestStartupPendingTerminalIsSettledBeforeFreshHeartbeatBarrier",
+        "internal/localproduct/TestStartupRecoverySignalStopsReconnectBeforeFreshHeartbeat",
+        "internal/localproduct/TestStartupSafetyDrainOpensOverdueFirstHeartbeatRecoveryBeforeRestore",
+        "internal/localproduct/TestStartupSafetyPollerDrainsDeadlinesAndFirstHeartbeatWatchdogs",
+        "internal/localproduct/TestStartupSettlementDrainsPredecessorBeforeExactTerminalDelivery",
+        "internal/localproduct/TestSuccessfulUnownedRuntimeAdoptionStartsOneTurnSupervisor",
+        "internal/localproduct/TestTelemetryBlockedSourceKeepsSnapshotAndScrapeIndependent",
+        "internal/localproduct/TestTelemetryConfigurationIsOptional",
+        "internal/localproduct/TestTelemetryConstructorAndScrapePerformNoIO",
+        "internal/localproduct/TestTelemetryFailureDoesNotStopProductOutbox",
+        "internal/localproduct/TestTelemetryLogFailureLeavesMetricsListenerAvailable",
+        "internal/localproduct/TestTelemetryRunnerUsesDedicatedPoolAndOwnsCancellation",
+        "internal/localproduct/TestTelemetrySampleCommittedRowsScopedAndReplayStable",
+        "internal/localproduct/TestTelemetrySenderEndpointRejectsInvalidPortsAndCredentials",
+        "internal/localproduct/TestTelemetrySenderUsesSafeLifecycleEvents",
+        "internal/localproduct/TestTelemetryWorkerBackendClock",
+        "internal/localproduct/TestTelemetryWorkerCollectorCapacityIsBounded",
+        "internal/localproduct/TestTelemetryWorkerCollectorFailedAndStaleAuthorityCloseReaders",
+        "internal/localproduct/TestTelemetryWorkerCollectorReplacementClosesRealStream",
+        "internal/localproduct/TestTelemetryWorkerCommittedFactsAndReplay",
+        "internal/localproduct/TestTelemetryWorkerLabelsIgnoreStaleRunButRejectImmutableMismatch",
+        "internal/localproduct/TestTelemetryWorkerLateCommitWindowAndOverflow",
+        "internal/localproduct/TestTelemetryWorkerOutputCancellationClosesBlockedRead",
+        "internal/localproduct/TestTelemetryWorkerOutputRateWaitIsBoundedAndCancellable",
+        "internal/localproduct/TestTelemetryWorkerOutputRejectsMalformedFrames",
+        "internal/localproduct/TestTelemetryWorkerOutputSuppressesFragmentedSensitiveBytes",
+        "internal/localproduct/TestTelemetryWorkerPostgresAuthorityReplacement",
+        "internal/localproduct/TestTelemetryWorkerRunnerEmitsCommittedTerminal",
+        "internal/localproduct/TestTelemetryWorkerShutdownBoundDisclosesUncooperativeReader",
+        "internal/localproduct/TestTelemetryWorkerTTYAggregatesWhileReadIsBlocked",
+        "internal/localproduct/TestTerminalAndIgnoredEffectDeliveryDeclareReconciliationDisposition",
+        "internal/localproduct/TestUnownedRuntimeAdoptionContextIsCancelledWithRunner",
+        "internal/localproduct/TestWaitWorkerEventFailsClosedWithoutApplyingUnexpectedBusinessEvent",
+        "internal/localproduct/TestWorkerDiagnosticsExactAuthority",
+        "test/acceptance/observability/TestAcceptanceQueriesAgainstMigratedPostgres",
+        "test/acceptance/observability/TestCaptureInspectTemplateExcludesSecretBearingFields",
+        "test/acceptance/observability/TestCaptureTemplateSupportsContainerWithoutHealthcheck",
+        "test/acceptance/observability/TestClaimRejectsDefaultsAndExistingOutput",
+        "test/acceptance/observability/TestClaimReportRoutingPreservesNewOutputAndRejectsForeignEvidence",
+        "test/acceptance/observability/TestColdSmokeOutsideCaptureWindowRejected",
+        "test/acceptance/observability/TestCollectIntervalsCombinesSaveFailureWithFinishCause",
+        "test/acceptance/observability/TestCollectIntervalsJoinsAndPersistsFailedDeadlineCollection",
+        "test/acceptance/observability/TestCollectorRejectsEOFCancellationAndClosingProbeFailure",
+        "test/acceptance/observability/TestCompletedCoverageGateRejectsGapBeforeCleanup",
+        "test/acceptance/observability/TestCompletedReadersRejectLateFailureOrWrongIdentity",
+        "test/acceptance/observability/TestCorrelationClaimRequiresFreshMonitoringValues",
+        "test/acceptance/observability/TestCorrelationLangfuseReadAPI",
+        "test/acceptance/observability/TestCorrelationLokiIndexedSeriesFailClosed",
+        "test/acceptance/observability/TestCorrelationLokiReadAPI",
+        "test/acceptance/observability/TestCorrelationLokiRejectsEmptyPositive",
+        "test/acceptance/observability/TestCorrelationLokiRequiresExactDatabaseTerminalTimes",
+        "test/acceptance/observability/TestCorrelationPrometheusReadAPI",
+        "test/acceptance/observability/TestCorrelationRejectsRedirect",
+        "test/acceptance/observability/TestCorrelationSnapshotNeedsSourceProofsNotColdOutage",
+        "test/acceptance/observability/TestCorrelationTraceReadAPI",
+        "test/acceptance/observability/TestDerivedImageContextOnlyContainsFixtureInputs",
+        "test/acceptance/observability/TestEventEOFCannotBecomeRequestedStop",
+        "test/acceptance/observability/TestEveryPhysicalScenarioRejectsInvalidLatency",
+        "test/acceptance/observability/TestFaultRecoveryBindsOriginalRequestAndClass",
+        "test/acceptance/observability/TestFaultRequiresIndependentHealthyCoverage",
+        "test/acceptance/observability/TestFinalEvidenceCoverageValidatedBeforeInfrastructureCleanup",
+        "test/acceptance/observability/TestFrozenLegacyMarkerRemainsValidImmutableEvidence",
+        "test/acceptance/observability/TestFullReportRejectsLabelsWithoutPhysicalEvidence",
+        "test/acceptance/observability/TestFullReportRejectsMissingPairsCoverageAndSlowSamples",
+        "test/acceptance/observability/TestFullStackColdCollectorRequiresNinthActualProbe",
+        "test/acceptance/observability/TestFullStackColdRejectsBrokenClaimEvidence",
+        "test/acceptance/observability/TestFullStackColdRejectsCoverageSplicedAcrossSubscriptions",
+        "test/acceptance/observability/TestFullStackColdRejectsLegacyFiveServiceCapture",
+        "test/acceptance/observability/TestFullStackColdVerifierAcceptsOnlySeparateProof",
+        "test/acceptance/observability/TestFullStackMatrixEventScopeKeepsOnlyOwnedProjectAndExactWorker",
+        "test/acceptance/observability/TestFullStackMatrixMeasurementRejectsMissingNinthProbe",
+        "test/acceptance/observability/TestFullStackMatrixRejectsDispatchBeforeSecondTurnCreation",
+        "test/acceptance/observability/TestFullStackMatrixRejectsMissingWorkerSubscriptionCoverage",
+        "test/acceptance/observability/TestFullStackMatrixRejectsUnrelatedWorkerLifecycleEvent",
+        "test/acceptance/observability/TestFullStackMatrixVerifierAcceptsCompletePairedEvidence",
+        "test/acceptance/observability/TestFullStackMatrixVerifierRejectsBrokenEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyCLI",
+        "test/acceptance/observability/TestFullStackReadOnlyClaimPrecheck",
+        "test/acceptance/observability/TestFullStackReadOnlyColdPreservesEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyColdRejectsBrokenEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyExistingPassAndRepeat",
+        "test/acceptance/observability/TestFullStackReadOnlyMatrixPreservesEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyMatrixRejectsBrokenEvidence",
+        "test/acceptance/observability/TestFullStackReadOnlyOutputFailure",
+        "test/acceptance/observability/TestFullStackReadOnlyRejectsRouteBeforeReading",
+        "test/acceptance/observability/TestHealthySnapshotsPlacedInOutageSlotCannotPassPairCoverage",
+        "test/acceptance/observability/TestIntervalsCannotBridgeRestartEventsOrCollectorEOF",
+        "test/acceptance/observability/TestIntervalsRequireProbeBoundAndCurrentStartIdentity",
+        "test/acceptance/observability/TestMeasuredLatencyRequiresOriginalTimestampAndAck",
+        "test/acceptance/observability/TestMeasurementCannotRestoreStateBeforeRecordedClosingProbe",
+        "test/acceptance/observability/TestMeasurementKeepsAttemptSeparateFromAcceptedHandshake",
+        "test/acceptance/observability/TestMeasurementPreservesFailedHandshakeCommandWithoutOutput",
+        "test/acceptance/observability/TestMeasurementPreservesUnmatchedHandshakeAttempt",
+        "test/acceptance/observability/TestMeasurementWaitsForRecordedInitialProbe",
+        "test/acceptance/observability/TestPairP95StillRejectsMoreThanOneSecondIncrease",
+        "test/acceptance/observability/TestPostgresOverlayPreservesCoreNetworksAndLoopbackAccess",
+        "test/acceptance/observability/TestStrictPhysicalEvidenceRejectsBrokenRelationships",
+        "test/acceptance/observability/TestSubscriptionReadyRequiresCurrentRecordedExactExec"
+      ]
+    }
+  ]
+}

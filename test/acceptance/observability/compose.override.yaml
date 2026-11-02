@@ -1,0 +1,32 @@
+# Invoke with deploy/local/compose.yaml first; root alone owns Docker execution.
+services:
+  postgres:
+    networks: [switchback-data, langfuse-data, local-access]
+    ports:
+      - 127.0.0.1:${OBSERVABILITY_POSTGRES_PORT:?owned loopback PostgreSQL port required}:5432
+  switchback-backend:
+    image: ${OBSERVABILITY_BACKEND_IMAGE:?exact owned Backend image required}
+    depends_on: !override
+      switchback-migrate:
+        condition: service_completed_successfully
+    environment:
+      SWITCHBACK_M2_ASSISTANT_ENABLED: "0"
+      SWITCHBACK_SINGLE_RUNTIME_RECOVERY_ENABLED: "0"
+      SWITCHBACK_DATABASE_URL: postgresql://switchback:${SWITCHBACK_POSTGRES_PASSWORD}@postgres:5432/${OBSERVABILITY_DATABASE_NAME:?fresh scenario database required}?sslmode=disable
+      LANGFUSE_BASE_URL: http://observation-fake-model:8080
+    volumes:
+      - type: bind
+        source: ../../spikes/worker-runtime/fixtures/go-repository
+        target: /opt/switchback/workspace-source
+        read_only: true
+  switchback-migrate:
+    environment:
+      PGDATABASE: ${OBSERVABILITY_DATABASE_NAME:?fresh scenario database required}
+  observation-fake-model:
+    image: ${SWITCHBACK_WORKER_IMAGE:?controlled test image required}
+    entrypoint: [/usr/local/bin/fake-openai]
+    command: ["--listen", "0.0.0.0:8080"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [worker-control, observability]

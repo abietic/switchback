@@ -1,0 +1,18 @@
+{
+  "schema_version": "runtime.control.v1",
+  "message_id": "message-1",
+  "kind": "command",
+  "worker_session_id": "session-1",
+  "worker_run_id": "run-1",
+  "runtime_instance_id": "runtime-1",
+  "runtime_generation": 1,
+  "agent_session_id": "agent-session-1",
+  "agent_turn_id": "turn-1",
+  "channel_epoch": 1,
+  "sequence": 1,
+  "ack_sequence": 0,
+  "idempotency_key": "command-1",
+  "message_type": "StartAgentTurn",
+  "payload": {"prompt_ref":"object://prompt-1"},
+  "sent_at": "2026-07-23T00:00:00Z"
+}

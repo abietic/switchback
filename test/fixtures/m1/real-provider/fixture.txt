@@ -1,0 +1,1 @@
+This immutable fixture is the source baseline for the M1 real-provider acceptance run.

@@ -1,0 +1,19 @@
+{
+  "schema_version": "event.v2",
+  "event_id": "event-2",
+  "event_type": "TaskCreated.v1",
+  "producer_context": "task-orchestration",
+  "stream_id": "task/task-2",
+  "sequence": 1,
+  "tenant_id": "tenant-local",
+  "aggregate_type": "Task",
+  "aggregate_id": "task-2",
+  "trace_id": "trace-2",
+  "correlation_id": "command-2",
+  "causation_id": "intent-2",
+  "idempotency_key": "event-task-2-created",
+  "client_command_id": "web-raw-command-1",
+  "visibility": "user",
+  "occurred_at": "2026-07-23T00:00:01Z",
+  "payload": {"task_id":"task-2","status":"queued"}
+}

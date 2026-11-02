@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+cd "$root"
+if test "$#" -ne 3; then
+  printf 'usage: %s COMMIT PROJECT CLAIM_ROOT\n' "$0" >&2
+  exit 2
+fi
+if ! [[ "$1" =~ ^[a-f0-9]{40}$ && "$2" =~ ^switchback-obsv-[a-z0-9]{8,24}$ && "$3" == /* && "$3" != */ ]]; then
+  printf 'invalid commit, project or absolute claim path\n' >&2
+  exit 2
+fi
+exec env GOMAXPROCS=2 GOFLAGS=-p=1 GOWORK=off GOENV=off \
+  go run -p=1 ./test/acceptance/observabilitybuild build "$@"

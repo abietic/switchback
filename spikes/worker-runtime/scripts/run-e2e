@@ -1,0 +1,796 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+export LC_ALL=C
+umask 077
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+requested_host_data_root="${SWITCHBACK_SPIKE_HOST_DATA_ROOT:-$root_dir/.spike-data}"
+variant="${SWITCHBACK_SPIKE_E2E_VARIANT:-success}"
+if [[ "$variant" == "invalid-upstream-credential" ]]; then
+	host_data_root="$requested_host_data_root/variants/invalid-upstream-credential-$$"
+	export SWITCHBACK_SPIKE_HOST_DATA_ROOT="$host_data_root"
+	export SWITCHBACK_SPIKE_UPSTREAM_API_KEY="switchback-task14-invalid-upstream-credential-v1"
+	export SWITCHBACK_SPIKE_INVALID_CREDENTIAL_INJECTED=1
+else
+	host_data_root="$requested_host_data_root"
+fi
+env_file="$host_data_root/env/compose.env"
+caller_env_file="$requested_host_data_root/env/compose.env"
+acceptance_dir="$host_data_root/acceptance"
+state_file="${SWITCHBACK_SPIKE_E2E_STATE_FILE:-$acceptance_dir/e2e-state.json}"
+summary_file="${SWITCHBACK_SPIKE_E2E_SUMMARY_FILE:-$acceptance_dir/summary.json}"
+final_state_file="$state_file"
+token_file="$acceptance_dir/known-tokens.tsv"
+fixture_root="$root_dir/fixtures/go-repository"
+cleanup_timeout="${SWITCHBACK_SPIKE_E2E_CLEANUP_TIMEOUT_SECONDS:-20}"
+repeat="${SWITCHBACK_SPIKE_E2E_REPEAT:-1}"
+compose_started=0
+e2e_invoked=0
+fixture_before=""
+backend_http_port=""
+compose_override=""
+fault_helper_pid=""
+fault_proxy_container=""
+fault_proxy_started=0
+fault_proxy_label="switchback-task14-checksum-proxy-$$"
+fault_runtime_dir="$acceptance_dir/checksum-fault-proxy"
+fault_program_file="$fault_runtime_dir/checksum-fault-proxy.py"
+fault_state_dir="$fault_runtime_dir/state"
+fault_state_file="$fault_state_dir/fault-proxy-state.json"
+fault_stop_file="$acceptance_dir/fault-proxy-stop"
+fault_log_file="$acceptance_dir/fault-proxy.log"
+proxy_docker_socket="/tmp/switchback-task14-docker-proxy-$$.sock"
+real_docker_socket=""
+
+case "$cleanup_timeout" in
+"" | *[!0-9]*)
+	echo "run-e2e: SWITCHBACK_SPIKE_E2E_CLEANUP_TIMEOUT_SECONDS must be a nonnegative integer" >&2
+	exit 2
+	;;
+esac
+case "$variant" in
+success | invalid-upstream-credential | langfuse-unavailable | checksum-mismatch | cleanup-failure) ;;
+*)
+	echo "run-e2e: SWITCHBACK_SPIKE_E2E_VARIANT is unsupported" >&2
+	exit 2
+	;;
+esac
+if [[ "$repeat" != "1" && "$repeat" != "2" ]]; then
+	echo "run-e2e: SWITCHBACK_SPIKE_E2E_REPEAT must equal 1 or 2" >&2
+	exit 2
+fi
+if [[ "$repeat" == "2" && "$variant" != "success" ]]; then
+	echo "run-e2e: repeated acceptance is supported only for the success variant" >&2
+	exit 2
+fi
+
+owner_only_mode() {
+	local path="$1" platform=""
+	platform="$(uname -s)" || return 1
+	case "$platform" in
+	Darwin) stat -f '%Lp' "$path" ;;
+	Linux) stat -c '%a' "$path" ;;
+	*) return 1 ;;
+	esac
+}
+
+if [[ "$variant" == "invalid-upstream-credential" ]]; then
+	variant_parent="$requested_host_data_root/variants"
+	if ! mkdir -p "$variant_parent" || [[ ! -d "$variant_parent" || -L "$variant_parent" ]]; then
+		echo "run-e2e: invalid-credential variant parent is unavailable" >&2
+		exit 2
+	fi
+	if ! mkdir "$host_data_root"; then
+		echo "run-e2e: invalid-credential variant root already exists" >&2
+		exit 2
+	fi
+	chmod 700 "$host_data_root"
+
+	if [[ -L "$caller_env_file" ]]; then
+		echo "run-e2e: caller compose env must be an owner-only regular file" >&2
+		exit 2
+	fi
+	if [[ -e "$caller_env_file" ]]; then
+		if [[ ! -f "$caller_env_file" || "$(owner_only_mode "$caller_env_file")" != "600" ]]; then
+			echo "run-e2e: caller compose env must be an owner-only regular file" >&2
+			exit 2
+		fi
+		env_dir="$(dirname "$env_file")"
+		if ! mkdir "$env_dir"; then
+			echo "run-e2e: invalid-credential variant env directory already exists" >&2
+			exit 2
+		fi
+		chmod 700 "$env_dir"
+		if [[ -e "$env_file" || -L "$env_file" ]]; then
+			echo "run-e2e: invalid-credential variant compose env already exists" >&2
+			exit 2
+		fi
+		tmp_env="$(mktemp "$env_dir/.compose.env.XXXXXX")" || {
+			echo "run-e2e: create isolated compose env temporary" >&2
+			exit 2
+		}
+		chmod 600 "$tmp_env"
+		if ! cat "$caller_env_file" >"$tmp_env"; then
+			rm -f "$tmp_env"
+			echo "run-e2e: read caller compose env" >&2
+			exit 2
+		fi
+		if [[ -e "$env_file" || -L "$env_file" ]]; then
+			rm -f "$tmp_env"
+			echo "run-e2e: invalid-credential variant compose env already exists" >&2
+			exit 2
+		fi
+		if ! mv "$tmp_env" "$env_file"; then
+			rm -f "$tmp_env"
+			echo "run-e2e: install isolated compose env" >&2
+			exit 2
+		fi
+	fi
+fi
+
+compose() {
+	if [[ -n "$compose_override" ]]; then
+		docker compose --env-file "$env_file" -f "$root_dir/compose.yaml" -f "$compose_override" "$@"
+	else
+		docker compose --env-file "$env_file" -f "$root_dir/compose.yaml" "$@"
+	fi
+}
+
+env_value() {
+	local name="$1"
+	awk -F= -v name="$name" '$1 == name { print substr($0, length(name) + 2); exit }' "$env_file"
+}
+
+runtime_resources() {
+	local session_id="${1:-}" output="" resource_id=""
+	local -a worker_args=(
+		ps -aq
+		--filter label=com.switchback.managed=worker-runtime
+	)
+	local -a populator_args=(
+		ps -aq
+		--filter label=com.switchback.managed=runtime-secret-populator
+	)
+	local -a volume_args=(
+		volume ls -q
+		--filter label=com.switchback.managed=runtime-secret-volume
+	)
+	if [[ -n "$session_id" ]]; then
+		worker_args+=(--filter "label=com.switchback.worker-session-id=$session_id")
+		populator_args+=(--filter "label=com.switchback.worker-session-id=$session_id")
+		volume_args+=(--filter "label=com.switchback.worker-session-id=$session_id")
+	fi
+	output="$(docker "${worker_args[@]}")" || return 1
+	for resource_id in $output; do
+		printf 'worker:%s\n' "$resource_id"
+	done
+	output="$(docker "${populator_args[@]}")" || return 1
+	for resource_id in $output; do
+		printf 'populator:%s\n' "$resource_id"
+	done
+	output="$(docker "${volume_args[@]}")" || return 1
+	for resource_id in $output; do
+		printf 'volume:%s\n' "$resource_id"
+	done
+}
+
+exact_runtime_labels() {
+	local resource_type="$1" resource_id="$2" managed="$3"
+	local session_id="$4" run_id="$5" runtime_id="$6" generation="$7"
+	local labels=""
+	if [[ "$resource_type" == "volume" ]]; then
+		labels="$(docker volume inspect --format '{{json .Labels}}' "$resource_id")" || return 1
+	else
+		labels="$(docker inspect --format '{{json .Config.Labels}}' "$resource_id")" || return 1
+	fi
+	jq -e \
+		--arg managed "$managed" \
+		--arg session "$session_id" \
+		--arg run "$run_id" \
+		--arg runtime "$runtime_id" \
+		--arg generation "$generation" \
+		'
+			type == "object" and
+			length == 5 and
+			."com.switchback.managed" == $managed and
+			."com.switchback.worker-session-id" == $session and
+			."com.switchback.worker-run-id" == $run and
+			."com.switchback.runtime-instance-id" == $runtime and
+			."com.switchback.runtime-generation" == $generation
+		' <<<"$labels" >/dev/null
+}
+
+remove_exact_runtime_resources() {
+	local session_id="$1" run_id="$2" runtime_id="$3" generation="$4"
+	local resources="" resource_type="" resource_id="" managed=""
+	if [[ -z "$session_id" || -z "$run_id" || -z "$runtime_id" || -z "$generation" ]]; then
+		return 1
+	fi
+	resources="$(runtime_resources "$session_id")" || return 1
+	for resource_type in worker populator volume; do
+		while IFS=: read -r listed_type resource_id; do
+			[[ "$listed_type" == "$resource_type" && -n "$resource_id" ]] || continue
+			case "$resource_type" in
+			worker) managed="worker-runtime" ;;
+			populator) managed="runtime-secret-populator" ;;
+			volume) managed="runtime-secret-volume" ;;
+			esac
+			exact_runtime_labels \
+				"$resource_type" \
+				"$resource_id" \
+				"$managed" \
+				"$session_id" \
+				"$run_id" \
+				"$runtime_id" \
+				"$generation" ||
+				return 1
+			if [[ "$resource_type" == "volume" ]]; then
+				docker volume rm "$resource_id" >/dev/null || return 1
+			else
+				docker rm -f "$resource_id" >/dev/null || return 1
+			fi
+		done <<<"$resources"
+	done
+	resources="$(runtime_resources "$session_id")" || return 1
+	[[ -z "$resources" ]]
+}
+
+remaining_compose_containers() {
+	docker ps -aq --filter label=com.docker.compose.project=switchback-worker-runtime-spike
+}
+
+replace_env_value() {
+	local name="$1" value="$2" temporary="$env_file.tmp"
+	awk -F= -v name="$name" -v value="$value" '
+		BEGIN { found = 0 }
+		$1 == name { print name "=" value; found = 1; next }
+		{ print }
+		END { if (!found) exit 3 }
+	' "$env_file" >"$temporary" || {
+		rm -f "$temporary"
+		return 1
+	}
+	chmod 600 "$temporary" &&
+		mv -f "$temporary" "$env_file"
+}
+
+start_fault_helper() {
+	local helper_mode="" deadline=0
+	case "$variant" in
+	cleanup-failure) helper_mode="docker-cleanup" ;;
+	*) return 0 ;;
+	esac
+	mkdir -p "$acceptance_dir"
+	chmod 700 "$acceptance_dir"
+	rm -rf "$fault_runtime_dir"
+	mkdir -p "$fault_state_dir"
+	chmod 700 "$fault_runtime_dir" "$fault_state_dir"
+	rm -f "$fault_stop_file" "$fault_log_file" "$proxy_docker_socket"
+	real_docker_socket="$(env_value SWITCHBACK_SPIKE_DOCKER_SOCKET)"
+	[[ -n "$real_docker_socket" ]] || {
+		echo "run-e2e: real Docker socket is unavailable for cleanup fault injection" >&2
+		return 1
+	}
+	SWITCHBACK_SPIKE_E2E_HELPER_MODE="$helper_mode" \
+		SWITCHBACK_SPIKE_E2E_FAULT_STATE_FILE="$fault_state_file" \
+		SWITCHBACK_SPIKE_E2E_FAULT_STOP_FILE="$fault_stop_file" \
+		SWITCHBACK_SPIKE_E2E_REAL_DOCKER_SOCKET="$real_docker_socket" \
+		SWITCHBACK_SPIKE_E2E_PROXY_DOCKER_SOCKET="$proxy_docker_socket" \
+		go test ./test/e2e -run '^TestE2EFaultProxyHelper$' -count=1 -timeout 55m \
+		>"$fault_log_file" 2>&1 &
+	fault_helper_pid=$!
+	deadline=$((SECONDS + 20))
+	while ((SECONDS < deadline)); do
+		if jq -e '.ready == true' "$fault_state_file" >/dev/null 2>&1; then
+			break
+		fi
+		if ! kill -0 "$fault_helper_pid" 2>/dev/null; then
+			echo "run-e2e: fault proxy helper exited before readiness" >&2
+			return 1
+		fi
+		sleep 1
+	done
+	if ! jq -e '.ready == true' "$fault_state_file" >/dev/null 2>&1; then
+		echo "run-e2e: fault proxy helper readiness timed out" >&2
+		return 1
+	fi
+	if [[ "$(jq -er '.proxy_socket' "$fault_state_file")" != "$proxy_docker_socket" ]] ||
+		! replace_env_value SWITCHBACK_SPIKE_DOCKER_SOCKET "$proxy_docker_socket"; then
+		echo "run-e2e: Docker cleanup proxy could not replace the Backend socket mount" >&2
+		return 1
+	fi
+	export SWITCHBACK_SPIKE_E2E_FAULT_STATE_FILE="$fault_state_file"
+}
+
+prepare_checksum_fault_proxy() {
+	[[ "$variant" == "checksum-mismatch" ]] || return 0
+	rm -rf "$fault_runtime_dir"
+	mkdir -p "$fault_state_dir"
+	chmod 700 "$fault_runtime_dir" "$fault_state_dir"
+	export SWITCHBACK_SPIKE_E2E_FAULT_STATE_FILE="$fault_state_file"
+	SWITCHBACK_SPIKE_E2E_CHECKSUM_PROXY_PROGRAM="$fault_program_file" \
+		go test ./test/e2e -run '^TestWriteChecksumFaultProxyProgram$' -count=1 \
+		>"$fault_log_file" 2>&1
+	chmod 600 "$fault_program_file"
+	compose_override="$fault_runtime_dir/fault-proxy.compose.yaml"
+	cat >"$compose_override.tmp" <<'EOF'
+services:
+  spike-backend:
+    environment:
+      SWITCHBACK_SPIKE_BACKEND_HTTP_BASE_URL: http://switchback-task14-checksum-proxy:8080
+EOF
+	chmod 600 "$compose_override.tmp"
+	mv -f "$compose_override.tmp" "$compose_override"
+	compose config --quiet
+}
+
+start_checksum_fault_proxy() {
+	local deadline=0
+	[[ "$variant" == "checksum-mismatch" ]] || return 0
+	fault_proxy_container="$(
+		docker run \
+			--detach \
+			--name "$fault_proxy_label" \
+			--label switchback.spike.managed=true \
+			--label "switchback.spike.task14=$fault_proxy_label" \
+			--network switchback-spike-control \
+			--network-alias switchback-task14-checksum-proxy \
+			--read-only \
+			--cap-drop ALL \
+			--security-opt no-new-privileges:true \
+			--env PYTHONDONTWRITEBYTECODE=1 \
+			--mount "type=bind,src=$fault_program_file,dst=/opt/switchback/checksum-fault-proxy.py,readonly" \
+			--mount "type=bind,src=$fault_state_dir,dst=/var/run/switchback" \
+			--entrypoint python \
+			switchback-spike-worker:local \
+			/opt/switchback/checksum-fault-proxy.py
+	)"
+	[[ -n "$fault_proxy_container" ]] || {
+		echo "run-e2e: checksum proxy returned an empty container identity" >&2
+		return 1
+	}
+	fault_proxy_started=1
+	deadline=$((SECONDS + 20))
+	while ((SECONDS < deadline)); do
+		if jq -e '.ready == true' "$fault_state_file" >/dev/null 2>&1; then
+			break
+		fi
+		if [[ "$(docker inspect --format '{{.State.Running}}' "$fault_proxy_container" 2>/dev/null)" != "true" ]]; then
+			echo "run-e2e: checksum proxy container exited before readiness" >&2
+			return 1
+		fi
+		sleep 1
+	done
+	if ! jq -e '.ready == true' "$fault_state_file" >/dev/null 2>&1; then
+		echo "run-e2e: checksum proxy readiness timed out" >&2
+		return 1
+	fi
+}
+
+stop_checksum_proxy_container() {
+	local remaining_proxy=""
+	((fault_proxy_started == 1)) || return 0
+	if [[ -n "$fault_proxy_container" ]]; then
+		if ! docker rm -f "$fault_proxy_container" >/dev/null 2>&1; then
+			return 1
+		fi
+		fault_proxy_container=""
+	fi
+	if ! remaining_proxy="$(docker ps -aq --filter "label=switchback.spike.task14=$fault_proxy_label" 2>/dev/null)"; then
+		return 1
+	fi
+	if [[ -n "$remaining_proxy" ]]; then
+		return 1
+	fi
+	fault_proxy_started=0
+	return 0
+}
+
+stop_fault_helper() {
+	local deadline=0 helper_status=0
+	if [[ -n "$fault_helper_pid" ]]; then
+		: >"$fault_stop_file"
+		chmod 600 "$fault_stop_file"
+		deadline=$((SECONDS + 10))
+		while kill -0 "$fault_helper_pid" 2>/dev/null && ((SECONDS < deadline)); do
+			sleep 1
+		done
+		if kill -0 "$fault_helper_pid" 2>/dev/null; then
+			kill "$fault_helper_pid" 2>/dev/null
+			sleep 1
+		fi
+		if kill -0 "$fault_helper_pid" 2>/dev/null; then
+			kill -9 "$fault_helper_pid" 2>/dev/null
+		fi
+		wait "$fault_helper_pid" || helper_status=$?
+		fault_helper_pid=""
+	fi
+	if ! stop_checksum_proxy_container; then
+		helper_status=1
+	fi
+	rm -f "$fault_stop_file" "$compose_override" "$compose_override.tmp" "$fault_log_file"
+	compose_override=""
+	rm -rf "$fault_runtime_dir"
+	if [[ -e "$proxy_docker_socket" ]]; then
+		rm -f "$proxy_docker_socket"
+		helper_status=1
+	fi
+	return "$helper_status"
+}
+
+cleanup() {
+	local status=$?
+	local session_id="" run_id="" runtime_id="" generation="" container_id="" remaining="" static_remaining="" deadline=0
+	local helper_target="" helper_triggered=""
+	local cleanup_failed=0 enumeration_failed=0
+	trap - EXIT INT TERM
+	set +e
+
+	if ((e2e_invoked == 1)) && [[ -s "$state_file" ]]; then
+		session_id="$(jq -er '.worker_session_id | strings | select(length > 0)' "$state_file" 2>/dev/null)"
+		run_id="$(jq -er '.worker_run_id | strings | select(length > 0)' "$state_file" 2>/dev/null)"
+		runtime_id="$(jq -er '.runtime_instance_id | strings | select(length > 0)' "$state_file" 2>/dev/null)"
+		generation="$(jq -er '.runtime_generation | (numbers, strings) | tostring | select(length > 0)' "$state_file" 2>/dev/null)"
+		container_id="$(jq -er '.container_id | strings' "$state_file" 2>/dev/null)"
+	fi
+	if [[ -n "$session_id" ]]; then
+		if ! curl \
+				--silent \
+				--show-error \
+				--fail \
+			--max-time 5 \
+			--header 'Content-Type: application/json' \
+				--request POST \
+				--data '{}' \
+				"http://127.0.0.1:${backend_http_port}/spike/sessions/${session_id}/cleanup" \
+				>/dev/null 2>&1; then
+			echo "run-e2e: explicit Session cleanup POST failed" >&2
+			cleanup_failed=1
+		fi
+	fi
+
+	if ((e2e_invoked == 1 || compose_started == 1)); then
+		deadline=$((SECONDS + cleanup_timeout))
+		while :; do
+			if ! remaining="$(runtime_resources "$session_id" 2>/dev/null)"; then
+				echo "run-e2e: runtime resource enumeration failed" >&2
+				enumeration_failed=1
+				cleanup_failed=1
+				remaining=""
+				break
+			fi
+			[[ -z "$remaining" ]] && break
+			((SECONDS >= deadline)) && break
+			sleep 1
+		done
+		if [[ -n "$remaining" ]]; then
+			echo "run-e2e: remaining runtime resources: ${remaining//$'\n'/,}" >&2
+			cleanup_failed=1
+		fi
+	fi
+
+	if [[ "$variant" == "checksum-mismatch" ]] &&
+		! stop_checksum_proxy_container; then
+		echo "run-e2e: checksum proxy container cleanup failed" >&2
+		cleanup_failed=1
+	fi
+	if ((compose_started == 1)); then
+		if ! compose down --remove-orphans >/dev/null 2>&1; then
+			echo "run-e2e: Compose down failed" >&2
+			cleanup_failed=1
+		fi
+		if ! static_remaining="$(remaining_compose_containers 2>/dev/null)"; then
+			echo "run-e2e: post-down Compose container enumeration failed" >&2
+			cleanup_failed=1
+		elif [[ -n "$static_remaining" ]]; then
+			echo "run-e2e: remaining Compose containers: ${static_remaining//$'\n'/,}" >&2
+			cleanup_failed=1
+		fi
+		if ! remaining="$(runtime_resources "$session_id" 2>/dev/null)"; then
+			if ((enumeration_failed == 0)); then
+				echo "run-e2e: post-down runtime resource enumeration failed" >&2
+			fi
+			cleanup_failed=1
+		elif [[ -n "$remaining" ]]; then
+			echo "run-e2e: post-down remaining runtime resources: ${remaining//$'\n'/,}" >&2
+			cleanup_failed=1
+		fi
+	fi
+	if [[ "$variant" == "cleanup-failure" && "$e2e_invoked" == "1" ]]; then
+		helper_target="$(jq -er '.target_container_id | strings | select(length > 0)' "$fault_state_file" 2>/dev/null)"
+		helper_triggered="$(jq -er '.fault_triggered == true' "$fault_state_file" 2>/dev/null)"
+		if [[ "$helper_triggered" != "true" || -z "$helper_target" || "$helper_target" != "$container_id" ]]; then
+			echo "run-e2e: cleanup fault proxy did not prove the exact target failure" >&2
+			cleanup_failed=1
+		elif ! remove_exact_runtime_resources "$session_id" "$run_id" "$runtime_id" "$generation"; then
+			echo "run-e2e: exact runtime fallback cleanup failed for runtime_instance_id=${runtime_id:-unknown}" >&2
+			cleanup_failed=1
+		else
+			echo "run-e2e: injected cleanup failure reported for container_id=${container_id}" >&2
+		fi
+		if ! remaining="$(runtime_resources "$session_id" 2>/dev/null)"; then
+			echo "run-e2e: post-fallback runtime resource enumeration failed" >&2
+			cleanup_failed=1
+		elif [[ -n "$remaining" ]]; then
+			echo "run-e2e: post-fallback remaining runtime resources: ${remaining//$'\n'/,}" >&2
+			cleanup_failed=1
+		fi
+	fi
+	if [[ -n "$real_docker_socket" ]] &&
+		! replace_env_value SWITCHBACK_SPIKE_DOCKER_SOCKET "$real_docker_socket"; then
+		echo "run-e2e: restore real Docker socket configuration failed" >&2
+		cleanup_failed=1
+	fi
+	if ! stop_fault_helper; then
+		echo "run-e2e: fault proxy helper cleanup failed" >&2
+		cleanup_failed=1
+	fi
+	if [[ -n "$fixture_before" ]]; then
+		if ! fixture_after="$("$root_dir/scripts/tree-digest" "$fixture_root" 2>/dev/null)"; then
+			echo "run-e2e: fixture digest could not be recomputed" >&2
+			cleanup_failed=1
+		elif [[ "$fixture_after" != "$fixture_before" ]]; then
+			echo "run-e2e: fixture digest changed" >&2
+			cleanup_failed=1
+		fi
+	fi
+	if ((cleanup_failed == 1)); then
+		if [[ -s "$summary_file" ]]; then
+			if jq '.cleanup_confirmed = false' "$summary_file" >"$summary_file.tmp"; then
+				chmod 600 "$summary_file.tmp"
+				mv -f "$summary_file.tmp" "$summary_file"
+			else
+				rm -f "$summary_file.tmp"
+				echo "run-e2e: acceptance summary could not record cleanup failure" >&2
+			fi
+		fi
+		echo "run-e2e: cleanup identities: worker_session_id=${session_id:-unknown} worker_run_id=${run_id:-unknown} runtime_instance_id=${runtime_id:-unknown} runtime_generation=${generation:-unknown} container_id=${container_id:-unknown}" >&2
+		[[ "$status" -ne 0 ]] || status=1
+	fi
+	rm -f "$token_file"
+	exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+cd "$root_dir"
+make preflight
+fixture_before="$("$root_dir/scripts/tree-digest" "$fixture_root")"
+
+make build
+backend_http_port="$(env_value SWITCHBACK_SPIKE_BACKEND_HTTP_PORT)"
+start_fault_helper
+compose config --quiet
+compose_started=1
+compose up -d postgres redis clickhouse minio
+
+wait_compose_health() {
+	local service="$1" container_id="" health=""
+	local deadline=$((SECONDS + 120))
+	while ((SECONDS < deadline)); do
+		container_id="$(compose ps -q "$service" 2>/dev/null)"
+		if [[ -n "$container_id" ]]; then
+			health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null)"
+			[[ "$health" == "healthy" ]] && return 0
+		fi
+		sleep 1
+	done
+	echo "run-e2e: ${service} did not become healthy" >&2
+	return 1
+}
+
+for service in postgres redis clickhouse minio; do
+	wait_compose_health "$service"
+done
+
+prepare_checksum_fault_proxy
+if [[ "$variant" == "checksum-mismatch" ]]; then
+	compose create spike-backend
+fi
+start_checksum_fault_proxy
+compose up -d langfuse-web langfuse-worker spike-backend
+
+wait_compose_running() {
+	local service="$1" container_id="" state=""
+	local deadline=$((SECONDS + 120))
+	while ((SECONDS < deadline)); do
+		container_id="$(compose ps -q "$service" 2>/dev/null)"
+		if [[ -n "$container_id" ]]; then
+			state="$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null)"
+			[[ "$state" == "running" ]] && return 0
+		fi
+		sleep 1
+	done
+	echo "run-e2e: ${service} did not start" >&2
+	return 1
+}
+
+for service in langfuse-web langfuse-worker spike-backend; do
+	wait_compose_running "$service"
+done
+
+wait_http() {
+	local name="$1" url="$2"
+	local deadline=$((SECONDS + 120))
+	while ((SECONDS < deadline)); do
+		if curl --silent --show-error --fail --max-time 3 "$url" >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 1
+	done
+	echo "run-e2e: ${name} did not become ready" >&2
+	return 1
+}
+
+langfuse_web_port="$(env_value SWITCHBACK_SPIKE_LANGFUSE_WEB_PORT)"
+langfuse_worker_port="$(env_value SWITCHBACK_SPIKE_LANGFUSE_WORKER_PORT)"
+wait_http "Langfuse database health" "http://127.0.0.1:${langfuse_web_port}/api/public/health?failIfDatabaseUnavailable=true"
+wait_http "Langfuse readiness" "http://127.0.0.1:${langfuse_web_port}/api/public/ready"
+wait_http "Langfuse Worker health" "http://127.0.0.1:${langfuse_worker_port}/api/health"
+
+wait_backend_http() {
+	local url="$1"
+	local deadline=$((SECONDS + 120))
+	while ((SECONDS < deadline)); do
+		if curl --silent --show-error --max-time 3 --output /dev/null "$url"; then
+			return 0
+		fi
+		sleep 1
+	done
+	echo "run-e2e: Backend HTTP did not become reachable" >&2
+	return 1
+}
+wait_backend_http "http://127.0.0.1:${backend_http_port}/spike/runs/not-ready"
+
+mkdir -p "$acceptance_dir"
+chmod 700 "$acceptance_dir"
+: >"$token_file"
+chmod 600 "$token_file"
+token_index=0
+while IFS='=' read -r name value; do
+	case "$name" in
+	*_KEY | *_SECRET | *_PASSWORD | REDIS_AUTH | SALT | ENCRYPTION_KEY)
+		if [[ -n "$value" ]]; then
+			token_index=$((token_index + 1))
+			printf 'token-%d\t%s\n' "$token_index" "$value" >>"$token_file"
+		fi
+		;;
+	esac
+done <"$env_file"
+token_index=$((token_index + 1))
+printf 'token-%d\t%s\n' "$token_index" "$SWITCHBACK_SPIKE_UPSTREAM_API_KEY" >>"$token_file"
+
+export SWITCHBACK_SPIKE_E2E=1
+export SWITCHBACK_SPIKE_E2E_BACKEND_URL="http://127.0.0.1:${backend_http_port}"
+export SWITCHBACK_SPIKE_E2E_DATA_ROOT="$host_data_root"
+export SWITCHBACK_SPIKE_E2E_FIXTURE_DIGEST="$fixture_before"
+export SWITCHBACK_SPIKE_E2E_LANGFUSE_BASE_URL="http://127.0.0.1:${langfuse_web_port}"
+export SWITCHBACK_SPIKE_E2E_LANGFUSE_PUBLIC_KEY
+SWITCHBACK_SPIKE_E2E_LANGFUSE_PUBLIC_KEY="$(env_value LANGFUSE_PUBLIC_KEY)"
+export SWITCHBACK_SPIKE_E2E_LANGFUSE_SECRET_KEY
+SWITCHBACK_SPIKE_E2E_LANGFUSE_SECRET_KEY="$(env_value LANGFUSE_SECRET_KEY)"
+export SWITCHBACK_SPIKE_E2E_STATE_FILE="$state_file"
+export SWITCHBACK_SPIKE_E2E_SUMMARY_FILE="$summary_file"
+export SWITCHBACK_SPIKE_E2E_TOKEN_FILE="$token_file"
+export SWITCHBACK_SPIKE_E2E_VARIANT="$variant"
+rm -f "$state_file" "$summary_file"
+e2e_invoked=1
+
+if [[ "$repeat" == "2" ]]; then
+	first_state_file="$acceptance_dir/e2e-state-first.json"
+	first_summary_file="$acceptance_dir/summary-first.json"
+	rm -f "$first_state_file" "$first_summary_file"
+	state_file="$first_state_file"
+	export SWITCHBACK_SPIKE_E2E_STATE_FILE="$first_state_file"
+	export SWITCHBACK_SPIKE_E2E_SUMMARY_FILE="$first_summary_file"
+	go test ./test/e2e -run '^TestRealCodexTwoTurnE2E$' -v -count=1 -timeout 45m
+
+	state_file="$final_state_file"
+	export SWITCHBACK_SPIKE_E2E_STATE_FILE="$state_file"
+	export SWITCHBACK_SPIKE_E2E_SUMMARY_FILE="$summary_file"
+	go test ./test/e2e -run '^TestRealCodexTwoTurnE2E$' -v -count=1 -timeout 45m
+
+	SWITCHBACK_SPIKE_E2E_FIRST_SUMMARY="$first_summary_file" \
+		SWITCHBACK_SPIKE_E2E_SECOND_SUMMARY="$summary_file" \
+		go test ./test/e2e -run '^TestCompareRealE2ESummaries$' -v -count=1
+else
+	go test ./test/e2e -run '^TestRealCodexTwoTurnE2E$' -v -count=1 -timeout 45m
+fi
+case "$variant" in
+success)
+	jq -e '
+		.schema_version == "switchback.spike.acceptance.v1" and
+		.execution_outcome == "completed" and
+		.spike_acceptance == "passed" and
+		.evidence_verified == true and
+		.token_absence == true and
+		.langfuse_verified == true and
+		.fixture_digest_before == .fixture_digest_after and
+		.cleanup_confirmed == true
+	' "$summary_file" >/dev/null
+	;;
+invalid-upstream-credential)
+	jq -e '
+		.schema_version == "switchback.spike.acceptance.v1" and
+		.failure_variant == "invalid-upstream-credential" and
+		.execution_outcome == "failed" and
+		.spike_acceptance == "pending" and
+		.fixture_digest_before == .fixture_digest_after and
+		.cleanup_confirmed == true
+	' "$summary_file" >/dev/null
+	;;
+langfuse-unavailable)
+	jq -e '
+		.schema_version == "switchback.spike.acceptance.v1" and
+		.failure_variant == "langfuse-unavailable" and
+		.execution_outcome == "completed" and
+		.spike_acceptance == "failed" and
+		.evidence_verified == true and
+		.token_absence == true and
+		.langfuse_verified == false and
+		.fixture_digest_before == .fixture_digest_after and
+		.cleanup_confirmed == true
+		' "$summary_file" >/dev/null
+		;;
+checksum-mismatch)
+	jq -e '
+		.schema_version == "switchback.spike.acceptance.v1" and
+		.failure_variant == "checksum-mismatch" and
+		.execution_outcome == "failed" and
+		.spike_acceptance != "passed" and
+		.fixture_digest_before == .fixture_digest_after and
+		.cleanup_confirmed == true
+	' "$summary_file" >/dev/null
+	jq -e '
+		((keys - [
+			"authorization_present",
+			"backend_error_code",
+			"backend_status_code",
+			"checksum_request_matched",
+			"digest_mismatch",
+			"evidence_kind",
+			"evidence_path_sha256",
+			"fault_count",
+			"fault_triggered",
+			"mutated_body_sha256",
+			"original_checksum_sha256",
+			"original_checksum_valid",
+			"ready"
+		]) | length == 0) and
+		.ready == true and
+		.fault_triggered == true and
+		.fault_count == 1 and
+		.checksum_request_matched == true and
+		.authorization_present == true and
+		.original_checksum_valid == true and
+		(.evidence_path_sha256 | type == "string" and length == 64) and
+		(.evidence_kind | type == "string" and length > 0) and
+		(.original_checksum_sha256 | type == "string" and length == 64) and
+		(.mutated_body_sha256 | type == "string" and length == 64) and
+		.original_checksum_sha256 != .mutated_body_sha256 and
+		.digest_mismatch == true and
+		.backend_status_code == 400 and
+		.backend_error_code == "evidence_checksum_mismatch"
+	' "$fault_state_file" >/dev/null
+	;;
+cleanup-failure)
+	jq -e '
+		.schema_version == "switchback.spike.acceptance.v1" and
+		.failure_variant == "cleanup-failure" and
+		.execution_outcome == "completed" and
+		.spike_acceptance == "failed" and
+		.evidence_verified == true and
+		.token_absence == true and
+		.langfuse_verified == true and
+		.fixture_digest_before == .fixture_digest_after and
+		.cleanup_confirmed == false
+	' "$summary_file" >/dev/null
+	;;
+esac
+
+execution_outcome="$(jq -er '.execution_outcome' "$summary_file")"
+spike_acceptance="$(jq -er '.spike_acceptance' "$summary_file")"
+echo "execution_outcome=$execution_outcome"
+echo "spike_acceptance=$spike_acceptance"
+echo "acceptance_summary=$summary_file"

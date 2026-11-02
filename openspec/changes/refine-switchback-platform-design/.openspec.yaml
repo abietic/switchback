@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-07
+goal: Turn the initial oral project description into reviewable requirements,
+  domain model, protocols, OpenSpec specs, and Mermaid diagrams.

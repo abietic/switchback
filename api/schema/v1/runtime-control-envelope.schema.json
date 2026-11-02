@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/runtime-control-envelope.schema.json",
+  "title": "Switchback RuntimeControlEnvelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","message_id","kind","worker_session_id","worker_run_id","runtime_instance_id","runtime_generation","agent_session_id","agent_turn_id","channel_epoch","sequence","ack_sequence","idempotency_key","message_type","payload","sent_at"],
+  "properties": {
+    "schema_version": {"const":"runtime.control.v1"},
+    "message_id": {"type":"string","minLength":1},
+    "kind": {"enum":["command","event","ack","heartbeat"]},
+    "worker_session_id": {"type":"string","minLength":1},
+    "worker_run_id": {"type":"string","minLength":1},
+    "runtime_instance_id": {"type":"string","minLength":1},
+    "runtime_generation": {"type":"integer","minimum":1},
+    "agent_session_id": {"type":"string","minLength":1},
+    "agent_turn_id": {"type":"string","minLength":1},
+    "channel_epoch": {"type":"integer","minimum":1},
+    "sequence": {"type":"integer","minimum":1},
+    "ack_sequence": {"type":"integer","minimum":0},
+    "idempotency_key": {"type":"string","minLength":1},
+    "message_type": {"type":"string","minLength":1},
+    "payload": {"type":"object"},
+    "sent_at": {"type":"string","format":"date-time"}
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/task-spec.schema.json",
+  "title": "Switchback TaskSpec v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","source","tenant_id","user_id","project_id","workspace_id","workspace_resolution_ref","title","goal","readiness_assessment_ref","creation_intent_ref","assumptions","context_refs","target","constraints","acceptance_criteria","runtime_config","agent_config","capability_refs","approval_policy","output_policy"],
+  "properties": {
+    "schema_version": {"const":"task.spec.v1"},
+    "source": {"enum":["assistant","delivery","api"]},
+    "tenant_id": {"type":"string","minLength":1},
+    "user_id": {"type":"string","minLength":1},
+    "project_id": {"type":"string","minLength":1},
+    "workspace_id": {"type":"string","minLength":1},
+    "workspace_resolution_ref": {"type":"object"},
+    "title": {"type":"string","minLength":1},
+    "goal": {"type":"string","minLength":1},
+    "readiness_assessment_ref": {"type":"object"},
+    "creation_intent_ref": {"type":"object"},
+    "assumptions": {"type":"array"},
+    "context_refs": {"type":"array"},
+    "target": {"type":"object"},
+    "constraints": {"type":"array","items":{"type":"string"}},
+    "acceptance_criteria": {"type":"array","minItems":1,"items":{"type":"string"}},
+    "runtime_config": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["network_policy", "network_policy_revision", "network_policy_digest"],
+          "properties": {
+            "network_policy": {"const": "trusted_full_network_v1"},
+            "network_policy_revision": {"type": "integer", "minimum": 1},
+            "network_policy_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["network_policy"],
+          "properties": {
+            "network_policy": {"const": "m1_public_web_restricted_v1"}
+          }
+        }
+      ]
+    },
+    "agent_config": {"type":"object"},
+    "capability_refs": {"type":"object"},
+    "approval_policy": {"type":"object"},
+    "output_policy": {"type":"object"}
+  }
+}

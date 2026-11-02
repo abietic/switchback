@@ -1,0 +1,9 @@
+{
+  "schema_version": "workspace.revision.fixture.v1",
+  "tenant_id": "tenant-local",
+  "actor_user_id": "user-local",
+  "project_id": "project-switchback",
+  "workspace_id": "workspace-demo",
+  "workspace_revision_id": "workspace-revision-1",
+  "source_path": "test/fixtures/m1/workspace-repository"
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": "switchback.worker-image-provenance.v1",
+  "go_image": "docker.io/library/golang@sha256:b58a2431884c6dfc5ddcea953c7f426ad72c2ff9e94b4b8495fefa74e4dabcc0",
+  "node_image": "docker.io/library/node@sha256:a5dbaa51d1be96b3415b993320893038c7240d6dd901166ee597f3b1cc3259d1",
+  "python_image": "docker.io/library/python@sha256:56249d7a2f93306106f6d8bcdf6423afb73c1b747d874febcc778beee25cb8bb",
+  "go_version": "1.26.4",
+  "acp_go_sdk_version": "v0.13.5",
+  "codex_acp_version": "1.1.2",
+  "codex_version": "0.144.1",
+  "litellm_version": "1.93.0",
+  "runtime_uids": {
+    "litellm": 10001,
+    "codex_tool": 10002
+  }
+}

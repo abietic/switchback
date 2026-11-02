@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+fixtures=$(mktemp -d)
+trap 'rm -rf "$fixtures"' EXIT
+validator="$root/scripts/check-observability-native-json"
+names=(TestLocalObservabilityExploreNative TestLocalObservabilityMonitoringNative TestLocalObservabilityAlloyFreshVolumeNative TestLocalObservabilityPromQL TestTelemetryWorkerDockerNativeCollectionAndReplacement TestSupplementProofsReadPublishedClaimThroughProductionLoader)
+packages=(internal/architecture internal/architecture internal/architecture internal/architecture internal/localproduct test/acceptance/observability)
+for p in internal/architecture internal/localproduct test/acceptance/observability; do
+  printf '{"Action":"start","Package":"github.com/abietic/switchback/%s"}\n' "$p" >>"$fixtures/good"
+  for i in "${!names[@]}"; do
+    if test "${packages[$i]}" = "$p"; then
+      for action in run pass; do
+        printf '{"Action":"%s","Package":"github.com/abietic/switchback/%s","Test":"%s"}\n' "$action" "$p" "${names[$i]}" >>"$fixtures/good"
+      done
+    fi
+  done
+  printf '{"Action":"pass","Package":"github.com/abietic/switchback/%s"}\n' "$p" >>"$fixtures/good"
+done
+check() {
+  local expected=$1 file=$2 actual=0
+  "$validator" "$file" >"$fixtures/result" 2>&1 || actual=$?
+  if test "$actual" != "$expected"; then
+    printf 'expected %s got %s: %s\n' "$expected" "$actual" "$file" >&2
+    sed -n '1,20p' "$fixtures/result" >&2
+    exit 1
+  fi
+}
+check 0 "$fixtures/good"
+cp "$fixtures/good" "$fixtures/extra_package"
+printf '{"Action":"start","Package":"unexpected"}\n{"Action":"pass","Package":"unexpected"}\n' >>"$fixtures/extra_package"
+check 1 "$fixtures/extra_package"
+jq -c 'select(.Test != "TestLocalObservabilityPromQL")' "$fixtures/good" >"$fixtures/missing"; check 1 "$fixtures/missing"
+sed 's@internal/localproduct@wrong/package@g' "$fixtures/good" >"$fixtures/wrong"; check 1 "$fixtures/wrong"
+jq -c 'if .Action == "pass" and .Test == "TestLocalObservabilityPromQL" then .Action="skip" else . end' "$fixtures/good" >"$fixtures/skip"; check 1 "$fixtures/skip"
+sed '$d' "$fixtures/good" >"$fixtures/truncated"; check 1 "$fixtures/truncated"
+printf '{"Action":"start","Package":"p"}\n{"Action":"pass","Package":"p"}\n' >"$fixtures/empty"; check 1 "$fixtures/empty"
+sed 's/TestLocalObservabilityPromQL/TestMonitoringRegistryFixture/g' "$fixtures/good" >"$fixtures/helper"; check 1 "$fixtures/helper"
+printf '{"passed":true}\n' >"$fixtures/selfpassed"; check 1 "$fixtures/selfpassed"
+jq -c 'if .Action == "pass" and .Test == "TestLocalObservabilityPromQL" then .Action="fail" else . end' "$fixtures/good" >"$fixtures/fail"; check 1 "$fixtures/fail"
+jq -c '., (if .Action == "run" and .Test == "TestLocalObservabilityPromQL" then . else empty end)' "$fixtures/good" >"$fixtures/duplicate"; check 1 "$fixtures/duplicate"
+jq -c '., (if .Action == "start" and (.Package|endswith("architecture")) then {Action:"run",Package:.Package,Test:"TestUnexpected"},{Action:"pass",Package:.Package,Test:"TestUnexpected"} else empty end)' "$fixtures/good" >"$fixtures/extra"; check 1 "$fixtures/extra"
+jq -c '., (if .Action == "run" and .Test == "TestLocalObservabilityPromQL" then {Action:"run",Package:.Package,Test:(.Test+"/child")},{Action:"pass",Package:.Package,Test:(.Test+"/child")} else empty end)' "$fixtures/good" >"$fixtures/child"; check 0 "$fixtures/child"
+printf 'native JSONL characterization passed (synthetic evidence only)\n'

@@ -1,0 +1,396 @@
+name: switchback-m1
+
+x-langfuse-depends-on: &langfuse-depends-on
+  postgres:
+    condition: service_healthy
+  langfuse-minio:
+    condition: service_healthy
+  langfuse-redis:
+    condition: service_healthy
+  langfuse-clickhouse:
+    condition: service_healthy
+
+x-langfuse-environment: &langfuse-environment
+  HOSTNAME: "0.0.0.0"
+  NEXTAUTH_URL: http://localhost:${SWITCHBACK_LANGFUSE_PORT:-3000}
+  DATABASE_URL: postgresql://switchback:${SWITCHBACK_POSTGRES_PASSWORD:?run make local-env}@postgres:5432/langfuse
+  SALT: ${LANGFUSE_SALT:?run make local-env}
+  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?run make local-env}
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+  CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+  CLICKHOUSE_USER: langfuse
+  CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?run make local-env}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?run make local-env}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?run make local-env}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://127.0.0.1:${SWITCHBACK_LANGFUSE_MINIO_PORT:-9090}
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+  REDIS_HOST: langfuse-redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:?run make local-env}
+  REDIS_TLS_ENABLED: "false"
+
+services:
+  switchback-web:
+    build:
+      context: ../..
+      dockerfile: images/web/Dockerfile
+    image: switchback-web:local
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      switchback-backend:
+        condition: service_started
+    ports:
+      - 127.0.0.1:${SWITCHBACK_WEB_UI_PORT:-4173}:8080
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks: [local-access]
+
+  switchback-backend:
+    build:
+      context: ../..
+      dockerfile: images/backend/Dockerfile
+    image: switchback-backend:local
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      switchback-migrate:
+        condition: service_completed_successfully
+      assistant-litellm:
+        condition: service_healthy
+    environment:
+      SWITCHBACK_CONTAINERIZED: "1"
+      SWITCHBACK_WEB_ADDRESS: 0.0.0.0:8080
+      SWITCHBACK_TELEMETRY_ADDRESS: ${SWITCHBACK_TELEMETRY_ADDRESS:-0.0.0.0:9091}
+      SWITCHBACK_ALLOY_PUSH_URL: ${SWITCHBACK_ALLOY_PUSH_URL:-http://alloy:12345/loki/api/v1/push}
+      SWITCHBACK_LOCAL_TENANT_ID: tenant-local
+      SWITCHBACK_LOCAL_ACTOR_ID: user-local
+      SWITCHBACK_DATABASE_URL: postgresql://switchback:${SWITCHBACK_POSTGRES_PASSWORD:?run make local-env}@postgres:5432/switchback?sslmode=disable
+      SWITCHBACK_DATA_ROOT: /var/lib/switchback
+      SWITCHBACK_ENGINE_DATA_ROOT: ${SWITCHBACK_HOST_DATA_ROOT:?run make local-env}
+      SWITCHBACK_WORKSPACE_SOURCE_ROOT: /opt/switchback/workspace-source
+      SWITCHBACK_WORKER_IMAGE: ${SWITCHBACK_WORKER_IMAGE:?run make local-up}
+      SWITCHBACK_WORKER_NETWORK: ${SWITCHBACK_WORKER_NETWORK:-switchback-m1-worker-control}
+      SWITCHBACK_M1_WORKER_DELIVERY_ENABLED: "1"
+      SWITCHBACK_SINGLE_RUNTIME_RECOVERY_ENABLED: ${SWITCHBACK_SINGLE_RUNTIME_RECOVERY_ENABLED:-0}
+      SWITCHBACK_M2_ASSISTANT_ENABLED: ${SWITCHBACK_M2_ASSISTANT_ENABLED:-1}
+      SWITCHBACK_WORKER_DISPLAY_PROJECTION_ENABLED: ${SWITCHBACK_WORKER_DISPLAY_PROJECTION_ENABLED:-1}
+      SWITCHBACK_ASSISTANT_MODEL_PROFILE: ${SWITCHBACK_ASSISTANT_MODEL_PROFILE:-kimi-code-assistant-openai-v1}
+      SWITCHBACK_ASSISTANT_LITELLM_BASE_URL: http://assistant-litellm:4000
+      SWITCHBACK_ASSISTANT_LITELLM_API_KEY: ${SWITCHBACK_ASSISTANT_LITELLM_PROXY_KEY:?run make local-env}
+      SWITCHBACK_GRPC_ADDRESS: 0.0.0.0:9090
+      SWITCHBACK_BACKEND_GRPC_TARGET: switchback-backend:9090
+      SWITCHBACK_BACKEND_HTTP_BASE_URL: http://switchback-backend:8080
+      SWITCHBACK_KIMI_CREDENTIAL_FILE: /run/switchback-provider/kimi.key
+      SWITCHBACK_DEEPSEEK_CREDENTIAL_FILE: /run/switchback-provider/deepseek.key
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      SWITCHBACK_GRAFANA_BROWSER_BASE_URL: ${SWITCHBACK_GRAFANA_BROWSER_BASE_URL-http://localhost:${SWITCHBACK_GRAFANA_PORT:-3001}}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:?run make local-env}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:?run make local-env}
+    ports:
+      - 127.0.0.1:${SWITCHBACK_BACKEND_PORT:-8080}:8080
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - type: bind
+        source: ${SWITCHBACK_HOST_DATA_ROOT:?run make local-env}
+        target: /var/lib/switchback
+      - type: bind
+        source: ${SWITCHBACK_DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+      - type: bind
+        source: ../../test/fixtures/m1/workspace-repository
+        target: /opt/switchback/workspace-source
+        read_only: true
+      - type: bind
+        source: ${SWITCHBACK_KIMI_KEY_FILE:?run make local-env and populate the key file}
+        target: /run/switchback-provider/kimi.key
+        read_only: true
+      - type: bind
+        source: ${SWITCHBACK_DEEPSEEK_KEY_FILE:?run make local-env and populate the key file}
+        target: /run/switchback-provider/deepseek.key
+        read_only: true
+    networks: [worker-control, switchback-data, observability, assistant-model, local-access]
+
+  assistant-litellm:
+    build:
+      context: ../..
+      dockerfile: images/assistant-litellm/Dockerfile
+    image: switchback-assistant-litellm:local
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SWITCHBACK_ASSISTANT_LITELLM_PROXY_KEY: ${SWITCHBACK_ASSISTANT_LITELLM_PROXY_KEY:?run make local-env}
+      SWITCHBACK_ASSISTANT_KIMI_CODE_API_KEY_FILE: /run/switchback-provider/kimi.key
+      SWITCHBACK_ASSISTANT_DEEPSEEK_API_KEY_FILE: /run/switchback-provider/deepseek.key
+    volumes:
+      - type: bind
+        source: ${SWITCHBACK_KIMI_KEY_FILE:?run make local-env and populate the key file}
+        target: /run/switchback-provider/kimi.key
+        read_only: true
+      - type: bind
+        source: ${SWITCHBACK_DEEPSEEK_KEY_FILE:?run make local-env and populate the key file}
+        target: /run/switchback-provider/deepseek.key
+        read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/lib/switchback-litellm:size=32m,mode=0700,uid=10001,gid=10001
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2).read()"
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [assistant-model, assistant-egress]
+
+  worker-image:
+    profiles: [image-build]
+    build:
+      context: ../..
+      dockerfile: images/worker/Dockerfile
+    image: switchback-worker:local
+    entrypoint: ["/bin/true"]
+
+  postgres:
+    image: docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: switchback
+      POSTGRES_PASSWORD: ${SWITCHBACK_POSTGRES_PASSWORD:?run make local-env}
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U switchback -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-postgres.sh:/docker-entrypoint-initdb.d/10-switchback-init.sh:ro
+      - ./migrate-postgres.sh:/opt/switchback/migrate-postgres.sh:ro
+      - ../../migrations:/opt/switchback/migrations:ro
+    networks: [switchback-data, langfuse-data]
+
+  switchback-migrate:
+    image: docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: switchback
+      PGPASSWORD: ${SWITCHBACK_POSTGRES_PASSWORD:?run make local-env}
+      PGDATABASE: switchback
+    entrypoint: ["/bin/sh", "/opt/switchback/migrate-postgres.sh"]
+    volumes:
+      - ./migrate-postgres.sh:/opt/switchback/migrate-postgres.sh:ro
+      - ../../migrations:/opt/switchback/migrations:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    networks: [switchback-data]
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse@sha256:a19ffb23e8925cdf9211f0eea97a5e1da6a7dd7f53e2b5c644b1677d241fd8b4
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    environment:
+      <<: *langfuse-environment
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?run make local-env}
+      LANGFUSE_INIT_ORG_ID: switchback-local
+      LANGFUSE_INIT_ORG_NAME: Switchback Local
+      LANGFUSE_INIT_PROJECT_ID: switchback-m1
+      LANGFUSE_INIT_PROJECT_NAME: Switchback M1
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:?run make local-env}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:?run make local-env}
+      LANGFUSE_INIT_USER_EMAIL: switchback@localhost.invalid
+      LANGFUSE_INIT_USER_NAME: Switchback Local
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?run make local-env}
+    ports:
+      - 127.0.0.1:${SWITCHBACK_LANGFUSE_PORT:-3000}:3000
+    networks: [observability, langfuse-data, local-access]
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker@sha256:b287a89f353a587bedf417d6d8a93904a94479408ec633460ee5e46341bafaf1
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    environment: *langfuse-environment
+    networks: [langfuse-data]
+
+  langfuse-clickhouse:
+    image: docker.io/clickhouse/clickhouse-server@sha256:e35b10a33c93ab369dfa3607c829a42e4bc7f0d0efff7663b2e07383b98a360c
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?run make local-env}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    networks: [langfuse-data]
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio@sha256:9a11e833bb501380d1c6eb7cf1fa38ec4e96c9e4b45f82057107e618a8de7f43
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: langfuse
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD:?run make local-env}
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    ports:
+      - 127.0.0.1:${SWITCHBACK_LANGFUSE_MINIO_PORT:-9090}:9000
+    volumes:
+      - langfuse-minio-data:/data
+    networks: [langfuse-data, local-access]
+
+  langfuse-redis:
+    image: docker.io/library/redis@sha256:31fb2d98f60123bf0cf70b73b685304843ebce2daaad95f7c7555af14c3cfc58
+    restart: unless-stopped
+    command: [redis-server, --requirepass, "${LANGFUSE_REDIS_PASSWORD:?run make local-env}", --maxmemory-policy, noeviction]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_AUTH\" ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    environment:
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:?run make local-env}
+    volumes:
+      - langfuse-redis-data:/data
+    networks: [langfuse-data]
+
+  prometheus:
+    image: docker.io/prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [--config.file=/etc/prometheus/prometheus.yaml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=7d]
+    ports:
+      - 127.0.0.1:${SWITCHBACK_PROMETHEUS_PORT:-9091}:9090
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    networks: [observability, local-access]
+
+  loki:
+    image: docker.io/grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [-config.file=/etc/loki/local.yaml]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/local.yaml:ro
+      - loki-data:/loki
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks: [observability]
+
+  alloy:
+    image: docker.io/grafana/alloy@sha256:f111cce835516c5f99166342be7038496b52ced16667be5a11e19258a3e4cd30
+    user: "473:473"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [run, --server.http.listen-addr=0.0.0.0:12346, --storage.path=/var/lib/alloy, --stability.level=experimental, --disable-reporting, /etc/alloy/config.alloy]
+    volumes:
+      - ./observability/alloy.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy
+    networks: [observability]
+
+  grafana:
+    image: docker.io/grafana/grafana@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${SWITCHBACK_GRAFANA_PASSWORD:?run make local-env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_MODE: console
+    ports:
+      - 127.0.0.1:${SWITCHBACK_GRAFANA_PORT:-3001}:3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks: [observability, local-access]
+
+networks:
+  worker-control:
+    name: ${SWITCHBACK_WORKER_NETWORK:-switchback-m1-worker-control}
+  switchback-data:
+    internal: true
+  observability:
+    internal: true
+  assistant-model:
+    internal: true
+  assistant-egress:
+  langfuse-data:
+    internal: true
+  local-access:
+
+volumes:
+  prometheus-data:
+  loki-data:
+  alloy-data:
+  grafana-data:
+  postgres-data:
+  langfuse-clickhouse-data:
+  langfuse-clickhouse-logs:
+  langfuse-minio-data:
+  langfuse-redis-data:

@@ -1,0 +1,17 @@
+# TEST ONLY: controlled ACP replaces Codex. Production shim and LiteLLM callback remain.
+ARG GO_IMAGE=docker.io/library/golang@sha256:b58a2431884c6dfc5ddcea953c7f426ad72c2ff9e94b4b8495fefa74e4dabcc0
+ARG WORKER_BASE
+FROM ${GO_IMAGE} AS fixture-build
+WORKDIR /src/spikes/worker-runtime
+COPY spikes/worker-runtime/go.mod spikes/worker-runtime/go.sum ./
+RUN go mod download
+COPY spikes/worker-runtime/test/fakes ./test/fakes
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/fake-acp ./test/fakes/cmd/fake-acp \
+ && CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/fake-openai ./test/fakes/cmd/fake-openai
+FROM ${WORKER_BASE}
+LABEL org.switchback.acceptance.controlled-acp="true" org.switchback.acceptance.scope="Langfuse subset; not real Codex or G5"
+# Remove the symlink before COPY so the executable replaces exactly the fixed path.
+RUN rm /opt/switchback/node_modules/.bin/codex-acp
+COPY --from=fixture-build /out/fake-acp /opt/switchback/node_modules/.bin/codex-acp
+COPY --from=fixture-build /out/fake-openai /usr/local/bin/fake-openai
+COPY test/acceptance/observability/litellm.yaml /opt/switchback/litellm/config.yaml

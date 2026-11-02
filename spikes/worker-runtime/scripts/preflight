@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+image_lock="${SWITCHBACK_SPIKE_IMAGE_LOCK:-$root_dir/image-lock.json}"
+host_data_root="${SWITCHBACK_SPIKE_HOST_DATA_ROOT:-$root_dir/.spike-data}"
+
+die() {
+	echo "preflight: $*" >&2
+	exit 2
+}
+
+require_command() {
+	command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+validate_image_lock() {
+	jq -e '
+		.schema_version == 1 and
+		.platform == "linux/arm64" and
+		(.images | type == "array" and length == 11) and
+		([.images[].name] | length == (unique | length)) and
+		all(.images[];
+			. as $image |
+			(.name | type == "string" and length > 0) and
+			(.source_ref | type == "string" and length > 0) and
+			(.runtime_ref | type == "string" and test("^[^:@]+(?:/[^:@]+)*@sha256:[a-f0-9]{64}$")) and
+			(.manifest_digest | type == "string" and test("^sha256:[a-f0-9]{64}$")) and
+			(.platform_digest | type == "string" and test("^sha256:[a-f0-9]{64}$")) and
+			.platform == "linux/arm64" and
+			($image.runtime_ref | endswith("@" + $image.platform_digest))
+		)
+	' "$image_lock" >/dev/null || die "image lock is invalid, tag-only, duplicate, or platform-mismatched"
+}
+
+is_clean_absolute_path() {
+	local path="$1"
+	[[ "$path" == /* && "$path" != "/" && "$path" != *$'\n'* && "$path" != */ && "$path" != *"//"* && "$path" != */./* && "$path" != */../* && "$path" != */. && "$path" != */.. ]]
+}
+
+df_available_kb() {
+	local path="$1"
+	local output available_kb
+	output="$(df -Pk "$path")" || return 1
+	available_kb="$(awk 'NR == 2 { print $4 }' <<<"$output")"
+	[[ "$available_kb" =~ ^[0-9]+$ ]] || return 1
+	printf '%s\n' "$available_kb"
+}
+
+native_engine_available_kb() {
+	local docker_root available_kb
+	docker_root="$(jq -er '.DockerRootDir | strings' <<<"$info")" || die "Docker Engine root is unavailable"
+	is_clean_absolute_path "$docker_root" || die "Docker Engine root is not a clean absolute path"
+	available_kb="$(df_available_kb "$docker_root")" || die "Docker Engine backing storage is unavailable"
+	printf '%s\n' "$available_kb"
+}
+
+docker_desktop_available_kb() {
+	local disk_image disk_dir logical_bytes allocated_kb image_remaining_kb host_available_kb du_output
+	disk_image="${SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE:-${HOME:-}/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw}"
+	is_clean_absolute_path "$disk_image" || die "Docker Desktop disk image path is not a clean absolute path"
+	[[ ! -L "$disk_image" && -f "$disk_image" ]] || die "Docker Desktop disk image is missing or a symlink"
+	disk_dir="$(cd "$(dirname "$disk_image")" && pwd -P)" || die "Docker Desktop disk image directory is unavailable"
+	[[ "$disk_dir" == /* && "$disk_dir" != *$'\n'* ]] || die "Docker Desktop disk image directory is invalid"
+	logical_bytes="$(stat -f '%z' "$disk_image")" || die "Docker Desktop disk image logical limit is unavailable"
+	[[ "$logical_bytes" =~ ^[0-9]+$ && "$logical_bytes" -gt 0 ]] || die "Docker Desktop disk image logical limit is invalid"
+	du_output="$(du -k "$disk_image")" || die "Docker Desktop disk image allocated blocks are unavailable"
+	[[ "$du_output" =~ ^([0-9]+)[[:space:]] ]] || die "Docker Desktop disk image allocated blocks are invalid"
+	allocated_kb="${BASH_REMATCH[1]}"
+	logical_kb=$(( (logical_bytes + 1023) / 1024 ))
+	(( allocated_kb <= logical_kb )) || die "Docker Desktop disk image allocated blocks exceed its logical limit"
+	host_available_kb="$(df_available_kb "$disk_dir")" || die "Docker Desktop disk image host volume is unavailable"
+	image_remaining_kb=$(( logical_kb - allocated_kb ))
+	if (( host_available_kb < image_remaining_kb )); then
+		printf '%s\n' "$host_available_kb"
+	else
+		printf '%s\n' "$image_remaining_kb"
+	fi
+}
+
+docker_backing_storage_available_kb() {
+	local host_os operating_system
+	host_os="$(uname -s)" || die "host platform is unavailable"
+	operating_system="$(jq -er '.OperatingSystem | strings' <<<"$info")" || die "Docker operating system is unavailable"
+	case "$host_os" in
+	Linux)
+		native_engine_available_kb
+		;;
+	Darwin)
+		[[ "$operating_system" == *"Docker Desktop"* ]] || die "unsupported Docker backing storage platform"
+		require_command stat
+		require_command du
+		docker_desktop_available_kb
+		;;
+	*) die "unsupported Docker backing storage platform" ;;
+	esac
+}
+
+port_value() {
+	local name="$1"
+	local env_file="$host_data_root/env/compose.env"
+	awk -F= -v name="$name" '$1 == name { print substr($0, length(name) + 2); exit }' "$env_file"
+}
+
+require_command docker
+require_command jq
+require_command df
+require_command lsof
+"$root_dir/scripts/generate-env"
+[[ -f "$image_lock" ]] || die "image lock does not exist: $image_lock"
+validate_image_lock
+
+info="$(docker info --format '{{json .}}')" || die "Docker daemon is unavailable"
+compose_version="$(docker compose version)" || die "Docker Compose v2+ is required"
+if [[ ! "$compose_version" =~ v?([0-9]+) ]] || (( BASH_REMATCH[1] < 2 )); then
+	die "Docker Compose v2+ is required"
+fi
+cpus="$(jq -er '.NCPU | numbers' <<<"$info")" || die "Docker CPU capacity is unavailable"
+memory="$(jq -er '.MemTotal | numbers' <<<"$info")" || die "Docker memory capacity is unavailable"
+(( cpus >= 6 )) || die "Docker requires at least 6 CPUs"
+(( memory >= 12884901888 )) || die "Docker requires at least 12 GiB memory"
+
+available_kb="$(docker_backing_storage_available_kb)"
+(( available_kb >= 26214400 )) || die "Docker backing storage requires at least 25 GiB free"
+
+for name in SWITCHBACK_SPIKE_BACKEND_HTTP_PORT SWITCHBACK_SPIKE_BACKEND_GRPC_PORT SWITCHBACK_SPIKE_LANGFUSE_WEB_PORT SWITCHBACK_SPIKE_LANGFUSE_WORKER_PORT; do
+	port="$(port_value "$name")"
+	[[ "$port" =~ ^[1-9][0-9]{0,4}$ && "$port" -le 65535 ]] || die "$name is invalid"
+	if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+		die "required loopback port $port is already in use"
+	fi
+done

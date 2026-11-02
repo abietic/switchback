@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/assistant-decision.schema.json",
+  "title": "Switchback Assistant Decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","decision_type","user_visible_content","clarification_question","readiness","task_draft","checkpoint"],
+  "properties": {
+    "schema_version":{"const":"assistant.decision.v1"},
+    "decision_type":{"enum":["clarification","ready_draft","informational"]},
+    "user_visible_content":{"type":"string","minLength":1},
+    "clarification_question":{"type":"string"},
+    "readiness":{"type":"object"},
+    "task_draft":{"type":["object","null"]},
+    "checkpoint":{"type":["object","null"]}
+  }
+}

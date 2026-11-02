@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: switchback-backend
+    static_configs:
+      - targets: ['switchback-backend:9091']
+  - job_name: alloy
+    static_configs:
+      - targets: ['alloy:12346']
+  - job_name: loki
+    static_configs:
+      - targets: ['loki:3100']
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

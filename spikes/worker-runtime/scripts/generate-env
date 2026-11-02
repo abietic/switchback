@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+host_data_root="${SWITCHBACK_SPIKE_HOST_DATA_ROOT:-$root_dir/.spike-data}"
+image_lock="${SWITCHBACK_SPIKE_IMAGE_LOCK:-$root_dir/image-lock.json}"
+
+die() {
+	echo "generate-env: $*" >&2
+	exit 2
+}
+
+require_value() {
+	local name="$1"
+	local value="${!name:-}"
+	[[ -n "$value" && "$value" == "${value#"${value%%[![:space:]]*}"}" && "$value" == "${value%"${value##*[![:space:]]}"}" ]] || die "$name is required"
+}
+
+require_command() {
+	command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+owner_only_mode() {
+	local path="$1" platform=""
+	platform="$(uname -s)" || return 1
+	case "$platform" in
+	Darwin) stat -f '%Lp' "$path" ;;
+	Linux) stat -c '%a' "$path" ;;
+	*) return 1 ;;
+	esac
+}
+
+random_hex() {
+	openssl rand -hex "$1"
+}
+
+existing_value() {
+	local name="$1"
+	[[ -f "$compose_env" ]] || return 0
+	awk -F= -v name="$name" '$1 == name { print substr($0, length(name) + 2); exit }' "$compose_env"
+}
+
+secret_value() {
+	local name="$1"
+	local bytes="$2"
+	local value
+	value="$(existing_value "$name")"
+	if [[ -z "$value" ]]; then
+		value="$(random_hex "$bytes")" || die "generate $name"
+	fi
+	printf '%s' "$value"
+}
+
+image_ref() {
+	local name="$1"
+	jq -er --arg name "$name" '
+		.images[] | select(.name == $name) | .runtime_ref |
+		select(type == "string" and test("^[^:@]+(?:/[^:@]+)*@sha256:[a-f0-9]{64}$"))
+	' "$image_lock"
+}
+
+[[ "$host_data_root" == /* && "$host_data_root" != "/" && "$host_data_root" != *$'\n'* ]] || die "SWITCHBACK_SPIKE_HOST_DATA_ROOT must be a non-root absolute path"
+[[ -f "$image_lock" ]] || die "image lock does not exist: $image_lock"
+require_command docker
+require_command jq
+require_command openssl
+require_value SWITCHBACK_SPIKE_UPSTREAM_MODEL
+require_value SWITCHBACK_SPIKE_UPSTREAM_API_BASE
+require_value SWITCHBACK_SPIKE_UPSTREAM_API_KEY
+
+case "$SWITCHBACK_SPIKE_UPSTREAM_API_BASE" in
+http://*|https://*) ;;
+*) die "SWITCHBACK_SPIKE_UPSTREAM_API_BASE must be an HTTP(S) URL" ;;
+esac
+[[ "$SWITCHBACK_SPIKE_UPSTREAM_API_BASE" != *$'\n'* && "$SWITCHBACK_SPIKE_UPSTREAM_API_BASE" != *"?"* && "$SWITCHBACK_SPIKE_UPSTREAM_API_BASE" != *"#"* ]] || die "SWITCHBACK_SPIKE_UPSTREAM_API_BASE is invalid"
+
+context_json="$(docker context inspect)" || die "inspect active Docker context"
+docker_socket="$(jq -er '.[0].Endpoints.docker.Host | select(type == "string")' <<<"$context_json")" || die "active Docker context has no endpoint"
+case "$docker_socket" in
+unix:///*) docker_socket="${docker_socket#unix://}" ;;
+*) die "active Docker context must use a local unix:// endpoint" ;;
+esac
+
+umask 077
+mkdir -p "$host_data_root" || die "create data root"
+host_data_root="$(cd "$host_data_root" && pwd -P)" || die "canonicalize data root"
+[[ "$host_data_root" == /* && "$host_data_root" != "/" && "$host_data_root" != *$'\n'* ]] || die "SWITCHBACK_SPIKE_HOST_DATA_ROOT must resolve to a non-root absolute path"
+env_dir="$host_data_root/env"
+compose_env="$env_dir/compose.env"
+model_key_file="$env_dir/upstream-model.key"
+mkdir -p "$env_dir" || die "create data root"
+[[ -d "$env_dir" && -w "$env_dir" ]] || die "data root is not writable"
+
+if [[ -f "$model_key_file" ]]; then
+	[[ "$(owner_only_mode "$model_key_file")" == "600" ]] || die "model key file must be owner-only"
+	[[ "$(<"$model_key_file")" == "$SWITCHBACK_SPIKE_UPSTREAM_API_KEY" ]] || die "model key file conflicts with SWITCHBACK_SPIKE_UPSTREAM_API_KEY"
+else
+	printf '%s\n' "$SWITCHBACK_SPIKE_UPSTREAM_API_KEY" >"$model_key_file"
+	chmod 600 "$model_key_file"
+fi
+
+nextauth_secret="$(secret_value NEXTAUTH_SECRET 32)"
+salt="$(secret_value SALT 32)"
+encryption_key="$(secret_value ENCRYPTION_KEY 32)"
+postgres_password="$(secret_value POSTGRES_PASSWORD 24)"
+redis_password="$(secret_value REDIS_AUTH 24)"
+clickhouse_password="$(secret_value CLICKHOUSE_PASSWORD 24)"
+minio_password="$(secret_value MINIO_ROOT_PASSWORD 24)"
+langfuse_public_key="$(existing_value LANGFUSE_PUBLIC_KEY)"
+langfuse_secret_key="$(existing_value LANGFUSE_SECRET_KEY)"
+if [[ -z "$langfuse_public_key" ]]; then
+	langfuse_public_key="lf_pk_$(random_hex 20)"
+fi
+if [[ -z "$langfuse_secret_key" ]]; then
+	langfuse_secret_key="lf_sk_$(random_hex 24)"
+fi
+
+tmp_env="$(mktemp "$env_dir/compose.env.XXXXXX")"
+trap 'rm -f "$tmp_env"' EXIT
+cat >"$tmp_env" <<EOF
+SWITCHBACK_SPIKE_HOST_DATA_ROOT=$host_data_root
+SWITCHBACK_SPIKE_DOCKER_SOCKET=$docker_socket
+SWITCHBACK_SPIKE_DATA_ROOT=/var/lib/switchback-spike
+SWITCHBACK_SPIKE_FIXTURE_PATH=/opt/switchback/fixture
+SWITCHBACK_SPIKE_LISTEN_ADDR=0.0.0.0:8080
+SWITCHBACK_SPIKE_GRPC_LISTEN_ADDR=0.0.0.0:9090
+SWITCHBACK_SPIKE_BACKEND_GRPC_TARGET=spike-backend:9090
+SWITCHBACK_SPIKE_BACKEND_HTTP_BASE_URL=http://spike-backend:8080
+SWITCHBACK_SPIKE_WORKER_NETWORK=switchback-spike-control
+SWITCHBACK_SPIKE_WORKER_IMAGE=${SWITCHBACK_SPIKE_WORKER_IMAGE:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+SWITCHBACK_SPIKE_MODEL_KEY_FILE=/var/lib/switchback-spike/env/upstream-model.key
+SWITCHBACK_SPIKE_UPSTREAM_MODEL=$SWITCHBACK_SPIKE_UPSTREAM_MODEL
+SWITCHBACK_SPIKE_UPSTREAM_API_BASE=$SWITCHBACK_SPIKE_UPSTREAM_API_BASE
+SWITCHBACK_SPIKE_BACKEND_HTTP_PORT=18080
+SWITCHBACK_SPIKE_BACKEND_GRPC_PORT=19090
+SWITCHBACK_SPIKE_LANGFUSE_WEB_PORT=13000
+SWITCHBACK_SPIKE_LANGFUSE_WORKER_PORT=13030
+SWITCHBACK_SPIKE_IMAGE_BUF=$(image_ref buf)
+SWITCHBACK_SPIKE_IMAGE_GOLANG=$(image_ref golang)
+SWITCHBACK_SPIKE_IMAGE_NODE=$(image_ref node)
+SWITCHBACK_SPIKE_IMAGE_PYTHON=$(image_ref python)
+SWITCHBACK_SPIKE_IMAGE_DEBIAN=$(image_ref debian)
+SWITCHBACK_SPIKE_IMAGE_LANGFUSE_WEB=$(image_ref langfuse-web)
+SWITCHBACK_SPIKE_IMAGE_LANGFUSE_WORKER=$(image_ref langfuse-worker)
+SWITCHBACK_SPIKE_IMAGE_POSTGRES=$(image_ref postgres)
+SWITCHBACK_SPIKE_IMAGE_REDIS=$(image_ref redis)
+SWITCHBACK_SPIKE_IMAGE_CLICKHOUSE=$(image_ref clickhouse)
+SWITCHBACK_SPIKE_IMAGE_MINIO=$(image_ref minio)
+LANGFUSE_BASE_URL=http://langfuse-web:3000
+LANGFUSE_PUBLIC_KEY=$langfuse_public_key
+LANGFUSE_SECRET_KEY=$langfuse_secret_key
+LANGFUSE_INIT_ORG_ID=switchback-spike
+LANGFUSE_INIT_ORG_NAME=Switchback Spike
+LANGFUSE_INIT_PROJECT_ID=switchback-worker-runtime
+LANGFUSE_INIT_PROJECT_NAME=Switchback Worker Runtime
+LANGFUSE_INIT_PROJECT_PUBLIC_KEY=$langfuse_public_key
+LANGFUSE_INIT_PROJECT_SECRET_KEY=$langfuse_secret_key
+LANGFUSE_INIT_USER_EMAIL=switchback-spike@example.invalid
+LANGFUSE_INIT_USER_NAME=Switchback Spike
+LANGFUSE_INIT_USER_PASSWORD=$(secret_value LANGFUSE_INIT_USER_PASSWORD 20)
+NEXTAUTH_URL=http://127.0.0.1:13000
+NEXTAUTH_SECRET=$nextauth_secret
+SALT=$salt
+ENCRYPTION_KEY=$encryption_key
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=$postgres_password
+POSTGRES_DB=postgres
+DATABASE_URL=postgresql://postgres:$postgres_password@postgres:5432/postgres
+REDIS_AUTH=$redis_password
+CLICKHOUSE_USER=clickhouse
+CLICKHOUSE_PASSWORD=$clickhouse_password
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD=$minio_password
+EOF
+chmod 600 "$tmp_env"
+mv -f "$tmp_env" "$compose_env"
+trap - EXIT

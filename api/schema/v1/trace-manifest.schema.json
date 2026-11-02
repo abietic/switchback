@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/trace-manifest.schema.json",
+  "title": "Switchback TraceManifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","trace_stream_id","tenant_id","user_id","workspace_id","worker_session_id","worker_run_id","agent_turn_id","runtime_instance_id","runtime_generation","segments","first_recorded_at","last_recorded_at","schema_versions","lifecycle_policy_ref","storage_tier","availability","analytics_cursor","langfuse_export"],
+  "properties": {
+    "schema_version": {"const":"trace.manifest.v1"},
+    "trace_stream_id": {"type":"string","minLength":1},
+    "tenant_id": {"type":"string","minLength":1},
+    "user_id": {"type":"string","minLength":1},
+    "workspace_id": {"type":"string","minLength":1},
+    "worker_session_id": {"type":"string","minLength":1},
+    "worker_run_id": {"type":"string","minLength":1},
+    "agent_turn_id": {"type":"string","minLength":1},
+    "runtime_instance_id": {"type":"string","minLength":1},
+    "runtime_generation": {"type":"integer","minimum":1},
+    "segments": {"type":"array","minItems":1},
+    "first_recorded_at": {"type":"string","format":"date-time"},
+    "last_recorded_at": {"type":"string","format":"date-time"},
+    "schema_versions": {"type":"array","minItems":1,"items":{"type":"string"}},
+    "lifecycle_policy_ref": {"type":"string","minLength":1},
+    "storage_tier": {"enum":["hot","warm","cold"]},
+    "availability": {"enum":["online","restoring","quarantined","deletion_pending","deleted","error"]},
+    "analytics_cursor": {"type":"string","minLength":1},
+    "langfuse_export": {"type":"object"}
+  }
+}

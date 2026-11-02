@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/runtime-control-frame.schema.json",
+  "$comment": "This schema defines the structural wire shape. DecodeRuntimeControlFrame and Validate are authoritative for cursor arithmetic, digest-chain and other cross-field invariants.",
+  "title": "Switchback RuntimeControlFrame v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "frame_type", "resume_hello", "resume_ack", "resume_ready", "resume_complete", "envelope"],
+  "properties": {
+    "schema_version": {"const": "runtime.control.frame.v1"},
+    "frame_type": {"enum": ["resume_hello", "resume_ack", "resume_ready", "resume_complete", "envelope"]},
+    "resume_hello": {
+      "oneOf": [
+        {"$ref": "#/$defs/resumeHello"},
+        {"type": "null"}
+      ]
+    },
+    "resume_ack": {
+      "oneOf": [
+        {"$ref": "#/$defs/resumeAck"},
+        {"type": "null"}
+      ]
+    },
+    "resume_ready": {
+      "oneOf": [
+        {"$ref": "#/$defs/resumeReady"},
+        {"type": "null"}
+      ]
+    },
+    "resume_complete": {
+      "oneOf": [
+        {"$ref": "#/$defs/resumeComplete"},
+        {"type": "null"}
+      ]
+    },
+    "envelope": {
+      "oneOf": [
+        {"$ref": "runtime-control-envelope.schema.json"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "frame_type": {"const": "resume_hello"},
+        "resume_hello": {"$ref": "#/$defs/resumeHello"},
+        "resume_ack": {"type": "null"},
+        "resume_ready": {"type": "null"},
+        "resume_complete": {"type": "null"},
+        "envelope": {"type": "null"}
+      }
+    },
+    {
+      "properties": {
+        "frame_type": {"const": "resume_ack"},
+        "resume_hello": {"type": "null"},
+        "resume_ack": {"$ref": "#/$defs/resumeAck"},
+        "resume_ready": {"type": "null"},
+        "resume_complete": {"type": "null"},
+        "envelope": {"type": "null"}
+      }
+    },
+    {
+      "properties": {
+        "frame_type": {"const": "resume_ready"},
+        "resume_hello": {"type": "null"},
+        "resume_ack": {"type": "null"},
+        "resume_ready": {"$ref": "#/$defs/resumeReady"},
+        "resume_complete": {"type": "null"},
+        "envelope": {"type": "null"}
+      }
+    },
+    {
+      "properties": {
+        "frame_type": {"const": "resume_complete"},
+        "resume_hello": {"type": "null"},
+        "resume_ack": {"type": "null"},
+        "resume_ready": {"type": "null"},
+        "resume_complete": {"$ref": "#/$defs/resumeComplete"},
+        "envelope": {"type": "null"}
+      }
+    },
+    {
+      "properties": {
+        "frame_type": {"const": "envelope"},
+        "resume_hello": {"type": "null"},
+        "resume_ack": {"type": "null"},
+        "resume_ready": {"type": "null"},
+        "resume_complete": {"type": "null"},
+        "envelope": {"$ref": "runtime-control-envelope.schema.json"}
+      }
+    }
+  ],
+  "$defs": {
+    "activeTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "worker_run_id",
+        "agent_session_id",
+        "agent_turn_id",
+        "start_command_sequence",
+        "start_message_id",
+        "start_idempotency_key",
+        "start_envelope_digest",
+        "phase",
+        "last_update_sequence",
+        "terminal_envelope_digest"
+      ],
+      "properties": {
+        "worker_run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "agent_session_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "agent_turn_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "start_command_sequence": {"type": "integer", "minimum": 1},
+        "start_message_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "start_idempotency_key": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "start_envelope_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "phase": {"enum": ["received", "prompt_invocation_intent", "active", "terminal"]},
+        "last_update_sequence": {"type": "integer", "minimum": 0},
+        "terminal_envelope_digest": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"phase": {"const": "terminal"}}},
+          "then": {"properties": {"terminal_envelope_digest": {"pattern": "^sha256:[0-9a-f]{64}$"}}},
+          "else": {"properties": {"terminal_envelope_digest": {"const": ""}}}
+        }
+      ]
+    },
+    "resumeHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "worker_session_id",
+        "runtime_instance_id",
+        "runtime_generation",
+        "channel_epoch",
+        "shim_process_nonce",
+        "stream_attempt",
+        "worker_tx_last_sequence",
+        "worker_tx_backend_acked_sequence",
+        "worker_tx_cursor_digest",
+        "worker_rx_last_sequence",
+        "worker_rx_applied_sequence",
+        "worker_rx_cursor_digest",
+        "active_turn"
+      ],
+      "properties": {
+        "worker_session_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "runtime_instance_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "runtime_generation": {"type": "integer", "minimum": 1},
+        "channel_epoch": {"type": "integer", "minimum": 1},
+        "shim_process_nonce": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "stream_attempt": {"type": "integer", "minimum": 1},
+        "worker_tx_last_sequence": {"type": "integer", "minimum": 0},
+        "worker_tx_backend_acked_sequence": {"type": "integer", "minimum": 0},
+        "worker_tx_cursor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "worker_rx_last_sequence": {"type": "integer", "minimum": 0},
+        "worker_rx_applied_sequence": {"type": "integer", "minimum": 0},
+        "worker_rx_cursor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "active_turn": {
+          "oneOf": [
+            {"$ref": "#/$defs/activeTurn"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "resumeAck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "rejection_code",
+        "server_connection_id",
+        "journal_revision",
+        "backend_rx_committed_worker_sequence",
+        "backend_rx_applied_worker_sequence",
+        "backend_rx_cursor_digest",
+        "backend_tx_last_command_sequence",
+        "backend_tx_worker_acked_sequence",
+        "backend_tx_worker_applied_sequence",
+        "backend_tx_cursor_digest",
+        "replay_worker_from_sequence",
+        "replay_backend_from_sequence",
+        "active_turn_disposition",
+        "authoritative_start"
+      ],
+      "properties": {
+        "accepted": {"type": "boolean"},
+        "rejection_code": {"type": "string"},
+        "server_connection_id": {"type": "string"},
+        "journal_revision": {"type": "integer", "minimum": 0},
+        "backend_rx_committed_worker_sequence": {"type": "integer", "minimum": 0},
+        "backend_rx_applied_worker_sequence": {"type": "integer", "minimum": 0},
+        "backend_rx_cursor_digest": {"type": "string"},
+        "backend_tx_last_command_sequence": {"type": "integer", "minimum": 0},
+        "backend_tx_worker_acked_sequence": {"type": "integer", "minimum": 0},
+        "backend_tx_worker_applied_sequence": {"type": "integer", "minimum": 0},
+        "backend_tx_cursor_digest": {"type": "string"},
+        "replay_worker_from_sequence": {"type": "integer", "minimum": 0},
+        "replay_backend_from_sequence": {"type": "integer", "minimum": 0},
+        "active_turn_disposition": {"type": "string"},
+        "authoritative_start": {
+          "oneOf": [
+            {"$ref": "#/$defs/activeTurn"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "accepted": {"const": true},
+            "rejection_code": {"const": ""},
+            "server_connection_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+            "journal_revision": {"type": "integer", "minimum": 1},
+            "backend_rx_cursor_digest": {"pattern": "^sha256:[0-9a-f]{64}$"},
+            "backend_tx_cursor_digest": {"pattern": "^sha256:[0-9a-f]{64}$"},
+            "replay_worker_from_sequence": {"type": "integer", "minimum": 1},
+            "replay_backend_from_sequence": {"type": "integer", "minimum": 1},
+            "active_turn_disposition": {
+              "enum": ["none", "continue_active", "already_terminal", "continuity_unproven"]
+            }
+          }
+        },
+        {
+          "properties": {
+            "accepted": {"const": false},
+            "rejection_code": {
+              "enum": [
+                "stale_runtime",
+                "cursor_conflict",
+                "active_turn_conflict",
+                "stream_attempt_stale",
+                "lease_held",
+                "protocol_conflict"
+              ]
+            },
+            "server_connection_id": {"const": ""},
+            "journal_revision": {"const": 0},
+            "backend_rx_committed_worker_sequence": {"const": 0},
+            "backend_rx_applied_worker_sequence": {"const": 0},
+            "backend_rx_cursor_digest": {"const": ""},
+            "backend_tx_last_command_sequence": {"const": 0},
+            "backend_tx_worker_acked_sequence": {"const": 0},
+            "backend_tx_worker_applied_sequence": {"const": 0},
+            "backend_tx_cursor_digest": {"const": ""},
+            "replay_worker_from_sequence": {"const": 0},
+            "replay_backend_from_sequence": {"const": 0},
+            "active_turn_disposition": {"const": ""},
+            "authoritative_start": {"type": "null"}
+          }
+        }
+      ],
+      "allOf": [
+        {"$ref": "#/$defs/dispositionConsistency"}
+      ]
+    },
+    "resumeReady": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server_connection_id",
+        "acknowledged_journal_revision",
+        "worker_tx_replayed_through_sequence",
+        "worker_tx_cursor_digest",
+        "worker_rx_received_through_sequence",
+        "worker_rx_applied_sequence",
+        "worker_rx_cursor_digest",
+        "active_turn"
+      ],
+      "properties": {
+        "server_connection_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "acknowledged_journal_revision": {"type": "integer", "minimum": 1},
+        "worker_tx_replayed_through_sequence": {"type": "integer", "minimum": 0},
+        "worker_tx_cursor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "worker_rx_received_through_sequence": {"type": "integer", "minimum": 0},
+        "worker_rx_applied_sequence": {"type": "integer", "minimum": 0},
+        "worker_rx_cursor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "active_turn": {
+          "oneOf": [
+            {"$ref": "#/$defs/activeTurn"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "resumeComplete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server_connection_id",
+        "journal_revision",
+        "backend_rx_committed_worker_sequence",
+        "backend_rx_applied_worker_sequence",
+        "backend_rx_cursor_digest",
+        "backend_tx_last_command_sequence",
+        "backend_tx_worker_acked_sequence",
+        "backend_tx_worker_applied_sequence",
+        "backend_tx_cursor_digest",
+        "active_turn_disposition",
+        "authoritative_start"
+      ],
+      "properties": {
+        "server_connection_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "journal_revision": {"type": "integer", "minimum": 1},
+        "backend_rx_committed_worker_sequence": {"type": "integer", "minimum": 0},
+        "backend_rx_applied_worker_sequence": {"type": "integer", "minimum": 0},
+        "backend_rx_cursor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "backend_tx_last_command_sequence": {"type": "integer", "minimum": 0},
+        "backend_tx_worker_acked_sequence": {"type": "integer", "minimum": 0},
+        "backend_tx_worker_applied_sequence": {"type": "integer", "minimum": 0},
+        "backend_tx_cursor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "active_turn_disposition": {
+          "enum": ["none", "continue_active", "already_terminal", "continuity_unproven"]
+        },
+        "authoritative_start": {
+          "oneOf": [
+            {"$ref": "#/$defs/activeTurn"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {"$ref": "#/$defs/dispositionConsistency"}
+      ]
+    },
+    "dispositionConsistency": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {"active_turn_disposition": {"const": "none"}},
+            "required": ["active_turn_disposition"]
+          },
+          "then": {"properties": {"authoritative_start": {"type": "null"}}}
+        },
+        {
+          "if": {
+            "properties": {"active_turn_disposition": {"const": "continue_active"}},
+            "required": ["active_turn_disposition"]
+          },
+          "then": {
+            "properties": {
+              "authoritative_start": {
+                "allOf": [
+                  {"$ref": "#/$defs/activeTurn"},
+                  {"properties": {"phase": {"const": "active"}}}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"active_turn_disposition": {"const": "already_terminal"}},
+            "required": ["active_turn_disposition"]
+          },
+          "then": {
+            "properties": {
+              "authoritative_start": {
+                "allOf": [
+                  {"$ref": "#/$defs/activeTurn"},
+                  {"properties": {"phase": {"const": "terminal"}}}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"active_turn_disposition": {"const": "continuity_unproven"}},
+            "required": ["active_turn_disposition"]
+          },
+          "then": {
+            "properties": {
+              "authoritative_start": {
+                "oneOf": [
+                  {"type": "null"},
+                  {
+                    "allOf": [
+                      {"$ref": "#/$defs/activeTurn"},
+                      {"properties": {"phase": {"enum": ["received", "prompt_invocation_intent", "active"]}}}
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

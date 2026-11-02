@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Characterize fail-closed suite outcomes without importing application code."""
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+runner = pathlib.Path(__file__).resolve().with_name("run-python-suite.py")
+cases = {
+    "empty": ("", 1),
+    "pass": ("import unittest\nclass Check(unittest.TestCase):\n def test_ok(self): self.assertTrue(True)\n", 0),
+    "skip": ("import unittest\nclass Check(unittest.TestCase):\n @unittest.skip('fixture')\n def test_skip(self): pass\n", 1),
+    "failure": ("import unittest\nclass Check(unittest.TestCase):\n def test_bad(self): self.fail('fixture')\n", 1),
+    "import_error": ("raise RuntimeError('fixture')\n", 1),
+}
+with tempfile.TemporaryDirectory(prefix="switchback-python-runner-") as directory:
+    for name, (source, expected) in cases.items():
+        suite = pathlib.Path(directory) / name
+        suite.mkdir()
+        (suite / "test_fixture.py").write_text(source)
+        result = subprocess.run([sys.executable, str(runner), str(suite)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != expected:
+            raise SystemExit("Python runner rejected its {} contract".format(name))
+print("Python runner characterization passed (5 cases)")

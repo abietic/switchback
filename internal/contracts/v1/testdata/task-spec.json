@@ -1,0 +1,23 @@
+{
+  "schema_version": "task.spec.v1",
+  "source": "api",
+  "tenant_id": "tenant-local",
+  "user_id": "user-local",
+  "project_id": "project-switchback",
+  "workspace_id": "workspace-demo",
+  "workspace_resolution_ref": {"resolution_id":"resolution-1","revision":1,"workspace_revision_id":"workspace-revision-1","membership_revision":1},
+  "title": "Repair counter",
+  "goal": "Repair the counter and prove it with tests.",
+  "readiness_assessment_ref": {"assessment_id":"assessment-1","policy_revision":"direct-ready-v1","content_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "creation_intent_ref": {"intent_id":"intent-1","trigger_policy_revision":"direct-create-v1","task_spec_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "assumptions": [],
+  "context_refs": [],
+  "target": {"kind":"workspace","ref":"workspace-revision-1"},
+  "constraints": ["Do not publish remote changes."],
+  "acceptance_criteria": ["All repository tests pass."],
+  "runtime_config": {"network_policy":"m1_public_web_restricted_v1"},
+  "agent_config": {"profile_id":"deepseek-codex-openai-v1","profile_revision":"1","adapter":"codex-acp"},
+  "capability_refs": {"skills":[],"mcp_servers":[],"tools":[]},
+  "approval_policy": {"sandbox_operations":"allow","protected_effects":["external_authentication","external_write","production_write","capability_install"]},
+  "output_policy": {"user_visible_types":["report","patch"],"remote_writes":"deny"}
+}

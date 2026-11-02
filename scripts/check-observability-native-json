@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if test "$#" -ne 1; then
+  printf 'usage: %s <go-test-jsonl>\n' "$0" >&2
+  exit 2
+fi
+root=$(cd "$(dirname "$0")/.." && pwd)
+"$root/scripts/check-integration-json" "$1" || exit 1
+if ! jq -e -s '
+  ["TestLocalObservabilityExploreNative","TestLocalObservabilityMonitoringNative",
+   "TestLocalObservabilityAlloyFreshVolumeNative","TestLocalObservabilityPromQL"] as $arch |
+  ([$arch[] | ["github.com/abietic/switchback/internal/architecture",.]] +
+   [["github.com/abietic/switchback/internal/localproduct","TestTelemetryWorkerDockerNativeCollectionAndReplacement"],
+    ["github.com/abietic/switchback/test/acceptance/observability","TestSupplementProofsReadPublishedClaimThroughProductionLoader"]] | sort) as $expected |
+  ([.[] | select(.Action == "run" and .Test != null and (.Test|contains("/")|not)) | [.Package,.Test]] | sort) as $runs |
+  ([.[] | select(.Action == "pass" and .Test != null and (.Test|contains("/")|not)) | [.Package,.Test]] | sort) as $passes |
+  $runs == $expected and $passes == $expected and
+  ([.[]|select(.Action == "start")|.Package]|sort) == ([$expected[][0]]|unique|sort) and
+  all(.[] | select(.Test != null and (.Test|contains("/")));
+    [.Package,(.Test|split("/")[0])] as $parent | any($expected[]; . == $parent))
+' "$1" >/dev/null; then
+  printf 'native evidence requires exactly six top-level run/pass identities\n' >&2
+  exit 1
+fi
+printf 'native six-test execution evidence complete\n'

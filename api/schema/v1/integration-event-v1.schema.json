@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/integration-event-v1.schema.json",
+  "title": "Switchback IntegrationEvent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","event_id","event_type","producer_context","stream_id","sequence","tenant_id","aggregate_type","aggregate_id","trace_id","correlation_id","causation_id","idempotency_key","visibility","occurred_at","payload"],
+  "properties": {
+    "schema_version": {"const":"event.v1"},
+    "event_id": {"type":"string","minLength":1},
+    "event_type": {"type":"string","minLength":1},
+    "producer_context": {"type":"string","minLength":1},
+    "stream_id": {"type":"string","minLength":1},
+    "sequence": {"type":"integer","minimum":1},
+    "tenant_id": {"type":"string","minLength":1},
+    "aggregate_type": {"type":"string","minLength":1},
+    "aggregate_id": {"type":"string","minLength":1},
+    "trace_id": {"type":"string","minLength":1},
+    "correlation_id": {"type":"string","minLength":1},
+    "causation_id": {"type":"string","minLength":1},
+    "idempotency_key": {"type":"string","minLength":1},
+    "visibility": {"enum":["internal","user"]},
+    "occurred_at": {"type":"string","format":"date-time"},
+    "payload": {"type":"object"}
+  }
+}

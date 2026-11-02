@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Requires already-running exact owned fixtures. Never provisions or cleans them.
+set -euo pipefail
+umask 077
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+fail() { printf 'native preflight failed: %s\n' "$1" >&2; exit 1; }
+if test "$#" -ne 1 || [[ "$1" != /* ]] || [[ "$1" == */ ]] || test -e "$1" || test -L "$1"; then
+  printf 'usage: %s <new-absolute-output-directory>\n' "$0" >&2
+  exit 2
+fi
+output=$1
+parent=$(cd "$(dirname "$output")" 2>/dev/null && pwd -P) || exit 2
+test "$parent/$(basename "$output")" = "$output" || exit 2
+mkdir -m 700 "$output" || exit 2
+trap 'exit 1' ERR
+# All requirements precede even read-only Docker inspection.
+for key in SWITCHBACK_OBSERVABILITY_LOG_CLIENT SWITCHBACK_OBSERVABILITY_MONITORING_NATIVE_TEST SWITCHBACK_TEST_ALLOY_NATIVE SWITCHBACK_OBSERVABILITY_NATIVE_TEST SWITCHBACK_TEST_WORKER_TELEMETRY_DOCKER SWITCHBACK_TEST_WORKER_ALLOY_URL SWITCHBACK_TEST_WORKER_LOKI_URL SWITCHBACK_TEST_DATABASE_URL OBSERVABILITY_PROOF_TEST_OUTPUT OBSERVABILITY_PROOF_TEST_DATABASE_URL SWITCHBACK_OBSERVABILITY_PROJECT SWITCHBACK_OBSERVABILITY_POSTGRES_CONTAINER SWITCHBACK_OBSERVABILITY_ALLOY_CONTAINER SWITCHBACK_OBSERVABILITY_LOKI_CONTAINER; do
+  test -n "${!key:-}" || fail "required environment variable $key missing"
+done
+for key in SWITCHBACK_OBSERVABILITY_MONITORING_NATIVE_TEST SWITCHBACK_TEST_ALLOY_NATIVE SWITCHBACK_OBSERVABILITY_NATIVE_TEST SWITCHBACK_TEST_WORKER_TELEMETRY_DOCKER; do
+  test "${!key}" = 1 || fail "$key must equal 1"
+done
+project=$SWITCHBACK_OBSERVABILITY_PROJECT
+claim=$OBSERVABILITY_PROOF_TEST_OUTPUT
+[[ "$project" =~ ^switchback-obsv-[a-z0-9]{8,24}$ ]] || fail 'invalid project'
+[[ "$claim" == /* ]] && test "$(cd "$claim" 2>/dev/null && pwd -P)" = "$claim" || fail 'claim output must be canonical'
+jq -e --arg p "$project" --arg o "$claim" 'type == "object" and .project == $p and .output == $o' "$claim/claim.json" >/dev/null 2>&1 || fail 'claim mismatch'
+# Whitelisted literal data only: never source/eval acceptance.env or print it.
+claim_project= claim_database= claim_port= claim_password=
+while IFS= read -r line || test -n "$line"; do
+  case "$line" in
+    COMPOSE_PROJECT_NAME=*) test -z "$claim_project" || fail 'duplicate project'; claim_project=${line#*=} ;;
+    OBSERVABILITY_DATABASE_NAME=*) test -z "$claim_database" || fail 'duplicate database'; claim_database=${line#*=} ;;
+    OBSERVABILITY_POSTGRES_PORT=*) test -z "$claim_port" || fail 'duplicate PostgreSQL port'; claim_port=${line#*=} ;;
+    SWITCHBACK_POSTGRES_PASSWORD=*) test -z "$claim_password" || fail 'duplicate credential'; claim_password=${line#*=} ;;
+  esac
+done <"$claim/acceptance.env"
+test "$claim_project" = "$project" && test "$claim_database" = "${project//-/_}" || fail 'claim environment mismatch'
+[[ "$claim_port" =~ ^[0-9]+$ ]] && ((10#$claim_port > 0 && 10#$claim_port < 65536)) || fail 'invalid claimed PostgreSQL port'
+[[ "$claim_password" =~ ^[a-f0-9]{64}$ ]] || fail 'invalid synthetic claim credential'
+test "$SWITCHBACK_TEST_DATABASE_URL" = "$OBSERVABILITY_PROOF_TEST_DATABASE_URL" || fail 'database URL mismatch'
+db=$SWITCHBACK_TEST_DATABASE_URL
+case "$db" in
+  "postgresql://switchback:$claim_password@127.0.0.1:$claim_port/$claim_database?sslmode=disable"|"postgresql://switchback:$claim_password@[::1]:$claim_port/$claim_database?sslmode=disable") ;;
+  *) fail 'database must match exact owned claim endpoint and credential' ;;
+esac
+cd "$root"
+git rev-parse HEAD >"$output/head.txt"
+git rev-parse HEAD^{tree} >"$output/head-tree.txt"
+git status --porcelain=v1 --untracked-files=all >"$output/dirty.txt"
+git diff HEAD --binary | shasum -a 256 >"$output/worktree-diff-sha256.txt"
+shasum -a 256 scripts/check-observability-native-json scripts/test-observability-native >"$output/runner-sha256.txt"
+shasum -a 256 "$claim/claim.json" deploy/local/compose.yaml test/acceptance/observability/compose.override.yaml >"$output/input-sha256.txt"
+printf '%s\n' "$project" >"$output/project.txt"
+printf '%s\n' "$claim" >"$output/claim-output.txt"
+names=("$SWITCHBACK_OBSERVABILITY_LOG_CLIENT" "$SWITCHBACK_OBSERVABILITY_POSTGRES_CONTAINER" "$SWITCHBACK_OBSERVABILITY_ALLOY_CONTAINER" "$SWITCHBACK_OBSERVABILITY_LOKI_CONTAINER")
+services=(prometheus postgres alloy loki)
+for i in "${!names[@]}"; do
+  name=${names[$i]}; service=${services[$i]}
+  [[ "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || fail 'invalid explicit container identity'
+  # Save selected fields only: inspect Config.Env may contain credentials.
+  docker inspect --type container "$name" 2>/dev/null | jq -e 'if length == 1 then .[0] | {Id,Name,Image,State:{Running:.State.Running},Labels:.Config.Labels,Ports:.NetworkSettings.Ports,Networks:.NetworkSettings.Networks} else error("exact container required") end' >"$output/$service.json" || fail 'container inspection failed'
+  jq -e --arg p "$project" --arg s "$service" --arg wd "$root/deploy/local" --arg cf "$root/deploy/local/compose.yaml" --arg override "$root/test/acceptance/observability/compose.override.yaml" '
+    .State.Running == true and .Labels["com.docker.compose.project"] == $p and
+    .Labels["com.docker.compose.service"] == $s and .Labels["com.docker.compose.project.working_dir"] == $wd and
+    (.Labels["com.docker.compose.project.config_files"]|split(",")) == [$cf,$override] and
+    (.Id|test("^[a-f0-9]{64}$")) and (.Image|test("^sha256:[a-f0-9]{64}$"))
+  ' "$output/$service.json" >/dev/null || fail 'container ownership/running identity mismatch'
+  image=$(awk -v service="$service" '$0 == "services:" {services=1} services && $0 == "  "service":" {found=1;next} found && /^  [a-zA-Z0-9-]+:/ {exit} found && /^    image:/ {sub(/^    image: /, ""); print; exit}' deploy/local/compose.yaml)
+  [[ "$image" =~ @sha256:[a-f0-9]{64}$ ]] || fail 'compose image must be fixed'
+  docker image inspect "$image" 2>/dev/null | jq -e 'if length == 1 then .[0] | {Id,RepoDigests} else error("cached image required") end' >"$output/$service-image.json" || fail 'fixed image unavailable locally'
+  test "$(jq -r .Image "$output/$service.json")" = "$(jq -r .Id "$output/$service-image.json")" || fail 'running image differs from cached fixed image'
+done
+# MonitoringNative also creates Grafana; its registry helper uses Prometheus.
+# Check the remaining fixed native image before any test can create a container.
+image=$(awk '$0 == "services:" {services=1} services && $0 == "  grafana:" {found=1;next} found && /^  [a-zA-Z0-9-]+:/ {exit} found && /^    image:/ {sub(/^    image: /, ""); print; exit}' deploy/local/compose.yaml)
+[[ "$image" =~ @sha256:[a-f0-9]{64}$ ]] || fail 'Grafana image must be fixed'
+docker image inspect "$image" 2>/dev/null | jq -e 'if length == 1 then .[0] | {Id,RepoDigests} else error("cached image required") end' >"$output/grafana-image.json" || fail 'fixed Grafana image unavailable locally'
+jq -e -s '[.[].Id]|length == (unique|length)' "$output/prometheus.json" "$output/postgres.json" "$output/alloy.json" "$output/loki.json" >/dev/null || fail 'fixture identities must be distinct'
+# The client must actually share an exact isolated network with Alloy and Loki.
+jq -e -s --arg p "$project" '
+  [.[0].Networks|keys[]] as $client | [.[1].Networks|keys[]] as $alloy | [.[2].Networks|keys[]] as $loki |
+  . as $fixtures | any($client[]; . as $n | ($n|startswith($p+"-")) and ($alloy|index($n)) != null and ($loki|index($n)) != null and
+    ($fixtures[0].Networks[$n].NetworkID|type == "string" and length > 0) and
+    $fixtures[0].Networks[$n].NetworkID == $fixtures[1].Networks[$n].NetworkID and
+    $fixtures[0].Networks[$n].NetworkID == $fixtures[2].Networks[$n].NetworkID)
+' "$output/prometheus.json" "$output/alloy.json" "$output/loki.json" >/dev/null || fail 'client does not share owned Alloy/Loki network'
+binding() {
+  local service=$1 internal=$2 host=$3 port=$4
+  jq -e --arg k "$internal/tcp" --arg h "$host" --arg p "$port" '
+    .Ports[$k] as $bindings | ($bindings|type == "array" and length > 0) and
+    all($bindings[]; .HostIp == "127.0.0.1" or .HostIp == "::1") and
+    any($bindings[]; .HostIp == $h and .HostPort == $p)
+  ' "$output/$service.json" >/dev/null || fail 'endpoint does not match actual loopback publication'
+}
+if [[ "$db" == *'@[::1]:'* ]]; then dbhost=::1; else dbhost=127.0.0.1; fi
+binding postgres 5432 "$dbhost" "$claim_port"
+for service in alloy loki; do
+  if test "$service" = alloy; then url=$SWITCHBACK_TEST_WORKER_ALLOY_URL; internal=12345; suffix=/loki/api/v1/push
+  else url=$SWITCHBACK_TEST_WORKER_LOKI_URL; internal=3100; suffix=; fi
+  if [[ "$url" =~ ^http://127\.0\.0\.1:([0-9]+)(/.*)?$ ]]; then host=127.0.0.1; port=${BASH_REMATCH[1]}; path=${BASH_REMATCH[2]:-}
+  elif [[ "$url" =~ ^http://\[::1\]:([0-9]+)(/.*)?$ ]]; then host=::1; port=${BASH_REMATCH[1]}; path=${BASH_REMATCH[2]:-}
+  else fail 'observation endpoint must be explicit loopback HTTP'; fi
+  test "$path" = "$suffix" || fail 'unexpected observation endpoint path'
+  binding "$service" "$internal" "$host" "$port"
+done
+printf 'fixture identity preflight passed; source records do not prove Backend/Worker image build provenance\n' >"$output/preflight.txt"
+run='^(TestLocalObservabilityExploreNative|TestLocalObservabilityMonitoringNative|TestLocalObservabilityAlloyFreshVolumeNative|TestLocalObservabilityPromQL|TestTelemetryWorkerDockerNativeCollectionAndReplacement|TestSupplementProofsReadPublishedClaimThroughProductionLoader)$'
+printf 'GOFLAGS=-p=1 GOWORK=off GOENV=off GOMAXPROCS=2 go test -p=1 -json -count=1 -timeout=25m -tags=integration,observability_native -run %s ./internal/architecture ./internal/localproduct ./test/acceptance/observability\n' "$run" >"$output/command.txt"
+result=0
+env GOFLAGS=-p=1 GOWORK=off GOENV=off GOMAXPROCS=2 go test -p=1 -json -count=1 -timeout=25m -tags=integration,observability_native -run "$run" ./internal/architecture ./internal/localproduct ./test/acceptance/observability >"$output/go-test.jsonl" 2>"$output/go-test.stderr" || result=$?
+printf '%s\n' "$result" >"$output/go-exit.txt"
+check=0
+"$root/scripts/check-observability-native-json" "$output/go-test.jsonl" >"$output/checker.log" 2>&1 || check=$?
+printf '%s\n' "$check" >"$output/checker-exit.txt"
+shasum -a 256 "$output/go-test.jsonl" >"$output/go-test-sha256.txt"
+test "$result" = 0 && test "$check" = 0 || exit 1
+printf 'native six-test gate passed: %s\n' "$output"

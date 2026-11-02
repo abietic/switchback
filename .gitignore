@@ -1,0 +1,46 @@
+# OS and editor state
+.agents/
+.codex/
+.codegraph/
+.superpowers/
+.worktrees/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Dependencies, builds, tests, and caches
+node_modules/
+bin/
+build/
+dist/
+coverage/
+coverage.out
+*.prof
+.cache/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local Switchback runtime and scratch data
+.switchback/
+.scratch/
+data/
+runtime-data/
+tmp/
+var/
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+spikes/worker-runtime/.spike-data/

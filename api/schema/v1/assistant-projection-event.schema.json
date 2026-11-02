@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://switchback.local/schema/v1/assistant-projection-event.schema.json",
+  "title": "Switchback Assistant Projection Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","event_type","conversation_id","conversation_revision","assistant_run_id","command_id","projection_ref","payload","occurred_at"],
+  "properties": {
+    "schema_version":{"const":"assistant.projection_event.v1"},
+    "event_type":{"type":"string","minLength":1},
+    "conversation_id":{"type":"string","minLength":1},
+    "conversation_revision":{"type":"integer","minimum":1},
+    "assistant_run_id":{"type":"string","minLength":1},
+    "command_id":{"type":"string","minLength":1},
+    "projection_ref":{"type":"string","minLength":1},
+    "payload":{"type":"object"},
+    "occurred_at":{"type":"string","format":"date-time"}
+  }
+}

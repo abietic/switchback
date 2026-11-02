@@ -1,0 +1,368 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+real_docker="$(command -v docker)"
+
+fail() {
+	echo "test-deployment: $*" >&2
+	exit 1
+}
+
+expect_failure() {
+	local label="$1"
+	shift
+	if "$@" >"$tmp_dir/${label}.stdout" 2>"$tmp_dir/${label}.stderr"; then
+		fail "$label unexpectedly succeeded"
+	fi
+	if [[ -s "$tmp_dir/docker.log" ]] && grep -Eq '(^| )container( |$)|compose up' "$tmp_dir/docker.log"; then
+		fail "$label created a container before failing"
+	fi
+}
+
+assert_log_contains() {
+	local label="$1"
+	local expected="$2"
+	grep -F "$expected" "$docker_log" >/dev/null || fail "$label did not record: $expected"
+}
+
+assert_mode_600() {
+	local path="$1"
+	local mode
+	mode="$(stat -f '%Lp' "$path")"
+	[[ "$mode" == "600" ]] || fail "$path mode = $mode, want 600"
+}
+
+image_lock_contract() {
+	local path="$1"
+	jq -e '
+		.schema_version == 1 and
+		.platform == "linux/arm64" and
+		(.images | type == "array" and length == 11) and
+		([.images[].name] | length == (unique | length)) and
+		all(.images[];
+			. as $image |
+			($image.name | type == "string" and length > 0) and
+			($image.runtime_ref | type == "string" and test("^[^:@]+(?:/[^:@]+)*@sha256:[a-f0-9]{64}$")) and
+			($image.manifest_digest | type == "string" and test("^sha256:[a-f0-9]{64}$")) and
+			($image.platform_digest | type == "string" and test("^sha256:[a-f0-9]{64}$")) and
+			$image.platform == "linux/arm64" and
+			($image.runtime_ref | endswith("@" + $image.platform_digest))
+		)
+	' "$path" >/dev/null
+}
+
+expect_invalid_image_lock() {
+	local label="$1"
+	local path="$2"
+	if image_lock_contract "$path"; then
+		fail "$label unexpectedly satisfied the image lock contract"
+	fi
+}
+
+write_lock() {
+	local path="$1"
+	local duplicate="${2:-}"
+	local bad_runtime="${3:-}"
+	local bad_platform="${4:-}"
+	local manifest_digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	local platform_digest="sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	local names=(buf golang node python debian langfuse-web langfuse-worker postgres redis clickhouse minio)
+	local comma=""
+	{
+		printf '{"schema_version":1,"platform":"linux/arm64","images":['
+		for name in "${names[@]}"; do
+			printf '%s{"name":"%s","source_ref":"example.invalid/%s:1","runtime_ref":"example.invalid/%s@%s","manifest_digest":"%s","platform_digest":"%s","platform":"%s","provenance":"test"}' \
+				"$comma" "$name" "$name" "$name" "${bad_runtime:-$platform_digest}" "$manifest_digest" "$platform_digest" "${bad_platform:-linux/arm64}"
+			comma=,
+		done
+		if [[ -n "$duplicate" ]]; then
+			printf ',{"name":"buf","source_ref":"example.invalid/duplicate:1","runtime_ref":"example.invalid/duplicate@%s","manifest_digest":"%s","platform_digest":"%s","platform":"linux/arm64","provenance":"test"}' "$platform_digest" "$manifest_digest" "$platform_digest"
+		fi
+		printf ']}'
+	} >"$path"
+}
+
+write_docker_stub() {
+	local bin_dir="$1"
+	mkdir -p "$bin_dir"
+	cat >"$bin_dir/docker" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${DOCKER_STUB_LOG:?}"
+case "${1:-}" in
+context)
+	[[ "${2:-}" == "inspect" ]] || exit 64
+	printf '[{"Endpoints":{"docker":{"Host":"%s"}}}]\n' "${DOCKER_STUB_SOCKET:?}"
+	;;
+	info)
+		[[ "${DOCKER_STUB_DAEMON:-up}" == up ]] || exit 1
+		printf '{"NCPU":%s,"MemTotal":%s,"Driver":"overlayfs","DockerRootDir":"%s","OperatingSystem":"%s","DriverStatus":%s}\n' \
+			"${DOCKER_STUB_CPUS:-6}" \
+			"${DOCKER_STUB_MEMORY:-12884901888}" \
+			"${DOCKER_STUB_ROOT_DIR:-/var/lib/docker}" \
+			"${DOCKER_STUB_OPERATING_SYSTEM:-Docker Desktop}" \
+			"${DOCKER_STUB_DRIVER_STATUS:-[[\"Backing Filesystem\",\"ext4\"]]}"
+		;;
+	buildx)
+		[[ "${2:-}" == "imagetools" && "${3:-}" == "inspect" && "${4:-}" == "--raw" ]] || exit 64
+		printf '%s\n' '{"schemaVersion":2,"manifests":[{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","platform":{"os":"linux","architecture":"amd64"}},{"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","platform":{"os":"linux","architecture":"arm64"}}]}'
+		;;
+compose)
+	case " $* " in
+*" version "*)
+		printf 'Docker Compose version v%s\n' "${DOCKER_STUB_COMPOSE_VERSION:-2.31.0}"
+		;;
+*" down "*)
+		printf '%s\n' "compose-down $*" >>"${DOCKER_STUB_LOG:?}"
+		;;
+*" config "*)
+		;;
+*) exit 64 ;;
+	esac
+	;;
+*) exit 64 ;;
+esac
+STUB
+	chmod 700 "$bin_dir/docker"
+	cat >"$bin_dir/lsof" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${DOCKER_STUB_PORT_BUSY:-0}" == 1 ]] && exit 0
+exit 1
+STUB
+	chmod 700 "$bin_dir/lsof"
+	cat >"$bin_dir/df" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'df %s\n' "$*" >>"${DOCKER_STUB_LOG:?}"
+[[ "${DOCKER_STUB_DF_UNAVAILABLE:-0}" != 1 ]] || exit 1
+printf 'Filesystem 1024-blocks Used Available Capacity iused ifree %%iused Mounted on\n'
+printf '/dev/test 100000000 1 %s 1%% 1 1 1%% /\n' "${DOCKER_STUB_FREE_KB:-26214400}"
+STUB
+	chmod 700 "$bin_dir/df"
+	cat >"$bin_dir/uname" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == -s ]] || exit 64
+printf '%s\n' "${DOCKER_STUB_UNAME:-Darwin}"
+STUB
+	chmod 700 "$bin_dir/uname"
+	cat >"$bin_dir/stat" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'stat %s\n' "$*" >>"${DOCKER_STUB_LOG:?}"
+[[ "${DOCKER_STUB_STAT_UNAVAILABLE:-0}" != 1 ]] || exit 1
+case "${2:-}" in
+%Lp|%a) printf '600\n' ;;
+%z) printf '%s\n' "${DOCKER_STUB_DISK_LOGICAL_BYTES:-53687091200}" ;;
+*) exit 64 ;;
+esac
+STUB
+	chmod 700 "$bin_dir/stat"
+	cat >"$bin_dir/du" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'du %s\n' "$*" >>"${DOCKER_STUB_LOG:?}"
+[[ "${DOCKER_STUB_DU_UNAVAILABLE:-0}" != 1 ]] || exit 1
+[[ "${1:-}" == -k ]] || exit 64
+printf '%s %s\n' "${DOCKER_STUB_DISK_ALLOCATED_KB:-1048576}" "${2:?}"
+STUB
+	chmod 700 "$bin_dir/du"
+}
+
+bin_dir="$tmp_dir/bin"
+write_docker_stub "$bin_dir"
+host_root="$tmp_dir/host-data"
+canonical_host_root="$tmp_dir/canonical-host-data"
+host_root_alias="$tmp_dir/host-data-alias"
+mkdir -p "$canonical_host_root"
+canonical_host_root="$(cd "$canonical_host_root" && pwd -P)"
+ln -s "$canonical_host_root" "$host_root_alias"
+disk_image="$tmp_dir/Docker.raw"
+touch "$disk_image"
+disk_image="$(cd "$(dirname "$disk_image")" && pwd -P)/$(basename "$disk_image")"
+lock_file="$tmp_dir/image-lock.json"
+write_lock "$lock_file"
+docker_log="$tmp_dir/docker.log"
+: >"$docker_log"
+
+base_env=(
+	"PATH=$bin_dir:$PATH"
+	"DOCKER_STUB_LOG=$docker_log"
+	"DOCKER_STUB_SOCKET=unix://$tmp_dir/docker.sock"
+	"SWITCHBACK_SPIKE_HOST_DATA_ROOT=$host_root"
+	"SWITCHBACK_SPIKE_IMAGE_LOCK=$lock_file"
+	"SWITCHBACK_SPIKE_UPSTREAM_MODEL=openai/codex"
+	"SWITCHBACK_SPIKE_UPSTREAM_API_BASE=https://models.example.invalid/v1"
+	"SWITCHBACK_SPIKE_UPSTREAM_API_KEY=model-key-must-not-echo"
+)
+
+expect_failure missing_model env -i "PATH=$bin_dir:$PATH" "DOCKER_STUB_LOG=$docker_log" "DOCKER_STUB_SOCKET=unix://$tmp_dir/docker.sock" "SWITCHBACK_SPIKE_HOST_DATA_ROOT=$host_root" "SWITCHBACK_SPIKE_IMAGE_LOCK=$lock_file" "$root_dir/scripts/generate-env"
+
+stdout="$(env -i "${base_env[@]}" "$root_dir/scripts/generate-env")"
+[[ -z "$stdout" ]] || fail "generate-env echoed output"
+host_root="$(cd "$host_root" && pwd -P)"
+compose_env="$host_root/env/compose.env"
+model_key="$host_root/env/upstream-model.key"
+[[ -f "$compose_env" && -f "$model_key" ]] || fail "generate-env did not create protected files"
+assert_mode_600 "$compose_env"
+assert_mode_600 "$model_key"
+grep -Fx "SWITCHBACK_SPIKE_HOST_DATA_ROOT=$host_root" "$compose_env" >/dev/null || fail "host root missing from compose env"
+grep -Fx 'SWITCHBACK_SPIKE_DATA_ROOT=/var/lib/switchback-spike' "$compose_env" >/dev/null || fail "backend container root mapping missing"
+grep -F 'model-key-must-not-echo' "$tmp_dir"/*.stdout "$tmp_dir"/*.stderr >/dev/null && fail "model key leaked into command output"
+
+env -i "${base_env[@]}" "SWITCHBACK_SPIKE_HOST_DATA_ROOT=$host_root_alias" "$root_dir/scripts/generate-env"
+canonical_compose_env="$canonical_host_root/env/compose.env"
+[[ -f "$canonical_compose_env" ]] || fail "generate-env did not write through canonical host root"
+grep -Fx "SWITCHBACK_SPIKE_HOST_DATA_ROOT=$canonical_host_root" "$canonical_compose_env" >/dev/null || fail "compose env did not store the physical host root"
+compose_config="$tmp_dir/compose-config.json"
+env -i "PATH=$PATH" "$real_docker" compose --env-file "$compose_env" -f "$root_dir/compose.yaml" config --format json >"$compose_config"
+jq -e '
+	. as $compose |
+	($compose.services["spike-backend"].volumes | any(.target == "/var/run/docker.sock")) and
+	([$compose.services[] | select(any(.volumes[]?; .target == "/var/run/docker.sock"))] | length == 1) and
+	$compose.services["spike-backend"].environment.SWITCHBACK_SPIKE_BACKEND_GRPC_TARGET == "spike-backend:9090" and
+	$compose.services["spike-backend"].environment.SWITCHBACK_SPIKE_BACKEND_HTTP_BASE_URL == "http://spike-backend:8080" and
+	$compose.networks.control.name == "switchback-spike-control" and
+	$compose.networks.storage.internal == true and
+	$compose.services["spike-backend"].environment.LANGFUSE_SECRET_KEY != null and
+	([$compose.services[] | .platform] | length == 7 and all(. == "linux/arm64")) and
+	$compose.services["spike-backend"].build.platforms == ["linux/arm64"] and
+	all(["langfuse-web", "langfuse-worker"][];
+		. as $service | $compose.services[$service].environment.HOSTNAME == "0.0.0.0") and
+	$compose.services["langfuse-web"].environment.LANGFUSE_MIGRATION_V4_WRITE_MODE == "legacy" and
+	$compose.services["langfuse-worker"].environment.LANGFUSE_MIGRATION_V4_WRITE_MODE == "legacy"
+' "$compose_config" >/dev/null || fail "Compose runtime topology contract is invalid"
+
+image_lock_contract "$root_dir/image-lock.json" || fail "checked-in image lock does not bind linux/arm64 platform digests"
+jq -e --slurpfile lock "$lock_file" '
+	. as $compose |
+	$lock[0] as $lock |
+	all(["langfuse-web", "langfuse-worker", "postgres", "redis", "clickhouse", "minio"][];
+		. as $name |
+		$compose.services[$name].image == ($lock.images[] | select(.name == $name) | .runtime_ref)
+	) and
+	$compose.services["spike-backend"].build.args.GO_IMAGE == ($lock.images[] | select(.name == "golang") | .runtime_ref) and
+	$compose.services["spike-backend"].build.args.DEBIAN_IMAGE == ($lock.images[] | select(.name == "debian") | .runtime_ref)
+' "$compose_config" >/dev/null || fail "Compose image refs do not match the checked-in platform lock"
+
+for dockerfile in "$root_dir/images/backend/Dockerfile" "$root_dir/images/worker/Dockerfile"; do
+	if rg -n '^[[:space:]]*#\s*syntax=' "$dockerfile" >/dev/null; then
+		fail "$(basename "$(dirname "$dockerfile")") Dockerfile must use the Engine built-in frontend"
+	fi
+done
+for dockerfile in images/backend/Dockerfile images/worker/Dockerfile; do
+	rg -F -- "docker build --platform linux/arm64 --file $dockerfile" "$root_dir/Makefile" >/dev/null || fail "Make build must fix $dockerfile to linux/arm64"
+done
+
+rg -Fx 'COPY worker/litellm /opt/switchback/worker/litellm' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "Worker LiteLLM asset path must match the supervisor"
+rg -F "'litellm[proxy]==1.93.0'" "$root_dir/images/worker/Dockerfile" >/dev/null || fail "Worker LiteLLM must be pinned to 1.93.0"
+if rg -F '127.0.0.1:18080/spike/sessions/' "$root_dir/scripts/run-e2e" >/dev/null; then
+	fail "E2E cleanup must use the configured Backend HTTP port"
+fi
+rg -F 'groupadd --gid 10001 litellm' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "LiteLLM identity 10001 is missing"
+rg -F 'useradd --uid 10001 --gid litellm' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "LiteLLM user 10001 is missing"
+rg -F 'groupadd --gid 10002 switchback-agent' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "ACP identity 10002 is missing"
+rg -F 'useradd --uid 10002 --gid switchback-agent' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "ACP user 10002 is missing"
+rg -F 'chown -R switchback-agent:switchback-agent /workspace /agent-state /trace-spool /home/switchback-agent' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "ACP writable paths are not owned by UID 10002"
+rg -F 'chown -R litellm:litellm /var/lib/switchback-litellm' "$root_dir/images/worker/Dockerfile" >/dev/null || fail "LiteLLM home is not owned by UID 10001"
+for image_arg in GO_IMAGE:golang NODE_IMAGE:node PYTHON_IMAGE:python; do
+	arg_name="${image_arg%%:*}"
+	image_name="${image_arg#*:}"
+	runtime_ref="$(jq -er --arg name "$image_name" '.images[] | select(.name == $name) | .runtime_ref' "$root_dir/image-lock.json")"
+	rg -Fx "ARG $arg_name=$runtime_ref" "$root_dir/images/worker/Dockerfile" >/dev/null || fail "Worker $arg_name does not use the locked linux/arm64 image"
+done
+for image_arg in GO_IMAGE:golang DEBIAN_IMAGE:debian; do
+	arg_name="${image_arg%%:*}"
+	image_name="${image_arg#*:}"
+	runtime_ref="$(jq -er --arg name "$image_name" '.images[] | select(.name == $name) | .runtime_ref' "$root_dir/image-lock.json")"
+	rg -Fx "ARG $arg_name=$runtime_ref" "$root_dir/images/backend/Dockerfile" >/dev/null || fail "Backend $arg_name does not use the locked linux/arm64 image"
+done
+before_checksum="$(shasum -a 256 "$compose_env" "$model_key")"
+env -i "${base_env[@]}" "$root_dir/scripts/generate-env"
+after_checksum="$(shasum -a 256 "$compose_env" "$model_key")"
+[[ "$before_checksum" == "$after_checksum" ]] || fail "secret generation is not idempotent"
+
+: >"$docker_log"
+expect_failure daemon env -i "${base_env[@]}" "DOCKER_STUB_DAEMON=down" "$root_dir/scripts/preflight"
+expect_failure compose_v1 env -i "${base_env[@]}" "DOCKER_STUB_COMPOSE_VERSION=1.29.2" "$root_dir/scripts/preflight"
+expect_failure cpu env -i "${base_env[@]}" "DOCKER_STUB_CPUS=5" "$root_dir/scripts/preflight"
+expect_failure memory env -i "${base_env[@]}" "DOCKER_STUB_MEMORY=12884901887" "$root_dir/scripts/preflight"
+expect_failure port env -i "${base_env[@]}" "DOCKER_STUB_PORT_BUSY=1" "$root_dir/scripts/preflight"
+
+bad_root="$tmp_dir/not-a-directory"
+touch "$bad_root"
+expect_failure writable_root env -i "${base_env[@]}" "SWITCHBACK_SPIKE_HOST_DATA_ROOT=$bad_root" "$root_dir/scripts/preflight"
+
+write_lock "$lock_file" '' 'example.invalid/tag-only:1'
+expect_failure tag_only_lock env -i "${base_env[@]}" "$root_dir/scripts/preflight"
+write_lock "$lock_file" '' 'example.invalid/tagged:1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+expect_failure tagged_digest_lock env -i "${base_env[@]}" "$root_dir/scripts/preflight"
+write_lock "$lock_file" '' 'example.invalid/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+expect_invalid_image_lock manifest_runtime_lock "$lock_file"
+expect_failure manifest_runtime_lock env -i "${base_env[@]}" "$root_dir/scripts/preflight"
+write_lock "$lock_file" duplicate
+expect_failure duplicate_lock env -i "${base_env[@]}" "$root_dir/scripts/preflight"
+write_lock "$lock_file" '' '' linux/amd64
+expect_failure platform_lock env -i "${base_env[@]}" "SWITCHBACK_SPIKE_PLATFORM=linux/amd64" "$root_dir/scripts/preflight"
+write_lock "$lock_file"
+
+arm64_lock="$tmp_dir/arm64-lock.json"
+env -i "${base_env[@]}" "SWITCHBACK_SPIKE_IMAGE_LOCK=$arm64_lock" "SWITCHBACK_SPIKE_PLATFORM=linux/amd64" "$root_dir/scripts/lock-images"
+image_lock_contract "$arm64_lock" || fail "lock-images did not force linux/arm64 platform digests"
+
+: >"$docker_log"
+env -i "${base_env[@]}" "DOCKER_STUB_UNAME=Linux" "DOCKER_STUB_ROOT_DIR=/var/lib/docker-engine" "$root_dir/scripts/preflight"
+assert_log_contains native_engine_root "df -Pk /var/lib/docker-engine"
+if grep -F "df -Pk $host_root" "$docker_log" >/dev/null; then
+	fail "native Linux preflight measured host data root instead of Docker Engine root"
+fi
+
+: >"$docker_log"
+expect_failure native_storage env -i "${base_env[@]}" "DOCKER_STUB_UNAME=Linux" "DOCKER_STUB_ROOT_DIR=/var/lib/docker-engine" "DOCKER_STUB_FREE_KB=26214399" "$root_dir/scripts/preflight"
+assert_log_contains native_storage_root "df -Pk /var/lib/docker-engine"
+
+: >"$docker_log"
+expect_failure native_unmeasurable env -i "${base_env[@]}" "DOCKER_STUB_UNAME=Linux" "DOCKER_STUB_ROOT_DIR=relative/docker-root" "$root_dir/scripts/preflight"
+
+: >"$docker_log"
+env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "$root_dir/scripts/preflight"
+assert_log_contains desktop_disk_image "df -Pk $(dirname "$disk_image")"
+assert_log_contains desktop_disk_image_stat "stat -f %z $disk_image"
+assert_log_contains desktop_disk_image_du "du -k $disk_image"
+if grep -F "df -Pk $host_root" "$docker_log" >/dev/null; then
+	fail "Docker Desktop preflight measured host data root instead of the disk image volume"
+fi
+
+: >"$docker_log"
+expect_failure desktop_storage env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "DOCKER_STUB_FREE_KB=26214399" "$root_dir/scripts/preflight"
+assert_log_contains desktop_storage_image "df -Pk $(dirname "$disk_image")"
+
+expect_failure desktop_sparse_capacity env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "DOCKER_STUB_DISK_LOGICAL_BYTES=26843545600" "$root_dir/scripts/preflight"
+
+: >"$docker_log"
+expect_failure desktop_missing_image env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$tmp_dir/missing.Docker.raw" "$root_dir/scripts/preflight"
+expect_failure desktop_unmeasurable env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "DOCKER_STUB_STAT_UNAVAILABLE=1" "$root_dir/scripts/preflight"
+expect_failure desktop_du_unmeasurable env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "DOCKER_STUB_DU_UNAVAILABLE=1" "$root_dir/scripts/preflight"
+expect_failure desktop_df_unmeasurable env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "DOCKER_STUB_DF_UNAVAILABLE=1" "$root_dir/scripts/preflight"
+
+ln -s "$disk_image" "$tmp_dir/Docker-link.raw"
+expect_failure desktop_symlink env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$tmp_dir/Docker-link.raw" "$root_dir/scripts/preflight"
+
+: >"$docker_log"
+env -i "${base_env[@]}" "SWITCHBACK_SPIKE_DOCKER_DISK_IMAGE=$disk_image" "SWITCHBACK_SPIKE_PLATFORM=linux/amd64" "$root_dir/scripts/preflight"
+if grep -Eq '(^| )container( |$)|compose up' "$docker_log"; then
+	fail "successful preflight created a container"
+fi
+
+: >"$docker_log"
+env -i "${base_env[@]}" make -C "$root_dir" compose-down
+if grep -Eq 'compose-down .* -v|compose down .* -v' "$docker_log"; then
+	fail "normal compose-down removed volumes"
+fi
+
+echo "test-deployment: PASS"

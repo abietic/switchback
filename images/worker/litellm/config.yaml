@@ -1,0 +1,13 @@
+model_list:
+  - model_name: switchback-codex
+    litellm_params:
+      model: os.environ/SWITCHBACK_UPSTREAM_MODEL
+      api_base: os.environ/SWITCHBACK_UPSTREAM_API_BASE
+      api_key: os.environ/SWITCHBACK_UPSTREAM_API_KEY
+
+general_settings:
+  master_key: os.environ/SWITCHBACK_PROXY_TOKEN
+
+litellm_settings:
+  drop_params: true
+  callbacks: switchback_callback.switchback_callback

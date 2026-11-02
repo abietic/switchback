@@ -1,0 +1,28 @@
+{
+  "schema_version": "assistant.decision.v1",
+  "decision_type": "clarification",
+  "user_visible_content": "I need one more detail.",
+  "clarification_question": "What observable result should the worker produce?",
+  "readiness": {
+    "schema_version": "assistant.readiness_assessment.v1",
+    "assessment_id": "assessment-1",
+    "revision": 1,
+    "policy_revision": "readiness-v1",
+    "dimensions": [
+      {"dimension":"goal","status":"known","summary":"Health endpoint","evidence_refs":["turn-1"]},
+      {"dimension":"deliverable_acceptance","status":"blocking_unknown","summary":"Acceptance is missing","evidence_refs":["turn-1"]},
+      {"dimension":"scope_target","status":"known","summary":"Current workspace","evidence_refs":["workspace-1"]},
+      {"dimension":"constraints","status":"known","summary":"No extra constraints","evidence_refs":[]},
+      {"dimension":"context_access","status":"known","summary":"Workspace is readable","evidence_refs":["resolution-1"]},
+      {"dimension":"risk_approval","status":"not_applicable","summary":"No protected effect","evidence_refs":[]},
+      {"dimension":"execution_policy","status":"known","summary":"Server profile","evidence_refs":["policy-v1"]}
+    ],
+    "blocking_unknowns": ["deliverable_acceptance"],
+    "assumptions": [],
+    "clarification_questions": 1,
+    "status": "clarifying",
+    "evaluated_at": "2026-07-25T01:02:03Z"
+  },
+  "task_draft": null,
+  "checkpoint": null
+}

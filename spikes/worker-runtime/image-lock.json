@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "platform": "linux/arm64",
+  "images": [
+    {
+      "name": "buf",
+      "source_ref": "docker.io/bufbuild/buf:1.71.0",
+      "runtime_ref": "docker.io/bufbuild/buf@sha256:7b7f340aef3aeba29ff73c5c420bcaa8c85077607a7d2819edf7178847a262af",
+      "manifest_digest": "sha256:7f3e3dfb8650f39878625bbc9f2016a51a781693b209165671d5a61d11c74992",
+      "platform_digest": "sha256:7b7f340aef3aeba29ff73c5c420bcaa8c85077607a7d2819edf7178847a262af",
+      "platform": "linux/arm64",
+      "provenance": "Task 12 pinned Buf toolchain source"
+    },
+    {
+      "name": "golang",
+      "source_ref": "docker.io/library/golang:1.26.4-bookworm",
+      "runtime_ref": "docker.io/library/golang@sha256:b58a2431884c6dfc5ddcea953c7f426ad72c2ff9e94b4b8495fefa74e4dabcc0",
+      "manifest_digest": "sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b",
+      "platform_digest": "sha256:b58a2431884c6dfc5ddcea953c7f426ad72c2ff9e94b4b8495fefa74e4dabcc0",
+      "platform": "linux/arm64",
+      "provenance": "Task 12 pinned Go 1.26.4 Bookworm source"
+    },
+    {
+      "name": "node",
+      "source_ref": "docker.io/library/node:24.17.0-bookworm-slim",
+      "runtime_ref": "docker.io/library/node@sha256:a5dbaa51d1be96b3415b993320893038c7240d6dd901166ee597f3b1cc3259d1",
+      "manifest_digest": "sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532",
+      "platform_digest": "sha256:a5dbaa51d1be96b3415b993320893038c7240d6dd901166ee597f3b1cc3259d1",
+      "platform": "linux/arm64",
+      "provenance": "Task 12 pinned Node 24.17.0 Bookworm slim source"
+    },
+    {
+      "name": "python",
+      "source_ref": "docker.io/library/python:3.13-slim-bookworm",
+      "runtime_ref": "docker.io/library/python@sha256:56249d7a2f93306106f6d8bcdf6423afb73c1b747d874febcc778beee25cb8bb",
+      "manifest_digest": "sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64",
+      "platform_digest": "sha256:56249d7a2f93306106f6d8bcdf6423afb73c1b747d874febcc778beee25cb8bb",
+      "platform": "linux/arm64",
+      "provenance": "Task 12 pinned Python 3.13 Bookworm source"
+    },
+    {
+      "name": "debian",
+      "source_ref": "docker.io/library/debian:bookworm-slim",
+      "runtime_ref": "docker.io/library/debian@sha256:9b67294679b30e5d6ab257b40594feeb4a4b81f7fcf4131f4decf0d6a212a9b0",
+      "manifest_digest": "sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818",
+      "platform_digest": "sha256:9b67294679b30e5d6ab257b40594feeb4a4b81f7fcf4131f4decf0d6a212a9b0",
+      "platform": "linux/arm64",
+      "provenance": "Task 12 minimal Backend runtime base"
+    },
+    {
+      "name": "langfuse-web",
+      "source_ref": "docker.io/langfuse/langfuse:3.217.0",
+      "runtime_ref": "docker.io/langfuse/langfuse@sha256:a19ffb23e8925cdf9211f0eea97a5e1da6a7dd7f53e2b5c644b1677d241fd8b4",
+      "manifest_digest": "sha256:6b9a1c3243ce0100d7f53960da854c956d6a9cd261bf4e66ffe04b286d022979",
+      "platform_digest": "sha256:a19ffb23e8925cdf9211f0eea97a5e1da6a7dd7f53e2b5c644b1677d241fd8b4",
+      "platform": "linux/arm64",
+      "provenance": "Langfuse v3.217.0 official docker-compose.yml at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+    },
+    {
+      "name": "langfuse-worker",
+      "source_ref": "docker.io/langfuse/langfuse-worker:3.217.0",
+      "runtime_ref": "docker.io/langfuse/langfuse-worker@sha256:b287a89f353a587bedf417d6d8a93904a94479408ec633460ee5e46341bafaf1",
+      "manifest_digest": "sha256:0ca99ca7d8a54a48cc4cbfdf9d4022158b9a69871b80e424b7a19ac437c6d3a3",
+      "platform_digest": "sha256:b287a89f353a587bedf417d6d8a93904a94479408ec633460ee5e46341bafaf1",
+      "platform": "linux/arm64",
+      "provenance": "Langfuse v3.217.0 official docker-compose.yml at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+    },
+    {
+      "name": "postgres",
+      "source_ref": "docker.io/library/postgres:17",
+      "runtime_ref": "docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49",
+      "manifest_digest": "sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d",
+      "platform_digest": "sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49",
+      "platform": "linux/arm64",
+      "provenance": "Langfuse v3.217.0 official docker-compose.yml postgres:17 at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+    },
+    {
+      "name": "redis",
+      "source_ref": "docker.io/library/redis:7",
+      "runtime_ref": "docker.io/library/redis@sha256:31fb2d98f60123bf0cf70b73b685304843ebce2daaad95f7c7555af14c3cfc58",
+      "manifest_digest": "sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2f483fb3954",
+      "platform_digest": "sha256:31fb2d98f60123bf0cf70b73b685304843ebce2daaad95f7c7555af14c3cfc58",
+      "platform": "linux/arm64",
+      "provenance": "Langfuse v3.217.0 official docker-compose.yml redis:7 at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+    },
+    {
+      "name": "clickhouse",
+      "source_ref": "docker.io/clickhouse/clickhouse-server",
+      "runtime_ref": "docker.io/clickhouse/clickhouse-server@sha256:e35b10a33c93ab369dfa3607c829a42e4bc7f0d0efff7663b2e07383b98a360c",
+      "manifest_digest": "sha256:1d1f6508eba2dccce2cee9913907c5f7766327debc57a6b1991f2c9e3176c163",
+      "platform_digest": "sha256:e35b10a33c93ab369dfa3607c829a42e4bc7f0d0efff7663b2e07383b98a360c",
+      "platform": "linux/arm64",
+      "provenance": "Langfuse v3.217.0 official docker-compose.yml untagged ClickHouse source at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+    },
+    {
+      "name": "minio",
+      "source_ref": "cgr.dev/chainguard/minio",
+      "runtime_ref": "cgr.dev/chainguard/minio@sha256:9a11e833bb501380d1c6eb7cf1fa38ec4e96c9e4b45f82057107e618a8de7f43",
+      "manifest_digest": "sha256:8230f06574280781ea6ad45e27962db60175b18e4a43dd54c19012feb5438174",
+      "platform_digest": "sha256:9a11e833bb501380d1c6eb7cf1fa38ec4e96c9e4b45f82057107e618a8de7f43",
+      "platform": "linux/arm64",
+      "provenance": "Langfuse v3.217.0 official docker-compose.yml untagged MinIO source at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+    }
+  ]
+}

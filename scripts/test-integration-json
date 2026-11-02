@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+fixture_dir=$(mktemp -d)
+trap 'rm -rf "$fixture_dir"' EXIT
+validator="$root/scripts/check-integration-json"
+assert_exit() {
+  local expected=$1 actual=0
+  shift
+  "$@" >"$fixture_dir/output" 2>&1 || actual=$?
+  if test "$actual" -ne "$expected"; then
+    printf 'expected exit %s, got %s: %s\n' "$expected" "$actual" "$*" >&2
+    sed -n '1,30p' "$fixture_dir/output" >&2
+    exit 1
+  fi
+}
+start='{"Action":"start","Package":"p"}'
+run='{"Action":"run","Package":"p","Test":"TestDB"}'
+pass='{"Action":"pass","Package":"p","Test":"TestDB"}'
+terminal='{"Action":"pass","Package":"p"}'
+check() {
+  local name=$1 expected=$2
+  shift 2
+  printf '%s\n' "$@" >"$fixture_dir/$name.jsonl"
+  assert_exit "$expected" "$validator" "$fixture_dir/$name.jsonl"
+}
+check passed 0 "$start" "$run" "$pass" "$terminal"
+check no_tests 0 "$start" '{"Action":"output","Package":"p","Output":"no test files\n"}' '{"Action":"skip","Package":"p"}'
+check interleaved_subtests 0 "$start" "$run" '{"Action":"start","Package":"q"}' \
+  '{"Action":"run","Package":"p","Test":"TestDB/parallel"}' \
+  '{"Action":"pause","Package":"p","Test":"TestDB/parallel"}' \
+  '{"Action":"pass","Package":"q"}' \
+  '{"Action":"cont","Package":"p","Test":"TestDB/parallel"}' \
+  '{"Action":"output","Package":"p","Test":"TestDB/parallel","Output":"ok\n"}' \
+  '{"Action":"pass","Package":"p","Test":"TestDB/parallel"}' "$pass" "$terminal"
+check build_output 0 '{"Action":"build-output","ImportPath":"p","Output":"compiler diagnostic\n"}' "$start" "$terminal"
+check skipped 1 "$start" "$run" '{"Action":"skip","Package":"p","Test":"TestDB"}' "$terminal"
+check failed 1 "$start" "$run" '{"Action":"fail","Package":"p","Test":"TestDB"}' '{"Action":"fail","Package":"p"}'
+check build_failed 1 '{"Action":"build-fail","ImportPath":"p"}'
+check malformed 1 'not-json'
+check non_object 1 '[]'
+check boolean_test 1 "$start" '{"Action":"run","Package":"p","Test":true}' "$terminal"
+check empty 1
+check package_truncated 1 "$start" "$run" "$pass"
+check test_truncated 1 "$start" "$run" "$terminal"
+check unmatched_terminal 1 "$start" '{"Action":"pass","Package":"p","Test":"TestDB"}' "$terminal"
+check mismatched_terminal 1 "$start" "$run" '{"Action":"pass","Package":"q","Test":"TestDB"}' "$terminal"
+check duplicate_test 1 "$start" "$run" "$run" "$pass" "$terminal"
+check duplicate_terminal 1 "$start" "$terminal" "$terminal"
+check no_start 1 "$terminal"
+check unknown_action 1 "$start" '{"Action":"future","Package":"p"}' "$terminal"
+check late_event 1 "$start" "$terminal" "$run"
+check skipped_executed_package 1 "$start" "$run" "$pass" '{"Action":"skip","Package":"p"}'
+assert_exit 1 "$validator" "$fixture_dir/missing.jsonl"
+assert_exit 2 "$validator"
+assert_exit 2 "$validator" a b
+printf 'integration JSONL contract tests passed\n'

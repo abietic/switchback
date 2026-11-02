@@ -1,0 +1,11 @@
+{
+  "schema_version": "assistant.projection_event.v1",
+  "event_type": "clarification_ready",
+  "conversation_id": "conversation-1",
+  "conversation_revision": 2,
+  "assistant_run_id": "assistant-run-1",
+  "command_id": "command-1",
+  "projection_ref": "/api/v1/views/assistant_conversation/conversation-1",
+  "payload": {"question":"What observable result should the worker produce?"},
+  "occurred_at": "2026-07-25T01:02:03Z"
+}

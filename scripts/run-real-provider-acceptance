@@ -1,0 +1,108 @@
+#!/bin/sh
+set -eu
+
+root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+kimi_key=${SWITCHBACK_KIMI_KEY_FILE:-$root_dir/spikes/worker-runtime/.spike-data/final-kimi/env/upstream-model.key}
+deepseek_key=${SWITCHBACK_DEEPSEEK_KEY_FILE:-$root_dir/spikes/worker-runtime/.spike-data/variants/deepseek-openai/env/upstream-model.key}
+data_root=${SWITCHBACK_REAL_PROVIDER_DATA_ROOT:-$root_dir/runtime-data/real-provider/run-$(date -u +%Y%m%dT%H%M%SZ)}
+network=${SWITCHBACK_REAL_PROVIDER_NETWORK:-switchback-m1-worker-control}
+mode=${SWITCHBACK_REAL_PROVIDER_MODE:-success}
+case "$mode" in
+  success | invalid-credential | recovery) ;;
+  *) printf 'unsupported real-provider acceptance mode\n' >&2; exit 2 ;;
+esac
+container_name=switchback-real-provider-acceptance-${mode}
+
+verify_credential() {
+  credential=$1
+  test -f "$credential" || { printf 'missing provider credential file: %s\n' "$credential" >&2; exit 1; }
+  credential_mode=$(stat -f '%Lp' "$credential" 2>/dev/null || stat -c '%a' "$credential")
+  test "$credential_mode" = 600 || { printf 'provider credential file must use mode 0600: %s\n' "$credential" >&2; exit 1; }
+}
+if test "$mode" = success; then
+  verify_credential "$kimi_key"
+  verify_credential "$deepseek_key"
+elif test "$mode" = recovery; then
+  verify_credential "$deepseek_key"
+fi
+
+mkdir -p "$data_root"
+chmod 700 "$data_root"
+summary="$data_root/acceptance/real-provider-${mode}-summary.json"
+fixture="$root_dir/test/fixtures/m1/real-provider/fixture.txt"
+fixture_before=$(shasum -a 256 "$fixture" | awk '{print $1}')
+
+if test "${SWITCHBACK_REAL_PROVIDER_SKIP_WORKER_BUILD:-0}" != 1; then
+  docker build -t switchback-worker:real-provider -f "$root_dir/images/worker/Dockerfile" "$root_dir"
+fi
+docker image inspect switchback-worker:real-provider >/dev/null
+if test "${SWITCHBACK_REAL_PROVIDER_SKIP_DRIVER_BUILD:-0}" != 1; then
+  docker build -t switchback-real-provider-acceptance:local -f "$root_dir/test/acceptance/realprovider/Dockerfile" "$root_dir"
+fi
+docker image inspect switchback-real-provider-acceptance:local >/dev/null
+worker_image=$(docker image inspect --format '{{.Id}}' switchback-worker:real-provider)
+
+created_network=0
+if ! docker network inspect "$network" >/dev/null 2>&1; then
+  docker network create "$network" >/dev/null
+  created_network=1
+fi
+cleanup() {
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+  if test "$created_network" = 1; then
+    docker network rm "$network" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT INT TERM
+docker rm -f "$container_name" >/dev/null 2>&1 || true
+
+set -- docker run --rm \
+  --name "$container_name" \
+  --network "$network" \
+  --read-only \
+  --cap-drop ALL \
+  --cap-add CHOWN \
+  --security-opt no-new-privileges:true \
+  --tmpfs /tmp:size=64m,mode=1777 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$data_root:$data_root" \
+  -e "SWITCHBACK_ACCEPTANCE_DATA_ROOT=$data_root" \
+  -e "SWITCHBACK_ACCEPTANCE_ENGINE_DATA_ROOT=$data_root" \
+  -e "SWITCHBACK_ACCEPTANCE_WORKER_IMAGE=$worker_image" \
+  -e "SWITCHBACK_ACCEPTANCE_NETWORK=$network" \
+  -e "SWITCHBACK_ACCEPTANCE_BACKEND_GRPC_TARGET=$container_name:9090" \
+  -e "SWITCHBACK_ACCEPTANCE_BACKEND_HTTP_BASE_URL=http://$container_name:8080" \
+  -e "SWITCHBACK_ACCEPTANCE_MODE=$mode" \
+  -e "SWITCHBACK_ACCEPTANCE_SUMMARY=$summary" \
+  -e "SWITCHBACK_FAILURE_MATRIX_RESULT_DIR=${SWITCHBACK_FAILURE_MATRIX_RESULT_DIR:-}"
+if test "$mode" = success; then
+  set -- "$@" \
+    -v "$kimi_key:/run/switchback-acceptance/kimi.key:ro" \
+    -v "$deepseek_key:/run/switchback-acceptance/deepseek.key:ro" \
+    -e SWITCHBACK_ACCEPTANCE_KIMI_KEY_FILE=/run/switchback-acceptance/kimi.key \
+    -e SWITCHBACK_ACCEPTANCE_DEEPSEEK_KEY_FILE=/run/switchback-acceptance/deepseek.key
+elif test "$mode" = recovery; then
+  set -- "$@" \
+    -v "$deepseek_key:/run/switchback-acceptance/deepseek.key:ro" \
+    -e SWITCHBACK_ACCEPTANCE_DEEPSEEK_KEY_FILE=/run/switchback-acceptance/deepseek.key
+fi
+set -- "$@" switchback-real-provider-acceptance:local
+"$@"
+
+fixture_after=$(shasum -a 256 "$fixture" | awk '{print $1}')
+test "$fixture_before" = "$fixture_after" || { printf 'source acceptance fixture changed\n' >&2; exit 1; }
+jq -e '
+  .outcome == "passed" and
+  .source_fixture_immutable == true and
+  .known_token_absence == true and
+  ([.profiles[] | select(
+    .fixture_immutable != true or
+    .known_token_absence != true or
+    .identity_cardinality_verified != true or
+    .managed_residue_verified != true or
+    .managed_container_residue != 0 or
+    .managed_secret_volume_residue != 0
+  )] | length) == 0
+' "$summary" >/dev/null
+
+printf 'real_provider_summary=%s\n' "$summary"

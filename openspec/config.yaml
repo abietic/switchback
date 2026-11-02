@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Switchback / Switchback is an internal cloud platform for end-to-end requirement delivery.
+  The initial backend design is a Go DDD-style monorepo with bounded contexts for
+  Assistant interaction, Task orchestration, Worker runtime, Evolution/Inspiration,
+  EventCenter/Frontier/Delivery, LLMProxy, and Skilling.
+
+  Key infrastructure assumptions:
+  - RDBMS stores core aggregates, state machines, outbox, idempotency keys, and projections.
+  - Message queue/event bus drives asynchronous execution and fan-out.
+  - Object storage stores Assistant Turns, Worker Trace JSONL, raw transcripts, logs, and artifacts.
+  - PostgreSQL owns governed-context candidates, revisions, reviews, and audit; OpenViking is the required active Truth/Resource retrieval projection.
+  - LiteLLM is the initial model proxy candidate; keep an abstraction for future LLMGateway.
+  - Worker integrates coding agents through ACP where possible, with CLI adapters as fallback.
+
+  Product invariants:
+  - Assistant clarifies, plans, generates TaskSpec, dispatches, and summarizes; it does not run heavy development tasks.
+  - Worker executes heavy tasks in isolated runtime environments and emits structured trace, events, and artifacts.
+  - EventCenter distributes events and projections; it is not the business source of truth.
+  - Evolution may only generate Truth from traceable evidence and must preserve scope, confidence, lifecycle, and permissions.
+  - Skill, MCP, model, secret, network, and runtime capabilities are explicit grants, not ambient permissions.
+
+rules:
+  proposal:
+    - Always include Why, What Changes, Capabilities, and Impact.
+    - Capabilities must use kebab-case names and map to one spec file each.
+    - Do not hide major uncertainty; list it in Impact or Open Questions.
+  design:
+    - Start from first principles and explain why the boundary exists.
+    - Include alternatives considered for architectural decisions.
+    - Include security, reliability, observability, and data lifecycle trade-offs.
+    - Cross-module designs must reference TaskSpec, IntegrationEvent, Trace JSONL, ArtifactRef, Truth, and ContextPack when relevant.
+  specs:
+    - Requirements must use SHALL or MUST.
+    - Every requirement must include at least one Scenario with WHEN and THEN.
+    - Specs define externally observable behavior, not implementation minutiae.
+    - Mention tenant/user/project scope for any data, memory, skill, model, or artifact behavior.
+  tasks:
+    - Break work into reviewable chunks that can be implemented and verified independently.
+    - Include documentation, contract validation, state-machine tests, event idempotency tests, and security checks when relevant.

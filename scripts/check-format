@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+files=$(find cmd internal test -type f -name '*.go' -print | sort)
+unformatted=$(gofmt -l $files)
+if [ -n "$unformatted" ]; then
+  printf '%s\n' 'Go files require formatting:' >&2
+  printf '%s\n' "$unformatted" >&2
+  exit 1
+fi

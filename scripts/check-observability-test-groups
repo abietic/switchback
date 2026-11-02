@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+case "$#:${1:-}" in
+  1:--*|0:*) echo 'usage: check-observability-test-groups BASE_COMMIT | --manifest FILE | --export-manifest BASE_COMMIT FILE' >&2; exit 2 ;;
+  1:*) git rev-parse --verify "$1^{commit}" >/dev/null 2>&1 || exit 2 ;;
+  2:--manifest|3:--export-manifest) ;;
+  *) echo 'invalid observability group arguments' >&2; exit 2 ;;
+esac
+binary=$(mktemp "${TMPDIR:-/tmp}/observability-groups.XXXXXX")
+trap 'rm -f "$binary"' EXIT
+GOMAXPROCS=2 go build -p=1 -o "$binary" "$root/test/acceptance/observabilitygroups"
+"$binary" "$@"

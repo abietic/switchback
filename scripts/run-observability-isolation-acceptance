@@ -1,0 +1,5 @@
+#!/bin/sh
+# Test-only. No Docker mutation: the root operator owns exact container lifecycle.
+set -eu
+cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+exec go run ./test/acceptance/observability "$@"

@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+
+usage() {
+	echo "usage: verify-langfuse TRACE_ID TURN_ID_1 TURN_ID_2 GENERATION_ID PARENT_TURN_ID [GENERATION_ID PARENT_TURN_ID ...]" >&2
+}
+
+valid_id() {
+	[[ "$1" =~ ^[A-Za-z0-9._:-]+$ ]]
+}
+
+monotonic_now() {
+	perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC -e 'printf "%.9f\n", clock_gettime(CLOCK_MONOTONIC)'
+}
+
+remaining_seconds() {
+	local now
+	now="$(monotonic_now)" || return 1
+	awk -v deadline="$deadline" -v now="$now" 'BEGIN { printf "%.9f\n", deadline - now }'
+}
+
+deadline_elapsed() {
+	awk -v remaining="$1" 'BEGIN { exit !(remaining <= 0) }'
+}
+
+timeout() {
+	echo "Langfuse verification timed out after 90s; last observed: ${last_summary}" >&2
+	exit 1
+}
+
+if (( $# < 7 )) || (( ($# - 3) % 2 != 0 )); then
+	usage
+	exit 2
+fi
+
+trace_id="$1"
+first_turn_id="$2"
+second_turn_id="$3"
+shift 3
+
+if ! valid_id "$trace_id" ||
+	! valid_id "$first_turn_id" ||
+	! valid_id "$second_turn_id" ||
+	[[ "$first_turn_id" == "$second_turn_id" ]]; then
+	echo "trace and two distinct AgentTurn IDs must use only safe identity characters" >&2
+	exit 2
+fi
+
+generation_ids=()
+generation_parents=()
+generation_count=0
+first_turn_has_generation=0
+second_turn_has_generation=0
+while (( $# > 0 )); do
+	generation_id="$1"
+	parent_turn_id="$2"
+	shift 2
+	if ! valid_id "$generation_id" || ! valid_id "$parent_turn_id"; then
+		echo "generation identities must use only safe identity characters" >&2
+		exit 2
+	fi
+	if [[ "$parent_turn_id" != "$first_turn_id" && "$parent_turn_id" != "$second_turn_id" ]]; then
+		echo "every generation parent must be one of the two expected AgentTurns" >&2
+		exit 2
+	fi
+	for ((index = 0; index < generation_count; index++)); do
+		existing_generation_id="${generation_ids[$index]}"
+		if [[ "$generation_id" == "$existing_generation_id" ]]; then
+			echo "generation identities must be distinct" >&2
+			exit 2
+		fi
+	done
+	if [[ "$parent_turn_id" == "$first_turn_id" ]]; then
+		first_turn_has_generation=1
+	else
+		second_turn_has_generation=1
+	fi
+	generation_ids[$generation_count]="$generation_id"
+	generation_parents[$generation_count]="$parent_turn_id"
+	generation_count=$((generation_count + 1))
+done
+
+if (( first_turn_has_generation == 0 || second_turn_has_generation == 0 )); then
+	echo "each expected AgentTurn must have at least one expected generation" >&2
+	exit 2
+fi
+
+: "${LANGFUSE_BASE_URL:?LANGFUSE_BASE_URL is required}"
+: "${LANGFUSE_PUBLIC_KEY:?LANGFUSE_PUBLIC_KEY is required}"
+: "${LANGFUSE_SECRET_KEY:?LANGFUSE_SECRET_KEY is required}"
+
+base_url="${LANGFUSE_BASE_URL%/}"
+case "$base_url" in
+http://*)
+	authority="${base_url#http://}"
+	;;
+https://*)
+	authority="${base_url#https://}"
+	;;
+*)
+	echo "LANGFUSE_BASE_URL must be an HTTP(S) origin" >&2
+	exit 2
+	;;
+esac
+if [[ -z "$authority" || "$authority" == */* || "$authority" == *"@"* ||
+	"$authority" =~ [[:space:]] ||
+	"$base_url" == *"?"* || "$base_url" == *"#"* ]]; then
+	echo "LANGFUSE_BASE_URL must be an HTTP(S) origin" >&2
+	exit 2
+fi
+if [[ ! "$LANGFUSE_PUBLIC_KEY" =~ ^[A-Za-z0-9_-]+$ ||
+	! "$LANGFUSE_SECRET_KEY" =~ ^[A-Za-z0-9_-]+$ ]]; then
+	echo "Langfuse keys contain unsupported characters" >&2
+	exit 2
+fi
+runtime_metadata_names=(
+	SWITCHBACK_SPIKE_LANGFUSE_WORKER_SESSION_ID
+	SWITCHBACK_SPIKE_LANGFUSE_WORKER_RUN_ID
+	SWITCHBACK_SPIKE_LANGFUSE_RUNTIME_INSTANCE_ID
+	SWITCHBACK_SPIKE_LANGFUSE_RUNTIME_GENERATION
+	SWITCHBACK_SPIKE_LANGFUSE_AGENT_SESSION_ID
+)
+runtime_metadata_count=0
+for name in "${runtime_metadata_names[@]}"; do
+	value="${!name-}"
+	if [[ -n "$value" ]]; then
+		runtime_metadata_count=$((runtime_metadata_count + 1))
+	fi
+done
+runtime_metadata_enabled=0
+if ((runtime_metadata_count != 0)); then
+	if ((runtime_metadata_count != ${#runtime_metadata_names[@]})); then
+		echo "Langfuse runtime metadata must be supplied together" >&2
+		exit 2
+	fi
+	if ! valid_id "$SWITCHBACK_SPIKE_LANGFUSE_WORKER_SESSION_ID" ||
+		! valid_id "$SWITCHBACK_SPIKE_LANGFUSE_WORKER_RUN_ID" ||
+		! valid_id "$SWITCHBACK_SPIKE_LANGFUSE_RUNTIME_INSTANCE_ID" ||
+		! valid_id "$SWITCHBACK_SPIKE_LANGFUSE_AGENT_SESSION_ID" ||
+		[[ "$SWITCHBACK_SPIKE_LANGFUSE_RUNTIME_GENERATION" != "1" ]]; then
+		echo "Langfuse runtime metadata is invalid" >&2
+		exit 2
+	fi
+	runtime_metadata_enabled=1
+fi
+if ! command -v curl >/dev/null 2>&1; then
+	echo "curl is required" >&2
+	exit 2
+fi
+if ! command -v jq >/dev/null 2>&1; then
+	echo "jq is required" >&2
+	exit 2
+fi
+if ! command -v perl >/dev/null 2>&1; then
+	echo "perl with Time::HiRes is required" >&2
+	exit 2
+fi
+
+response_file="$(mktemp)"
+trap 'rm -f "$response_file"' EXIT
+query_url="${base_url}/api/public/traces/${trace_id}"
+last_summary="no response observed"
+if ! started_at="$(monotonic_now)"; then
+	echo "monotonic clock is unavailable" >&2
+	exit 2
+fi
+deadline="$(awk -v started_at="$started_at" 'BEGIN { printf "%.9f\n", started_at + 90 }')"
+
+while true; do
+	if ! remaining="$(remaining_seconds)"; then
+		echo "monotonic clock is unavailable" >&2
+		exit 2
+	fi
+	if deadline_elapsed "$remaining"; then
+		timeout
+	fi
+	: >"$response_file"
+	if ! status="$(
+		printf 'user = "%s:%s"\n' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" |
+			curl \
+				--config - \
+				--silent \
+				--show-error \
+				--max-time "$remaining" \
+				--output "$response_file" \
+				--write-out '%{http_code}' \
+				"$query_url"
+	)"; then
+		if ! remaining="$(remaining_seconds)"; then
+			echo "monotonic clock is unavailable" >&2
+			exit 2
+		fi
+		if deadline_elapsed "$remaining"; then
+			timeout
+		fi
+		echo "Langfuse trace query failed" >&2
+		exit 1
+	fi
+	if ! remaining="$(remaining_seconds)"; then
+		echo "monotonic clock is unavailable" >&2
+		exit 2
+	fi
+	if deadline_elapsed "$remaining"; then
+		timeout
+	fi
+
+	if [[ "$status" == "404" ]]; then
+		last_summary="HTTP 404"
+	elif [[ "$status" == "200" ]]; then
+		if ! jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
+			echo "Langfuse trace query returned invalid JSON" >&2
+			exit 1
+		fi
+		last_summary="$(
+			jq -r --arg trace "$trace_id" '
+				[
+					(.id == $trace),
+					(.observations // [] | length),
+					([.observations[]? | select(.type == "SPAN" and .name == "agent.turn")] | length),
+					([.observations[]? | select(.type == "GENERATION")] | length)
+				] |
+				"trace_identity_match=\(.[0]) observations=\(.[1]) agent_turn_spans=\(.[2]) generations=\(.[3])"
+			' "$response_file"
+		)"
+		ready=1
+		if ! jq -e \
+			--arg first "$first_turn_id" \
+			--arg second "$second_turn_id" \
+			--arg trace "$trace_id" \
+			'
+				[.observations[]? | select(.type == "SPAN" and .name == "agent.turn") | .id] as $ids |
+				.id == $trace and
+				($ids | length) == 2 and
+				(($ids | sort) == ([$first, $second] | sort)) and
+				all(
+					.observations[]? | select(.type == "SPAN" and .name == "agent.turn");
+					.traceId == $trace
+				)
+			' "$response_file" >/dev/null; then
+			ready=0
+		fi
+		if ! jq -e \
+			--argjson expected_count "$generation_count" \
+			'
+				[.observations[]? | select(.type == "GENERATION")] |
+				length == $expected_count
+			' "$response_file" >/dev/null; then
+			ready=0
+		fi
+		for ((index = 0; index < generation_count; index++)); do
+			if ! jq -e \
+				--arg generation "${generation_ids[$index]}" \
+				--arg parent "${generation_parents[$index]}" \
+				--arg trace "$trace_id" \
+				'
+					any(
+						.observations[]?;
+						.type == "GENERATION" and
+						.id == $generation and
+						.traceId == $trace and
+						.parentObservationId == $parent
+					)
+			' "$response_file" >/dev/null; then
+				ready=0
+			fi
+		done
+		if ((runtime_metadata_enabled == 1)); then
+			if ! jq -e \
+				--arg session "$SWITCHBACK_SPIKE_LANGFUSE_WORKER_SESSION_ID" \
+				--arg run "$SWITCHBACK_SPIKE_LANGFUSE_WORKER_RUN_ID" \
+				--arg runtime "$SWITCHBACK_SPIKE_LANGFUSE_RUNTIME_INSTANCE_ID" \
+				--arg runtime_generation "$SWITCHBACK_SPIKE_LANGFUSE_RUNTIME_GENERATION" \
+				--arg agent_session "$SWITCHBACK_SPIKE_LANGFUSE_AGENT_SESSION_ID" \
+				--arg first "$first_turn_id" \
+				--arg second "$second_turn_id" \
+				'
+					def exact_metadata:
+						.worker_session_id == $session and
+						.worker_run_id == $run and
+						.runtime_instance_id == $runtime and
+						(.runtime_generation | tostring) == $runtime_generation and
+						.agent_session_id == $agent_session and
+						((.agent_turn_ids | sort) == ([$first, $second] | sort));
+					(.metadata | exact_metadata) and
+					all(
+						.observations[]? |
+							select(
+								(.type == "SPAN" and .name == "agent.turn") or
+								.type == "GENERATION"
+							);
+						(.metadata | exact_metadata) and
+						(if .type == "SPAN"
+						 then .metadata.agent_turn_id == .id
+						 else .metadata.agent_turn_id == .parentObservationId
+						 end)
+					)
+				' "$response_file" >/dev/null; then
+				ready=0
+			fi
+		fi
+		if (( ready == 1 )); then
+			echo "Langfuse projection verified"
+			exit 0
+		fi
+	else
+		echo "Langfuse trace query returned HTTP ${status}" >&2
+		exit 1
+	fi
+
+	if ! remaining="$(remaining_seconds)"; then
+		echo "monotonic clock is unavailable" >&2
+		exit 2
+	fi
+	if deadline_elapsed "$remaining"; then
+		timeout
+	fi
+	sleep_for="$(awk -v remaining="$remaining" 'BEGIN { if (remaining < 1) printf "%.9f\n", remaining; else print "1" }')"
+	sleep "$sleep_for"
+done

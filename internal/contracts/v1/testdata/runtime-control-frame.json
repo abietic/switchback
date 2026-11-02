@@ -1,0 +1,34 @@
+{
+  "schema_version": "runtime.control.frame.v1",
+  "frame_type": "resume_hello",
+  "resume_hello": {
+    "worker_session_id": "worker-session-1",
+    "runtime_instance_id": "runtime-instance-1",
+    "runtime_generation": 1,
+    "channel_epoch": 7,
+    "shim_process_nonce": "shim-process-1",
+    "stream_attempt": 2,
+    "worker_tx_last_sequence": 5,
+    "worker_tx_backend_acked_sequence": 4,
+    "worker_tx_cursor_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worker_rx_last_sequence": 3,
+    "worker_rx_applied_sequence": 3,
+    "worker_rx_cursor_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "active_turn": {
+      "worker_run_id": "worker-run-1",
+      "agent_session_id": "agent-session-1",
+      "agent_turn_id": "agent-turn-1",
+      "start_command_sequence": 3,
+      "start_message_id": "start-agent-turn-1",
+      "start_idempotency_key": "start-agent-turn-1",
+      "start_envelope_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "phase": "active",
+      "last_update_sequence": 8,
+      "terminal_envelope_digest": ""
+    }
+  },
+  "resume_ack": null,
+  "resume_ready": null,
+  "resume_complete": null,
+  "envelope": null
+}

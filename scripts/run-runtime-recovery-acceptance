@@ -1,0 +1,127 @@
+#!/bin/sh
+set -eu
+
+root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+data_root=${SWITCHBACK_RUNTIME_RECOVERY_ACCEPTANCE_DATA_ROOT:-"$root_dir/runtime-data/runtime-recovery/run-$(date -u +%Y%m%dT%H%M%SZ)"}
+summary=$data_root/runtime-recovery-acceptance.json
+integration_log=$data_root/integration.log
+integration_events=$data_root/integration-events.jsonl
+integration_results=$data_root/integration-test-results.json
+postgres_container=
+
+mkdir -p "$data_root"
+chmod 700 "$data_root"
+
+cleanup() {
+  if test -n "$postgres_container"; then
+    docker rm -f "$postgres_container" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if test -z "${SWITCHBACK_TEST_DATABASE_URL:-}"; then
+  postgres_container=switchback-runtime-recovery-postgres-$$
+  docker run -d --rm \
+    --name "$postgres_container" \
+    -e POSTGRES_USER=switchback \
+    -e POSTGRES_PASSWORD=switchback-test \
+    -e POSTGRES_DB=switchback_test \
+    -p 127.0.0.1::5432 \
+    docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49 >/dev/null
+  attempts=0
+  until docker exec "$postgres_container" pg_isready -U switchback -d switchback_test >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    test "$attempts" -lt 40 || {
+      printf 'Runtime recovery acceptance PostgreSQL did not become ready\n' >&2
+      exit 1
+    }
+    sleep 1
+  done
+  postgres_port=$(docker port "$postgres_container" 5432/tcp | sed -n '1s/.*://p')
+  test -n "$postgres_port" || {
+    printf 'Runtime recovery acceptance PostgreSQL port is unavailable\n' >&2
+    exit 1
+  }
+  SWITCHBACK_TEST_DATABASE_URL="postgres://switchback:switchback-test@127.0.0.1:$postgres_port/switchback_test?sslmode=disable"
+  export SWITCHBACK_TEST_DATABASE_URL
+fi
+
+cd "$root_dir"
+if ! go test -json -count=1 -tags=integration \
+    ./internal/workerruntime/adapter/postgres \
+    ./internal/eventingprojection/adapter/postgres \
+    ./internal/artifacttrace/adapter/postgres \
+    -run 'Test(RuntimeRecovery|IdleRuntimeRecovery|RuntimeLiveness|HardFailure|DisabledRuntimeRecovery|AbsoluteExpiryDefers|CleanupFailure|LateOldGeneration)' \
+    >"$integration_events"; then
+  jq -r -j 'select(.Action == "output") | .Output' "$integration_events" | tee "$integration_log"
+  exit 1
+fi
+jq -r -j 'select(.Action == "output") | .Output' "$integration_events" | tee "$integration_log"
+jq -s '
+  [
+    .[]
+    | select(.Action == "pass" and (.Test // "") != "")
+    | .Test
+  ]
+  | unique
+' "$integration_events" >"$integration_results"
+
+SWITCHBACK_REAL_PROVIDER_MODE=recovery \
+SWITCHBACK_REAL_PROVIDER_DATA_ROOT="$data_root/fixed-image" \
+./scripts/run-real-provider-acceptance
+
+fixed_image_summary=$data_root/fixed-image/acceptance/real-provider-recovery-summary.json
+jq -n \
+  --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg integration_log "$integration_log" \
+  --slurpfile integration_test_results "$integration_results" \
+  --slurpfile fixed_image "$fixed_image_summary" '
+  [
+    "idle_loss_production_path",
+    "active_loss_fixed_image",
+    "backend_restart_fixed_image",
+    "duplicate_triggers_production_path",
+    "failed_fencing_fixed_image",
+    "failed_replacement_fixed_image",
+    "stale_events_fixed_image",
+    "security_termination_preemption"
+  ] as $required_enablement_scenarios
+  | [] as $executed_enablement_scenarios
+  | ($required_enablement_scenarios - $executed_enablement_scenarios) as $missing_enablement_scenarios
+  |
+  {
+    schema_version: "switchback.runtime_recovery_acceptance.v2",
+    completed_at: $completed_at,
+    deterministic_integration: {
+      outcome: "passed",
+      log: $integration_log,
+      integration_test_results: $integration_test_results[0]
+    },
+    fixed_image: $fixed_image[0],
+    required_enablement_scenarios: $required_enablement_scenarios,
+    executed_enablement_scenarios: $executed_enablement_scenarios,
+    missing_enablement_scenarios: $missing_enablement_scenarios,
+    enablement_ready: (($missing_enablement_scenarios | length) == 0),
+    outcome: (
+      if
+        $fixed_image[0].outcome == "passed" and
+        ($fixed_image[0].profiles | length) == 1 and
+        $fixed_image[0].profiles[0].recovery_attempted == true and
+        $fixed_image[0].profiles[0].replacement_runtime_generation == 2 and
+        $fixed_image[0].profiles[0].agent_session_preserved == true and
+        $fixed_image[0].profiles[0].no_prompt_replay == true and
+        $fixed_image[0].profiles[0].recovery_scenario == "idle_between_turns_manual_replacement" and
+        $fixed_image[0].profiles[0].production_recovery_path == false and
+        $fixed_image[0].profiles[0].managed_residue_verified == true
+      then "passed"
+      else "failed"
+      end
+    )
+  }
+' >"$summary"
+
+jq -e '
+  .outcome == "passed" and
+  (.enablement_ready == true or .enablement_ready == false)
+' "$summary" >/dev/null
+printf 'runtime_recovery_acceptance=%s\n' "$summary"

@@ -1,0 +1,32 @@
+services:
+  spike-backend:
+    environment:
+      SWITCHBACK_SPIKE_INTEGRATION: "1"
+      SWITCHBACK_SPIKE_AGENT_PROFILE: integration-fake
+      SWITCHBACK_SPIKE_UPSTREAM_API_BASE: http://fake-openai:8080/v1
+
+  fake-openai:
+    image: ${SWITCHBACK_SPIKE_WORKER_IMAGE}
+    restart: "no"
+    user: "10002:10002"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    entrypoint:
+      - /opt/switchback/bin/fake-openai
+    command:
+      - -listen
+      - 0.0.0.0:8080
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=1).read()
+      interval: 2s
+      timeout: 2s
+      retries: 10
+    labels:
+      switchback.spike.managed: "true"
+    networks:
+      - control

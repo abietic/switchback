@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if test "$#" -ne 1; then
+  printf 'usage: %s <go-test-jsonl>\n' "$0" >&2
+  exit 2
+fi
+if ! jq -e -s '
+  def text: type == "string" and length > 0;
+  reduce .[] as $e ({packages: {}, tests: {}};
+    if ($e | type) != "object" or ($e.Action | text | not) then
+      error("invalid event")
+    elif $e.Action == "build-fail" or $e.Action == "fail" then
+      error("failed integration event")
+    elif $e.Action == "build-output" then
+      if ($e.ImportPath | text) and ($e.Output | type == "string") then .
+      else error("invalid build output") end
+    else
+      if ($e.Package | text | not) or
+         ($e.Test != null and ($e.Test | text | not)) then
+        error("invalid package/test identity")
+      else . end |
+      $e.Package as $p | ([$p, $e.Test] | tojson) as $key |
+      if $e.Action == "start" then
+        if $e.Test != null or .packages[$p] != null then error("duplicate/invalid package start")
+        else .packages[$p] = {state: "running", tests: 0} end
+      elif .packages[$p].state != "running" then error("event outside active package")
+      elif $e.Test == null then
+        if $e.Action == "output" and ($e.Output | type == "string") then .
+        elif $e.Action == "pass" or $e.Action == "skip" then
+          if any(.tests[]; .package == $p and .state != "pass") or
+             ($e.Action == "skip" and .packages[$p].tests != 0) then
+            error("incomplete or skipped package")
+          else .packages[$p].state = $e.Action end
+        else error("invalid package action") end
+      elif $e.Action == "skip" then error("skipped integration test")
+      elif $e.Action == "run" then
+        if .tests[$key] != null then error("duplicate test run")
+        else .tests[$key] = {package: $p, state: "running"} | .packages[$p].tests += 1 end
+      elif $e.Action == "output" and ($e.Output | type == "string") and
+           (.tests[$key].state == "running" or .tests[$key].state == "paused") then .
+      elif $e.Action == "pause" and .tests[$key].state == "running" then .tests[$key].state = "paused"
+      elif $e.Action == "cont" and .tests[$key].state == "paused" then .tests[$key].state = "running"
+      elif $e.Action == "pass" and .tests[$key].state == "running" then .tests[$key].state = "pass"
+      else error("invalid or unmatched test action") end
+    end
+  ) |
+  (.packages | length > 0) and
+  all(.packages[]; .state == "pass" or .state == "skip") and
+  all(.tests[]; .state == "pass")
+' "$1" >/dev/null; then
+  printf 'invalid or incomplete integration evidence\n' >&2
+  exit 1
+fi
+printf 'integration evidence complete; no test-level skips\n'

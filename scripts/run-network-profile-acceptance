@@ -1,0 +1,244 @@
+#!/bin/sh
+set -eu
+
+root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+worker_image=${SWITCHBACK_WORKER_IMAGE:?SWITCHBACK_WORKER_IMAGE is required}
+worker_network=${SWITCHBACK_WORKER_NETWORK:?SWITCHBACK_WORKER_NETWORK is required}
+profile_id=trusted_full_network_v1
+profile_revision=1
+profile_digest=sha256:25abd6d521b199eafb612bb42295faf3a56e90a928ae7d631cb7cce8923ed28f
+result_root=${SWITCHBACK_NETWORK_ACCEPTANCE_DATA_ROOT:-"$root_dir/runtime-data/network-profile/run-$(date -u +%Y%m%dT%H%M%SZ)"}
+result_file=$result_root/network-profile-acceptance.json
+container_name=switchback-network-profile-acceptance-$$
+private_container=switchback-network-private-echo-$$
+temporary_root=$(mktemp -d)
+server_state=$temporary_root/server.json
+probe_result=$temporary_root/probe.json
+inspect_result=$temporary_root/inspect.json
+server_pid=
+
+cleanup() {
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+  docker rm -f "$private_container" >/dev/null 2>&1 || true
+  if test -n "$server_pid"; then
+    kill "$server_pid" >/dev/null 2>&1 || true
+    wait "$server_pid" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$temporary_root"
+}
+trap cleanup EXIT INT TERM
+
+mkdir -p "$result_root"
+chmod 700 "$result_root"
+docker image inspect "$worker_image" >/dev/null
+network_internal=$(docker network inspect --format '{{.Internal}}' "$worker_network")
+test "$network_internal" = false || {
+  printf 'Worker network must allow normal bridge egress\n' >&2
+  exit 1
+}
+resolved_image=$(docker image inspect --format '{{.Id}}' "$worker_image")
+private_echo_program='import socketserver,threading
+class TCP(socketserver.BaseRequestHandler):
+    def handle(self):
+        data=self.request.recv(256)
+        self.request.sendall(data)
+class UDP(socketserver.BaseRequestHandler):
+    def handle(self):
+        data,socket=self.request
+        socket.sendto(data,self.client_address)
+tcp=socketserver.ThreadingTCPServer(("0.0.0.0",39091),TCP)
+udp=socketserver.ThreadingUDPServer(("0.0.0.0",39092),UDP)
+threading.Thread(target=tcp.serve_forever,daemon=True).start()
+udp.serve_forever()'
+docker run -d --rm \
+  --name "$private_container" \
+  --network "$worker_network" \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --entrypoint /usr/local/bin/python \
+  "$resolved_image" -c "$private_echo_program" >/dev/null
+
+go run "$root_dir/test/acceptance/networkprofile" -state "$server_state" &
+server_pid=$!
+attempt=0
+while ! test -s "$server_state"; do
+  attempt=$((attempt + 1))
+  test "$attempt" -lt 100 || {
+    printf 'host echo endpoints did not become ready\n' >&2
+    exit 1
+  }
+  sleep 0.1
+done
+tcp_port=$(jq -er '.tcp_port' "$server_state")
+udp_port=$(jq -er '.udp_port' "$server_state")
+
+docker rm -f "$container_name" >/dev/null 2>&1 || true
+docker run -i \
+  --name "$container_name" \
+  --network "$worker_network" \
+  --add-host host.docker.internal:host-gateway \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --pids-limit 512 \
+  --memory 4g \
+  --cpus 2 \
+  -e "SWITCHBACK_PROBE_TCP_PORT=$tcp_port" \
+  -e "SWITCHBACK_PROBE_UDP_PORT=$udp_port" \
+  -e "SWITCHBACK_PROBE_PRIVATE_TCP_TARGET=${SWITCHBACK_PRIVATE_TCP_TARGET:-$private_container:39091}" \
+  -e "SWITCHBACK_PROBE_PRIVATE_UDP_TARGET=$private_container:39092" \
+  -e "SWITCHBACK_PROBE_VPN_TCP_TARGET=${SWITCHBACK_VPN_TCP_TARGET:-}" \
+  --entrypoint /usr/local/bin/python \
+  "$resolved_image" - >"$probe_result" <<'PY'
+import json
+import os
+import socket
+import ssl
+import urllib.request
+from urllib.parse import urlsplit
+
+checks = {}
+errors = {}
+skipped = []
+
+def check(name, operation):
+    try:
+        operation()
+        checks[name] = True
+    except Exception as error:
+        checks[name] = False
+        errors[name] = type(error).__name__
+
+def https(url):
+    context = ssl.create_default_context()
+    with urllib.request.urlopen(url, timeout=10, context=context) as response:
+        if response.status < 200 or response.status >= 500:
+            raise RuntimeError("unexpected status")
+        response.read(1)
+
+def tcp_connect(host, port):
+    with socket.create_connection((host, port), timeout=10):
+        pass
+
+def echo_tcp():
+    payload = b"switchback-network-probe"
+    with socket.create_connection(
+        ("host.docker.internal", int(os.environ["SWITCHBACK_PROBE_TCP_PORT"])),
+        timeout=10,
+    ) as connection:
+        connection.sendall(payload)
+        if connection.recv(len(payload)) != payload:
+            raise RuntimeError("tcp echo mismatch")
+
+def echo_udp(host, port):
+    payload = b"switchback-network-probe"
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
+        connection.settimeout(10)
+        connection.sendto(payload, (host, int(port)))
+        if connection.recvfrom(len(payload))[0] != payload:
+            raise RuntimeError("udp echo mismatch")
+
+def optional_tcp(name, environment):
+    target = os.environ.get(environment, "")
+    if not target:
+        skipped.append(name)
+        return
+    parsed = urlsplit("//" + target)
+    if not parsed.hostname or not parsed.port:
+        checks[name] = False
+        errors[name] = "InvalidTarget"
+        return
+    check(name, lambda: tcp_connect(parsed.hostname, parsed.port))
+
+check("public_dns", lambda: socket.getaddrinfo("example.com", 443))
+check("public_https", lambda: https("https://example.com"))
+check("go_package_endpoint", lambda: https("https://proxy.golang.org"))
+check("npm_package_endpoint", lambda: https("https://registry.npmjs.org"))
+check("public_raw_tcp", lambda: tcp_connect("example.com", 443))
+check("host_tcp", echo_tcp)
+check("host_udp", lambda: echo_udp("host.docker.internal", os.environ["SWITCHBACK_PROBE_UDP_PORT"]))
+optional_tcp("private_tcp", "SWITCHBACK_PROBE_PRIVATE_TCP_TARGET")
+private_udp = urlsplit("//" + os.environ["SWITCHBACK_PROBE_PRIVATE_UDP_TARGET"])
+check("private_udp", lambda: echo_udp(private_udp.hostname, private_udp.port))
+optional_tcp("vpn_tcp", "SWITCHBACK_PROBE_VPN_TCP_TARGET")
+print(json.dumps({"checks": checks, "errors": errors, "skipped": skipped}, sort_keys=True))
+PY
+container_status=$(docker inspect --format '{{.State.ExitCode}}' "$container_name")
+docker inspect "$container_name" >"$inspect_result"
+test "$container_status" = 0 || {
+  printf 'Worker network probe exited unsuccessfully\n' >&2
+  exit 1
+}
+
+isolation=$(jq -c --arg network "$worker_network" '
+  .[0] as $container |
+  {
+    named_bridge: ($container.HostConfig.NetworkMode == $network),
+    host_gateway: (
+      (($container.HostConfig.ExtraHosts // []) | index("host.docker.internal=host-gateway") != null) or
+      (($container.HostConfig.ExtraHosts // []) | index("host.docker.internal:host-gateway") != null)
+    ),
+    unprivileged: ($container.HostConfig.Privileged == false),
+    host_network_absent: ($container.HostConfig.NetworkMode != "host"),
+    published_ports_absent: (
+      $container.HostConfig.PublishAllPorts == false and
+      (($container.HostConfig.PortBindings // {}) | length) == 0
+    ),
+    docker_socket_absent: (
+      [($container.Mounts // [])[] | select(.Source == "/var/run/docker.sock" or .Destination == "/var/run/docker.sock")] |
+      length == 0
+    ),
+    arbitrary_host_mounts_absent: (($container.Mounts // []) | length == 0),
+    ambient_credentials_absent: (
+      [($container.Config.Env // [])[] |
+        select(
+          startswith("AWS_") or startswith("GOOGLE_") or startswith("AZURE_") or
+          startswith("GH_TOKEN=") or startswith("GITHUB_TOKEN=") or
+          startswith("GITLAB_TOKEN=") or startswith("NPM_TOKEN=") or
+          startswith("NODE_AUTH_TOKEN=") or startswith("PYPI_TOKEN=") or
+          startswith("KUBECONFIG=") or startswith("KUBE_TOKEN=") or
+          startswith("VAULT_TOKEN=") or startswith("DATABASE_URL=") or
+          startswith("PGPASSWORD=") or startswith("REDIS_URL=") or
+          startswith("DOCKER_HOST=") or startswith("SSH_AUTH_SOCK=")
+        )
+      ] | length == 0
+    ),
+    capability_drop_all: (($container.HostConfig.CapDrop // []) | index("ALL") != null),
+    no_new_privileges: (($container.HostConfig.SecurityOpt // []) | index("no-new-privileges:true") != null)
+  }
+' "$inspect_result")
+docker_version=$(docker version --format '{{.Server.Version}}')
+host_platform=$(uname -s)-$(uname -m)
+jq -n \
+  --arg profile_id "$profile_id" \
+  --argjson profile_revision "$profile_revision" \
+  --arg profile_digest "$profile_digest" \
+  --arg host_platform "$host_platform" \
+  --arg docker_version "$docker_version" \
+  --slurpfile probe "$probe_result" \
+  --argjson isolation "$isolation" '
+  {
+    schema_version: "switchback.network_profile_acceptance.v1",
+    profile: {
+      id: $profile_id,
+      revision: $profile_revision,
+      digest: $profile_digest,
+      enforcement_status: "active"
+    },
+    host_platform: $host_platform,
+    docker_server_version: $docker_version,
+    reachability: $probe[0].checks,
+    skipped: $probe[0].skipped,
+    errors: $probe[0].errors,
+    isolation: $isolation,
+    outcome: (
+      if
+        ([$probe[0].checks[]] | all) and
+        ([$isolation[]] | all)
+      then "passed"
+      else "failed"
+      end
+    )
+  }
+' >"$result_file"
+jq -e '.outcome == "passed"' "$result_file" >/dev/null
+printf 'network_profile_acceptance=%s\n' "$result_file"

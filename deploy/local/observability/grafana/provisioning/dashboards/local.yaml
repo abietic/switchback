@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: switchback-local
+    orgId: 1
+    folder: Switchback Local
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 16% 7%;
+    --foreground: 210 20% 92%;
+    --card: 222 15% 9.5%;
+    --card-foreground: 210 20% 92%;
+    --popover: 222 16% 8%;
+    --popover-foreground: 210 20% 92%;
+    --primary: 172 66% 45%;
+    --primary-foreground: 222 30% 6%;
+    --secondary: 220 12% 15%;
+    --secondary-foreground: 210 20% 88%;
+    --muted: 220 12% 14%;
+    --muted-foreground: 217 10% 55%;
+    --accent: 220 13% 16%;
+    --accent-foreground: 172 66% 55%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 12% 16%;
+    --input: 220 12% 20%;
+    --ring: 172 66% 45%;
+    --radius: 0.625rem;
+    --sidebar-background: 222 17% 8%;
+    --sidebar-foreground: 217 10% 60%;
+    --sidebar-primary: 172 66% 45%;
+    --sidebar-primary-foreground: 222 30% 6%;
+    --sidebar-accent: 220 13% 14%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 220 12% 15%;
+    --sidebar-ring: 172 66% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.28);
+  }
+}
+
+/* 细滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(220 12% 22%) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(220 12% 22%);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 等宽数字与代码 */
+.font-mono,
+code,
+pre {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* timeline 光标闪烁 */
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.caret-blink {
+  animation: caret-blink 1s step-end infinite;
+}
+
+/* 状态点脉冲 */
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(172 66% 45% / 0.5); }
+  60% { box-shadow: 0 0 0 6px hsl(172 66% 45% / 0); }
+}
+.pulse-dot {
+  animation: pulse-dot 1.8s ease-out infinite;
+}
+
+@keyframes fade-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-slide-in {
+  animation: fade-slide-in 0.35s ease both;
+}
+
+/* diff 着色 */
+.diff-add {
+  background: hsl(150 55% 40% / 0.14);
+  color: hsl(150 60% 72%);
+}
+.diff-del {
+  background: hsl(0 60% 50% / 0.13);
+  color: hsl(0 65% 72%);
+}
+.diff-hunk {
+  color: hsl(217 60% 65%);
+  background: hsl(217 40% 40% / 0.12);
+}

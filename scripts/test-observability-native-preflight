@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+fixture=$(mktemp -d)
+fixture=$(cd "$fixture" && pwd -P)
+trap 'rm -rf "$fixture"' EXIT
+mkdir "$fixture/bin"
+printf '#!/usr/bin/env bash\nprintf "called\\n" >>"$CALLS"\nexit 99\n' >"$fixture/bin/docker"
+cp "$fixture/bin/docker" "$fixture/bin/go"
+chmod +x "$fixture/bin/"*
+export CALLS="$fixture/calls"
+run() {
+  local expected=$1 actual=0
+  shift
+  env -i PATH="$fixture/bin:$PATH" CALLS="$CALLS" "$root/scripts/test-observability-native" "$@" >"$fixture/result" 2>&1 || actual=$?
+  if test "$actual" != "$expected"; then
+    printf 'expected %s got %s\n' "$expected" "$actual" >&2
+    sed -n '1,20p' "$fixture/result" >&2
+    exit 1
+  fi
+  test ! -e "$CALLS" || { printf 'external command called before env preflight\n' >&2; exit 1; }
+}
+run 2
+run 2 relative
+run 2 "$fixture"
+run 1 "$fixture/new-output"
+test "$(stat -f '%Lp' "$fixture/new-output" 2>/dev/null || stat -c '%a' "$fixture/new-output")" = 700
+project=switchback-obsv-characterization
+password=$(printf '%064d' 0)
+mkdir "$fixture/claim"
+jq -n --arg p "$project" --arg o "$fixture/claim" '{project:$p,output:$o}' >"$fixture/claim/claim.json"
+printf 'COMPOSE_PROJECT_NAME=%s\nOBSERVABILITY_DATABASE_NAME=%s\nOBSERVABILITY_POSTGRES_PORT=19001\nSWITCHBACK_POSTGRES_PASSWORD=%s\nIGNORED=$(touch %s)\n' "$project" "${project//-/_}" "$password" "$fixture/evaluated" >"$fixture/claim/acceptance.env"
+export SWITCHBACK_OBSERVABILITY_LOG_CLIENT=prometheus SWITCHBACK_OBSERVABILITY_MONITORING_NATIVE_TEST=1 SWITCHBACK_TEST_ALLOY_NATIVE=1 SWITCHBACK_OBSERVABILITY_NATIVE_TEST=1 SWITCHBACK_TEST_WORKER_TELEMETRY_DOCKER=1
+export SWITCHBACK_TEST_WORKER_ALLOY_URL=http://127.0.0.1:19002/loki/api/v1/push SWITCHBACK_TEST_WORKER_LOKI_URL=http://127.0.0.1:19003
+export SWITCHBACK_TEST_DATABASE_URL="postgresql://switchback:$password@127.0.0.1:19001/${project//-/_}?sslmode=disable"
+export OBSERVABILITY_PROOF_TEST_DATABASE_URL="$SWITCHBACK_TEST_DATABASE_URL" OBSERVABILITY_PROOF_TEST_OUTPUT="$fixture/claim" SWITCHBACK_OBSERVABILITY_PROJECT="$project"
+export SWITCHBACK_OBSERVABILITY_POSTGRES_CONTAINER=postgres SWITCHBACK_OBSERVABILITY_ALLOY_CONTAINER=alloy SWITCHBACK_OBSERVABILITY_LOKI_CONTAINER=loki
+export FAKE_FIXTURE="$fixture" GOFLAGS='-run=TestUnexpected' GOWORK=/invalid/work
+id=$(printf '%064d' 1)
+container=1
+for service in prometheus postgres alloy loki; do
+  container=$((container+1)); container_id=$(printf '%064d' "$container")
+  case "$service" in postgres) internal=5432; port=19001 ;; alloy) internal=12345; port=19002 ;; loki) internal=3100; port=19003 ;; *) internal=9090; port=19004 ;; esac
+  jq -n --arg id "$id" --arg cid "$container_id" --arg s "$service" --arg p "$project" --arg r "$root" --arg k "$internal/tcp" --arg port "$port" '[{Id:$cid,Name:("/"+$s),Image:("sha256:"+$id),State:{Running:true},Config:{Labels:{"com.docker.compose.project":$p,"com.docker.compose.service":$s,"com.docker.compose.project.working_dir":($r+"/deploy/local"),"com.docker.compose.project.config_files":($r+"/deploy/local/compose.yaml,"+$r+"/test/acceptance/observability/compose.override.yaml")}},NetworkSettings:{Ports:{($k):[{HostIp:"127.0.0.1",HostPort:$port}]},Networks:{($p+"-observability"):{NetworkID:$id}}}}]' >"$fixture/$service.json"
+done
+jq -n --arg id "$id" '[{Id:("sha256:"+$id),RepoDigests:[]}]' >"$fixture/image.json"
+printf '%s\n' '#!/usr/bin/env bash' 'set -eu' 'printf "docker %s\n" "$*" >>"$CALLS"' 'if test "$1" = image && test "$2" = inspect; then if [[ "$3" == *grafana/grafana* && "${FAIL_GRAFANA:-}" == 1 ]]; then printf "[]\n"; else cat "$FAKE_FIXTURE/image.json"; fi; elif test "$1" = inspect && test "$2" = --type && test "$3" = container; then cat "$FAKE_FIXTURE/$4.json"; else exit 99; fi' >"$fixture/bin/docker"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "go %s\n" "$*" >>"$CALLS"' 'test "${GOFLAGS:-}" = "-p=1" && test "$GOWORK" = off && test "$GOENV" = off && test "$GOMAXPROCS" = 2 || exit 98' 'exit 97' >"$fixture/bin/go"
+attempt=0
+late() {
+  local reach=$1 actual=0
+  attempt=$((attempt+1))
+  rm -f "$CALLS"
+  PATH="$fixture/bin:$PATH" "$root/scripts/test-observability-native" "$fixture/attempt-$attempt" >"$fixture/result" 2>&1 || actual=$?
+  test "$actual" = 1 || { printf 'preflight case unexpectedly returned %s\n' "$actual" >&2; exit 1; }
+  if test "$reach" = yes; then
+    if ! rg -q '^go test -p=1 -json -count=1 -timeout=25m -tags=integration,observability_native -run \^' "$CALLS"; then sed -n '1,15p' "$fixture/result" >&2; exit 1; fi
+    test "$(<"$fixture/attempt-$attempt/go-exit.txt")" = 97
+  else
+    if test -e "$CALLS" && rg -q '^go ' "$CALLS"; then printf 'rejected preflight executed Go\n' >&2; exit 1; fi
+  fi
+  if rg -q "$password|postgresql://" "$fixture/result"; then printf 'credential leaked\n' >&2; exit 1; fi
+}
+late yes # Valid fake identity reaches fake Go, whose failure must fail the gate.
+test ! -e "$fixture/evaluated"
+for key in SWITCHBACK_OBSERVABILITY_LOG_CLIENT SWITCHBACK_OBSERVABILITY_MONITORING_NATIVE_TEST SWITCHBACK_TEST_ALLOY_NATIVE SWITCHBACK_OBSERVABILITY_NATIVE_TEST SWITCHBACK_TEST_WORKER_TELEMETRY_DOCKER SWITCHBACK_TEST_WORKER_ALLOY_URL SWITCHBACK_TEST_WORKER_LOKI_URL SWITCHBACK_TEST_DATABASE_URL OBSERVABILITY_PROOF_TEST_OUTPUT OBSERVABILITY_PROOF_TEST_DATABASE_URL SWITCHBACK_OBSERVABILITY_PROJECT SWITCHBACK_OBSERVABILITY_POSTGRES_CONTAINER SWITCHBACK_OBSERVABILITY_ALLOY_CONTAINER SWITCHBACK_OBSERVABILITY_LOKI_CONTAINER; do
+  saved=${!key}; export "$key="; late no; export "$key=$saved"
+  test ! -e "$CALLS" || { printf 'missing environment inspected Docker\n' >&2; exit 1; }
+done
+saved=$SWITCHBACK_TEST_ALLOY_NATIVE; export SWITCHBACK_TEST_ALLOY_NATIVE=2; late no; export SWITCHBACK_TEST_ALLOY_NATIVE=$saved
+saved=$SWITCHBACK_OBSERVABILITY_PROJECT; export SWITCHBACK_OBSERVABILITY_PROJECT=switchback-obsv-wrong; late no; export SWITCHBACK_OBSERVABILITY_PROJECT=$saved
+saved=$SWITCHBACK_TEST_WORKER_ALLOY_URL; export SWITCHBACK_TEST_WORKER_ALLOY_URL=http://127.0.0.1:19999/loki/api/v1/push; late no; export SWITCHBACK_TEST_WORKER_ALLOY_URL=$saved
+cp "$fixture/alloy.json" "$fixture/backup"
+for mutation in '.[0].State.Running=false' '.[0].Config.Labels["com.docker.compose.project"]="wrong"' '.[0].Config.Labels["com.docker.compose.service"]="wrong"' '.[0].Config.Labels["com.docker.compose.project.working_dir"]="/wrong"' '.[0].Image="sha256:wrong"' '.[0].NetworkSettings.Ports["12345/tcp"][0].HostIp="0.0.0.0"' '.[0].NetworkSettings.Networks={}' '.[0].NetworkSettings.Networks[].NetworkID="wrong"' '.[0].Config.Labels["com.docker.compose.project.config_files"]="/wrong"'; do
+  jq "$mutation" "$fixture/backup" >"$fixture/alloy.json"; late no
+done
+cp "$fixture/backup" "$fixture/alloy.json"
+export FAIL_GRAFANA=1; late no; unset FAIL_GRAFANA
+printf '[]\n' >"$fixture/image.json"; late no
+printf 'native preflight characterization passed (fake Docker/Go boundaries; no physical proof)\n'

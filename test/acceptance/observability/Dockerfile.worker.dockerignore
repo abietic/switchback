@@ -1,0 +1,17 @@
+# Acceptance build context only. Never send deploy env, keys, repository .git or data.
+**
+!spikes/
+!spikes/worker-runtime/
+!spikes/worker-runtime/go.mod
+!spikes/worker-runtime/go.sum
+!spikes/worker-runtime/test/
+!spikes/worker-runtime/test/fakes/
+!spikes/worker-runtime/test/fakes/cmd/
+!spikes/worker-runtime/test/fakes/cmd/fake-acp/
+!spikes/worker-runtime/test/fakes/cmd/fake-acp/main.go
+!spikes/worker-runtime/test/fakes/cmd/fake-openai/
+!spikes/worker-runtime/test/fakes/cmd/fake-openai/main.go
+!test/
+!test/acceptance/
+!test/acceptance/observability/
+!test/acceptance/observability/litellm.yaml

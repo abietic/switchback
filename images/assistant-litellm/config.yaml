@@ -1,0 +1,18 @@
+model_list:
+  - model_name: switchback-assistant-kimi-code
+    litellm_params:
+      model: openai/kimi-for-coding
+      api_base: https://api.kimi.com/coding/v1
+      api_key: os.environ/SWITCHBACK_ASSISTANT_KIMI_CODE_API_KEY
+  - model_name: switchback-assistant-deepseek
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_base: https://api.deepseek.com
+      api_key: os.environ/SWITCHBACK_ASSISTANT_DEEPSEEK_API_KEY
+
+general_settings:
+  master_key: os.environ/SWITCHBACK_ASSISTANT_LITELLM_PROXY_KEY
+
+litellm_settings:
+  drop_params: false
+  num_retries: 0

@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+data_root=${SWITCHBACK_FAILURE_ACCEPTANCE_DATA_ROOT:-$root_dir/runtime-data/failure-acceptance/run-$(date -u +%Y%m%dT%H%M%SZ)}
+result_dir=$data_root/results
+summary=$data_root/failure-acceptance-summary.json
+postgres_container=
+
+mkdir -p "$result_dir"
+chmod 700 "$data_root" "$result_dir"
+
+cleanup() {
+  if test -n "$postgres_container"; then
+    docker rm -f "$postgres_container" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if test -z "${SWITCHBACK_TEST_DATABASE_URL:-}"; then
+  postgres_container=switchback-failure-acceptance-postgres-$$
+  docker run -d --rm \
+    --name "$postgres_container" \
+    -e POSTGRES_USER=switchback \
+    -e POSTGRES_PASSWORD=switchback-test \
+    -e POSTGRES_DB=switchback_test \
+    -p 127.0.0.1::5432 \
+    docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49 >/dev/null
+  attempts=0
+  until docker exec "$postgres_container" pg_isready -U switchback -d switchback_test >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    test "$attempts" -lt 40 || { printf 'failure acceptance PostgreSQL did not become ready\n' >&2; exit 1; }
+    sleep 1
+  done
+  postgres_port=$(docker port "$postgres_container" 5432/tcp | sed -n '1s/.*://p')
+  test -n "$postgres_port" || { printf 'failure acceptance PostgreSQL port is unavailable\n' >&2; exit 1; }
+  SWITCHBACK_TEST_DATABASE_URL="postgres://switchback:switchback-test@127.0.0.1:$postgres_port/switchback_test?sslmode=disable"
+  export SWITCHBACK_TEST_DATABASE_URL
+fi
+
+export SWITCHBACK_FAILURE_MATRIX_RESULT_DIR=$result_dir
+
+cd "$root_dir"
+go test -count=1 ./internal/interaction/application ./internal/interaction/adapter/litellm \
+  -run 'TestAssistantRunProcessorFailsClosedBeforeAnyTaskAuthority|TestClientFailsClosedWithoutProviderFallbackOrRawBody|TestClientMapsRequestDeadlineAndProfileMismatch|TestTaskConfirmationRejectsEveryStaleBinding|TestDerivedEffectsDegradeIndependentlyAndPersistSanitizedStatus'
+go test -count=1 ./internal/frontier/sse \
+  -run 'TestHandlerWritesControlWithoutAdvancingDurableCursor'
+go test -count=1 -tags=integration ./internal/localproduct \
+  -run 'TestAssistantBackendRestartMakesUnknownModelEffectVisibleWithoutRetry'
+go test -count=1 -tags=integration ./internal/interaction/adapter/postgres \
+  -run 'TestConcurrentConversationMessagesAcceptExactlyOneExpectedRevision|TestAssistantConfirmationCreatesTaskAtomicallyAndIsIdempotent|TestAssistantTaskAdmissionRollbackLeavesNoPartialTaskAuthority'
+go test -count=1 -tags=integration ./internal/platform/postgres \
+  -run 'TestConsumerReceiptsDeduplicateSemanticEventIdentity'
+go test -count=1 -tags=integration ./internal/eventingprojection/adapter/postgres \
+  -run 'TestReplayWindowReturnsDeltasOrExplicitResync'
+go run ./test/acceptance/assistantfailurematrix
+
+go test -count=1 -tags=integration ./internal/artifacttrace/adapter/postgres \
+  -run 'TestEvidencePublicationRejectsChecksumMismatchAndMissingObject|TestLangfuseFailureRecordsDegradationWithoutChangingCompletedRun'
+go test -count=1 -tags=integration ./internal/workerruntime/adapter/postgres \
+  -run 'TestWorkerSessionAllocatorEnforcesQuotaAndStableFIFOWithConcurrentRetries|TestLifecycleScheduledCommandsUseServerDeadlinesAndFencing|TestGenerationOneRuntimeLossFencesWithoutImplicitReplacement|TestCleanupFailureIsReportedAndScheduledBeforeReconciliationConfirmsZeroResidue|TestRuntimeRecoveryExhaustionPausesRunSessionAndNonterminalTask|TestRuntimeRecoveryDeadlinePreemptionUsesOriginalLifecycleOutcome|TestRuntimeRecoveryAbsoluteExpiryPreemptionUsesSessionExpiryContract|TestHardFailureSignalsConvergeOnOneIncidentAndFenceStaleGeneration|TestDisabledRuntimeRecoveryGateDoesNotOpenIncident'
+
+SWITCHBACK_REAL_PROVIDER_MODE=invalid-credential \
+SWITCHBACK_REAL_PROVIDER_DATA_ROOT="$data_root" \
+./scripts/run-real-provider-acceptance
+
+SWITCHBACK_FAILURE_MATRIX_SUMMARY=$summary go run ./test/acceptance/failurematrix
+printf 'failure_acceptance_summary=%s\n' "$summary"

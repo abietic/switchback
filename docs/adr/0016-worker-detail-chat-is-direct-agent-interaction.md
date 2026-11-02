@@ -1,0 +1,3 @@
+# Worker Detail Chat Is Direct Agent Interaction
+
+Messages sent from a Worker detail page are AgentTurns addressed directly to that WorkerSession and do not return to Assistant for clarification. The interaction supports prompt, queue, interrupt, and steer modes similar to a Coding Agent TUI. Assistant-side conversation may create a new Task or a new WorkerRun according to intent, but direct Worker chat preserves AgentSession continuity. A successful WorkerRun emits a stage report and artifacts without closing the WorkerSession; the user may reopen the detail view and continue until lease or lifetime policy ends.

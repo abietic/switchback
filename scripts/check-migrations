@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+previous=''
+find migrations -maxdepth 1 -type f -name '*.sql' -print | sort | while IFS= read -r file; do
+  name=${file##*/}
+  case "$name" in
+    [0-9][0-9][0-9][0-9][0-9][0-9]_[a-z0-9_]*.sql) ;;
+    *)
+      printf 'invalid migration name: %s\n' "$name" >&2
+      exit 1
+      ;;
+  esac
+  sequence=${name%%_*}
+  if [ -n "$previous" ] && [ "$sequence" -le "$previous" ]; then
+    printf 'migration sequence is not strictly increasing: %s\n' "$name" >&2
+    exit 1
+  fi
+  grep -qx -- '-- migrate:up' "$file" || {
+    printf 'migration lacks exact -- migrate:up marker: %s\n' "$name" >&2
+    exit 1
+  }
+  grep -qx -- '-- migrate:down' "$file" || {
+    printf 'migration lacks exact -- migrate:down marker: %s\n' "$name" >&2
+    exit 1
+  }
+  previous=$sequence
+done

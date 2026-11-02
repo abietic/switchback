@@ -1,0 +1,913 @@
+#!/bin/sh
+set -eu
+
+claim_acceptance_output() {
+  mkdir -p "$data_root"
+  chmod 700 "$data_root"
+  if ! mkdir "$claim_lock" 2>/dev/null; then
+    printf 'acceptance output is already claimed; use a fresh output directory\n' >&2
+    return 1
+  fi
+  output_claim_acquired=1
+}
+
+cleanup_acceptance_output() {
+  if test "$summary_final_created" = 1 && test -n "$summary_final"; then
+    rm -f "$summary_final"
+    summary_final=
+    summary_final_created=0
+  fi
+  if test "$output_claim_acquired" = 1; then
+    rmdir "$claim_lock" 2>/dev/null || true
+    output_claim_acquired=0
+  fi
+}
+
+publish_validated_acceptance_summary() {
+  if ! jq -e \
+    --arg expected_profile "$assistant_profile" \
+    --argjson expected_profile_revision "$expected_assistant_profile_revision" \
+    --arg expected_profile_digest "$expected_assistant_profile_digest" \
+    --arg expected_alias "$assistant_litellm_model_alias" '
+    .schema_version == "switchback.m2-real-provider-acceptance.v1" and
+    (.generated_at | length) > 0 and
+    .outcome == "passed" and
+    .assistant_profile == $expected_profile and
+    .assistant_profile_revision == $expected_profile_revision and
+    .assistant_profile_digest == $expected_profile_digest and
+    .assistant_litellm_model_alias == $expected_alias and
+    .assistant_profile_runs_verified == true and
+    .assistant_run_count > 0 and
+    .assistant_run_count == (.assistant_runs | length) and
+    all(.assistant_runs[];
+      (.assistant_run_id | length) > 0 and
+      .status == "completed" and
+      .attempt_count == 1 and
+      (.policy_revision | length) > 0 and
+      .context_pack_count == 1 and
+      .context_pack_policy_revision == .policy_revision and
+      .profile_id == $expected_profile and
+      .profile_revision == $expected_profile_revision and
+      .profile_digest == $expected_profile_digest
+    ) and
+    (.conversation_id | length) > 0 and
+    (.task_id | length) > 0 and
+    (.worker_session_id | length) > 0 and
+    all(.stages[];
+      (.worker_run_id | length) > 0 and
+      (.agent_turn_id | length) > 0
+    ) and
+    .task_creation_count == 1 and
+    .assistant_clarification_observed == true and
+    .assistant_ready_observed == true and
+    .direct_task_chat_observed == true and
+    .same_task_rework_observed == true and
+    .task_accept_observed == true and
+    .standalone_follow_up_observed == true and
+    .task_identity_preserved == true and
+    .worker_session_identity_preserved == true and
+    .display_timeline_verified == true and
+    .artifact_provenance_verified == true and
+    .home_projection_match_count == 1 and
+    .home_projection_verified == true and
+    .artifact_projection_count == 8 and
+    .artifact_projection_verified == true and
+    .worker_detail_safe_projection == true and
+    .task_status == "completed" and
+    .worker_run_status == "completed" and
+    .agent_turn_status == "completed" and
+    .artifact_types == ["patch","report"] and
+    .source_fixture_immutable == true and
+    .known_token_absence == true
+  ' "$summary_final" >/dev/null; then
+    printf 'acceptance summary failed final contract validation\n' >&2
+    return 1
+  fi
+  if ! command link "$summary_final" "$summary" 2>/dev/null; then
+    printf 'acceptance summary publication conflict; use a fresh output directory\n' >&2
+    return 1
+  fi
+  rm -f "$summary_final"
+  summary_final=
+  summary_final_created=0
+}
+
+scan_provider_credential() {
+  credential_file=$1
+  credential_data_root=$2
+  credential_work=$3
+  if ! test -f "$credential_file" || ! test -s "$credential_file"; then
+    printf 'provider credential file is missing or empty\n' >&2
+    return 1
+  fi
+  credential_match_status=0
+  grep -R -F -f "$credential_file" "$credential_data_root" "$credential_work" \
+    >/dev/null 2>&1 || credential_match_status=$?
+  case "$credential_match_status" in
+    0)
+      printf 'provider credential reached acceptance evidence\n' >&2
+      return 1
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      printf 'provider credential evidence scan failed\n' >&2
+      return 1
+      ;;
+  esac
+}
+
+root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+compose_file="$root_dir/deploy/local/compose.yaml"
+env_file="$root_dir/deploy/local/.env"
+base_url=${SWITCHBACK_M2_REAL_PROVIDER_BASE_URL:-http://127.0.0.1:8080}
+assistant_profile=${SWITCHBACK_M2_REAL_PROVIDER_ASSISTANT_PROFILE:-kimi-code-assistant-openai-v1}
+data_root=${SWITCHBACK_M2_REAL_PROVIDER_DATA_ROOT:-$root_dir/runtime-data/m2-real-provider/run-$(date -u +%Y%m%dT%H%M%SZ)-$$}
+summary="$data_root/m2-real-provider-summary.json"
+claim_lock="$data_root/.m2-real-provider-acceptance.lock"
+fixture="$root_dir/test/fixtures/m1/workspace-repository"
+work=
+summary_final=
+summary_final_created=0
+output_claim_acquired=0
+cleanup() {
+  if test -n "$work"; then
+    rm -rf "$work"
+  fi
+  cleanup_acceptance_output
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+claim_acceptance_output
+if test -e "$summary"; then
+  printf 'acceptance summary already exists; use a fresh output directory\n' >&2
+  exit 1
+fi
+work=$(mktemp -d)
+
+for command in curl docker jq link shasum; do
+  command -v "$command" >/dev/null 2>&1 || {
+    printf 'missing acceptance dependency: %s\n' "$command" >&2
+    exit 1
+  }
+done
+case "$assistant_profile" in
+  kimi-code-assistant-openai-v1)
+    assistant_litellm_model_alias=switchback-assistant-kimi-code
+    expected_assistant_profile_revision=2
+    expected_assistant_profile_digest=sha256:04e2bd0fb1ab379aaaffaf0584da50c1997b6807bde537e606954ef4f0f34b2c
+    ;;
+  deepseek-assistant-openai-v1)
+    assistant_litellm_model_alias=switchback-assistant-deepseek
+    expected_assistant_profile_revision=1
+    expected_assistant_profile_digest=sha256:00305a3d4da93017a6c43b530e63f381098225bc966b88c80be2873ffa0ba730
+    ;;
+  *)
+    printf 'unsupported Assistant profile\n' >&2
+    exit 2
+    ;;
+esac
+
+fixture_before=$(find "$fixture" -type f -print | LC_ALL=C sort |
+  while IFS= read -r file; do shasum -a 256 "$file"; done |
+  shasum -a 256 | awk '{print $1}')
+
+if test "${SWITCHBACK_M2_REAL_PROVIDER_SKIP_LOCAL_UP:-0}" != 1; then
+  SWITCHBACK_ASSISTANT_MODEL_PROFILE="$assistant_profile" make -C "$root_dir" local-up
+fi
+
+wait_http() {
+  url=$1
+  attempts=${2:-60}
+  index=1
+  while test "$index" -le "$attempts"; do
+    if curl -fsS -o /dev/null "$url"; then
+      return 0
+    fi
+    index=$((index + 1))
+    sleep 1
+  done
+  return 1
+}
+
+wait_artifact_projection() {
+  artifact_id=$1
+  response_file=$2
+  artifact_attempt=1
+  while test "$artifact_attempt" -le 120; do
+    if ! artifact_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
+      "$base_url/api/v1/views/artifact_detail/$artifact_id" 2>/dev/null); then
+      printf 'Artifact projection request failed\n' >&2
+      return 1
+    fi
+    case "$artifact_code" in
+      200) return 0 ;;
+      404) ;;
+      *)
+        printf 'Artifact projection returned an unexpected HTTP status\n' >&2
+        return 1
+        ;;
+    esac
+    artifact_attempt=$((artifact_attempt + 1))
+    sleep 1
+  done
+  printf 'Artifact projection did not become visible\n' >&2
+  return 1
+}
+
+wait_http "$base_url/healthz" 90 || {
+  printf 'Backend did not become healthy\n' >&2
+  exit 1
+}
+assistant_container=$(docker compose --env-file "$env_file" -f "$compose_file" ps -q assistant-litellm)
+backend_container=$(docker compose --env-file "$env_file" -f "$compose_file" ps -q switchback-backend)
+postgres_container=$(docker compose --env-file "$env_file" -f "$compose_file" ps -q postgres)
+test -n "$assistant_container" && test -n "$backend_container" && test -n "$postgres_container"
+test "$(docker inspect --format '{{.State.Health.Status}}' "$assistant_container")" = healthy
+assistant_port_bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$assistant_container")
+test "$assistant_port_bindings" = "{}" || {
+  printf 'Assistant LiteLLM must not publish a host port\n' >&2
+  exit 1
+}
+actual_profile=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$backend_container" |
+  awk -F= '$1=="SWITCHBACK_ASSISTANT_MODEL_PROFILE"{print $2}')
+test "$actual_profile" = "$assistant_profile" || {
+  printf 'Backend selected an unexpected Assistant profile\n' >&2
+  exit 1
+}
+assistant_config_alias_count=$(docker exec "$assistant_container" \
+  awk -v alias="$assistant_litellm_model_alias" \
+  '$2 == "model_name:" && $3 == alias { count++ } END { print count + 0 }' \
+  /opt/switchback/assistant-litellm/config.yaml)
+test "$assistant_config_alias_count" = 1 || {
+  printf 'Assistant LiteLLM config lacks the selected model alias\n' >&2
+  exit 1
+}
+
+run_tag=$(date -u +%Y%m%dT%H%M%SZ)-$$
+post_json() {
+  path=$1
+  request_file=$2
+  response_file=$3
+  curl -fsS -H 'Content-Type: application/json' -X POST \
+    -o "$response_file" --data-binary "@$request_file" "$base_url$path"
+}
+
+jq -n --arg key "m2-real-create-$run_tag" '{
+  schema_version:"assistant.conversation_command.v1",
+  command_type:"create_conversation",
+  idempotency_key:$key
+}' > "$work/create-request.json"
+post_json "/api/v1/assistant/conversations" "$work/create-request.json" "$work/create.json"
+conversation_id=$(jq -er '.conversation_id' "$work/create.json")
+conversation_revision=$(jq -er '.conversation_revision' "$work/create.json")
+
+jq -n \
+  --arg conversation "$conversation_id" \
+  --arg key "m2-real-workspace-$run_tag" \
+  --argjson revision "$conversation_revision" '{
+    schema_version:"assistant.conversation_command.v1",
+    command_type:"select_workspace",
+    conversation_id:$conversation,
+    expected_revision:$revision,
+    idempotency_key:$key,
+    workspace_id:"workspace-local",
+    workspace_revision_id:"workspace-revision-local-v1",
+    workspace_resolution_id:"resolution-local",
+    workspace_resolution_revision:1,
+    membership_revision:1
+  }' > "$work/workspace-request.json"
+post_json "/api/v1/assistant/conversations/$conversation_id/workspace" \
+  "$work/workspace-request.json" "$work/workspace.json"
+conversation_revision=$(jq -er '.conversation_revision' "$work/workspace.json")
+
+send_message() {
+  revision=$1
+  key=$2
+  content=$3
+  response_file=$4
+  jq -n \
+    --arg conversation "$conversation_id" \
+    --arg key "$key" \
+    --arg content "$content" \
+    --argjson revision "$revision" '{
+      schema_version:"assistant.conversation_command.v1",
+      command_type:"send_message",
+      conversation_id:$conversation,
+      expected_revision:$revision,
+      idempotency_key:$key,
+      content:$content
+    }' > "$work/message-request.json"
+  post_json "/api/v1/assistant/conversations/$conversation_id/messages" \
+    "$work/message-request.json" "$response_file"
+}
+
+wait_assistant_run() {
+  expected_run=$1
+  snapshot_file=$2
+  index=1
+  while test "$index" -le 240; do
+    code=$(curl -sS -o "$snapshot_file" -w '%{http_code}' \
+      "$base_url/api/v1/views/assistant_conversation/$conversation_id")
+    if test "$code" = 200; then
+      current_run=$(jq -r '.data.assistant_run.assistant_run_id // ""' "$snapshot_file")
+      run_status=$(jq -r '.data.assistant_run.status // ""' "$snapshot_file")
+      if test "$current_run" = "$expected_run"; then
+        case "$run_status" in
+          completed) return 0 ;;
+          failed)
+            printf 'Assistant Run failed (sanitized classification: assistant_run_failed)\n' >&2
+            return 1
+            ;;
+        esac
+      fi
+    fi
+    index=$((index + 1))
+    sleep 1
+  done
+  return 1
+}
+
+assistant_retry_idempotency_key() {
+  retry_run_tag=$1
+  retry_failed_run=$2
+  retry_failed_revision=$3
+  printf 'm2-real-retry-%s-%s-%s\n' \
+    "$retry_run_tag" "$retry_failed_run" "$retry_failed_revision"
+}
+
+send_message "$conversation_revision" "m2-real-ambiguous-$run_tag" \
+  "Please improve this workspace." "$work/ambiguous-response.json"
+ambiguous_run=$(jq -er '.assistant_run_id' "$work/ambiguous-response.json")
+wait_assistant_run "$ambiguous_run" "$work/clarifying.json" || {
+  printf 'Assistant clarification run did not complete\n' >&2
+  exit 1
+}
+jq -e '
+  .data.assistant_run.status == "completed" and
+  .data.readiness.status == "clarifying"
+' "$work/clarifying.json" >/dev/null
+
+conversation_revision=$(jq -er '.data.revision' "$work/clarifying.json")
+send_message "$conversation_revision" "m2-real-exact-task-$run_tag" \
+  "Repair counter.Add in the selected and authorized workspace so TestAdd passes. Modify only the isolated WorkingCopy, run go test ./..., produce a report and patch, do not perform remote writes, and require manual patch acceptance. The Worker will inspect the WorkingCopy; no repository body is required before dispatch." \
+  "$work/exact-response.json"
+expected_run=$(jq -er '.assistant_run_id' "$work/exact-response.json")
+wait_assistant_run "$expected_run" "$work/ready.json" || {
+  printf 'Assistant ready run did not complete\n' >&2
+  exit 1
+}
+
+clarification_index=0
+while test "$(jq -r '.data.readiness.status // ""' "$work/ready.json")" = clarifying; do
+  clarification_index=$((clarification_index + 1))
+  test "$clarification_index" -le 2 || {
+    printf 'Assistant did not converge to a ready TaskDraft\n' >&2
+    exit 1
+  }
+  conversation_revision=$(jq -er '.data.revision' "$work/ready.json")
+  send_message "$conversation_revision" "m2-real-clarification-$run_tag-$clarification_index" \
+    "Proceed with the exact task already stated. The selected Workspace resolution proves dispatch access; the Worker owns repository inspection. No protected or remote effect is requested." \
+    "$work/follow-up-response.json"
+  expected_run=$(jq -er '.assistant_run_id' "$work/follow-up-response.json")
+  wait_assistant_run "$expected_run" "$work/ready.json" || {
+    printf 'Assistant clarification follow-up did not complete\n' >&2
+    exit 1
+  }
+done
+jq -e '
+  .data.assistant_run.status == "completed" and
+  (.data.readiness.status == "ready_confirmed" or .data.readiness.status == "ready_with_assumptions") and
+  .data.task_draft.status == "current"
+' "$work/ready.json" >/dev/null
+
+conversation_revision=$(jq -er '.data.revision' "$work/ready.json")
+draft_id=$(jq -er '.data.task_draft.task_draft_id' "$work/ready.json")
+jq -n \
+  --arg conversation "$conversation_id" \
+  --arg key "m2-real-confirm-$run_tag" \
+  --arg draft "$draft_id" \
+  --arg assessment "$(jq -er '.data.readiness.assessment_id' "$work/ready.json")" \
+  --arg workspace "$(jq -er '.data.workspace_id' "$work/ready.json")" \
+  --arg workspace_revision "$(jq -er '.data.task_draft.task_spec.workspace_resolution_ref.workspace_revision_id' "$work/ready.json")" \
+  --arg resolution "$(jq -er '.data.task_draft.task_spec.workspace_resolution_ref.resolution_id' "$work/ready.json")" \
+  --arg digest "$(jq -er '.data.task_draft.task_spec.creation_intent_ref.task_spec_digest' "$work/ready.json")" \
+  --arg trigger "$(jq -er '.data.task_draft.task_spec.creation_intent_ref.trigger_policy_revision' "$work/ready.json")" \
+  --argjson conversation_revision "$conversation_revision" \
+  --argjson draft_revision "$(jq -er '.data.task_draft.revision' "$work/ready.json")" \
+  --argjson assessment_revision "$(jq -er '.data.readiness.revision' "$work/ready.json")" \
+  --argjson resolution_revision "$(jq -er '.data.task_draft.task_spec.workspace_resolution_ref.revision' "$work/ready.json")" \
+  --argjson membership_revision "$(jq -er '.data.task_draft.task_spec.workspace_resolution_ref.membership_revision' "$work/ready.json")" '{
+    schema_version:"assistant.conversation_command.v1",
+    command_type:"confirm_task",
+    conversation_id:$conversation,
+    expected_revision:$conversation_revision,
+    idempotency_key:$key,
+    task_draft_id:$draft,
+    task_draft_revision:$draft_revision,
+    readiness_assessment_id:$assessment,
+    readiness_assessment_revision:$assessment_revision,
+    workspace_id:$workspace,
+    workspace_revision_id:$workspace_revision,
+    workspace_resolution_id:$resolution,
+    workspace_resolution_revision:$resolution_revision,
+    membership_revision:$membership_revision,
+    task_spec_digest:$digest,
+    trigger_policy_revision:$trigger
+  }' > "$work/confirm-request.json"
+post_json "/api/v1/assistant/conversations/$conversation_id/task-drafts/$draft_id/confirm" \
+  "$work/confirm-request.json" "$work/confirm.json"
+task_id=$(jq -er '.task_id' "$work/confirm.json")
+
+index=1
+worker_session_id=
+while test "$index" -le 180; do
+  code=$(curl -sS -o "$work/handoff.json" -w '%{http_code}' \
+    "$base_url/api/v1/views/assistant_conversation/$conversation_id")
+  if test "$code" = 200; then
+    worker_session_id=$(jq -r --arg task "$task_id" \
+      '.data.handoffs[]? | select(.task_id==$task) | .worker_session_id // ""' "$work/handoff.json")
+    test -n "$worker_session_id" && break
+  fi
+  index=$((index + 1))
+  sleep 1
+done
+test -n "$worker_session_id" || {
+  printf 'Task was not dispatched to one WorkerSession\n' >&2
+  exit 1
+}
+task_creation_count=$(jq -er '.data.handoffs | length' "$work/handoff.json")
+test "$task_creation_count" = 1 &&
+  jq -e --arg task "$task_id" --arg session "$worker_session_id" '
+    .data.handoffs as $handoffs |
+    ($handoffs | length) == 1 and
+    $handoffs[0].task_id == $task and
+    $handoffs[0].worker_session_id == $session
+  ' "$work/handoff.json" >/dev/null || {
+  printf 'Conversation did not create exactly one Task handoff\n' >&2
+  exit 1
+}
+
+wait_worker_stage() {
+  previous_run=$1
+  expected_task_status=$2
+  stage=$3
+  index=1
+  while test "$index" -le 1200; do
+    task_code=$(curl -sS -o "$work/$stage-task.json" -w '%{http_code}' \
+      "$base_url/api/v1/views/task_summary/$task_id")
+    worker_code=$(curl -sS -o "$work/$stage-worker.json" -w '%{http_code}' \
+      "$base_url/api/v1/views/worker_detail/$worker_session_id")
+    if test "$task_code" = 200 && test "$worker_code" = 200; then
+      task_status=$(jq -r '.data.status // ""' "$work/$stage-task.json")
+      current_run=$(jq -r '.data.active_worker_run_id // ""' "$work/$stage-worker.json")
+      current_turn=$(jq -r '.data.active_agent_turn_id // ""' "$work/$stage-worker.json")
+      turn_status=$(jq -r '.data.turn_status // ""' "$work/$stage-worker.json")
+      if test "$task_status" = "$expected_task_status" &&
+        test -n "$current_run" && test "$current_run" != "$previous_run" &&
+        test "$turn_status" = completed &&
+        jq -e --arg run "$current_run" --arg turn "$current_turn" '
+          ([.data.artifacts[] | select(.worker_run_id == $run and .agent_turn_id == $turn)]) as $artifacts |
+          ($artifacts | length) == 2 and
+          ([$artifacts[].type] | sort) == ["patch","report"] and
+          all($artifacts[]; (.checksum | test("^sha256:[0-9a-f]{64}$"))) and
+          any(.data.timeline_groups[]?;
+            .worker_run_id == $run and
+            .agent_turn_id == $turn and
+            .checkpoint_complete == true and
+            any(.parts[]?; .part_type == "text") and
+            any(.parts[]?; .part_type == "tool" or .part_type == "activity" or .part_type == "artifact"))
+        ' "$work/$stage-worker.json" >/dev/null; then
+        return 0
+      fi
+      case "$turn_status" in
+        failed | cancelled | timed_out)
+          printf '%s AgentTurn terminated without accepted artifacts\n' "$stage" >&2
+          return 1
+          ;;
+      esac
+    fi
+    index=$((index + 1))
+    sleep 1
+  done
+  return 1
+}
+
+wait_initial_delivery() {
+  index=1
+  while test "$index" -le 1200; do
+    task_code=$(curl -sS -o "$work/initial-task.json" -w '%{http_code}' \
+      "$base_url/api/v1/views/task_summary/$task_id")
+    worker_code=$(curl -sS -o "$work/initial-worker.json" -w '%{http_code}' \
+      "$base_url/api/v1/views/worker_detail/$worker_session_id")
+    if test "$task_code" = 200 && test "$worker_code" = 200; then
+      task_status=$(jq -r '.data.status // ""' "$work/initial-task.json")
+      current_run=$(jq -r '.data.active_worker_run_id // ""' "$work/initial-worker.json")
+      current_turn=$(jq -r '.data.active_agent_turn_id // ""' "$work/initial-worker.json")
+      turn_status=$(jq -r '.data.turn_status // ""' "$work/initial-worker.json")
+      if test "$task_status" = delivered && test "$turn_status" = completed &&
+        jq -e --arg run "$current_run" --arg turn "$current_turn" '
+          ([.data.artifacts[] | select(.worker_run_id == $run and .agent_turn_id == $turn)]) as $artifacts |
+          ($artifacts | length) == 2 and
+          ([$artifacts[].type] | sort) == ["patch","report"] and
+          all($artifacts[]; (.checksum | test("^sha256:[0-9a-f]{64}$"))) and
+          any(.data.timeline_groups[]?;
+            .worker_run_id == $run and
+            .agent_turn_id == $turn and
+            .checkpoint_complete == true and
+            any(.parts[]?; .part_type == "text") and
+            any(.parts[]?; .part_type == "tool" or .part_type == "activity" or .part_type == "artifact"))
+        ' "$work/initial-worker.json" >/dev/null; then
+        return 0
+      fi
+      case "$turn_status" in
+        failed | cancelled | timed_out)
+          printf 'Initial real Codex AgentTurn terminated without accepted artifacts\n' >&2
+          return 1
+          ;;
+      esac
+    fi
+    index=$((index + 1))
+    sleep 1
+  done
+  return 1
+}
+
+continue_task() {
+  interaction_kind=$1
+  message=$2
+  stage=$3
+  previous_run=$(jq -er '.data.active_worker_run_id' "$work/current-worker.json")
+  jq -n \
+    --arg key "m2-real-$stage-$run_tag" \
+    --arg session "$worker_session_id" \
+    --arg run "$previous_run" \
+    --arg turn "$(jq -er '.data.active_agent_turn_id' "$work/current-worker.json")" \
+    --arg kind "$interaction_kind" \
+    --arg message "$message" \
+    --argjson task_revision "$(jq -er '.data.revision' "$work/current-task.json")" \
+    --argjson session_revision "$(jq -er '.data.session_revision' "$work/current-worker.json")" \
+    --argjson run_revision "$(jq -er '.data.active_run_revision' "$work/current-worker.json")" \
+    --argjson turn_revision "$(jq -er '.data.active_turn_revision' "$work/current-worker.json")" '{
+      schema_version:"gateway.task_continuation.v1",
+      idempotency_key:$key,
+      expected_task_revision:$task_revision,
+      worker_session_id:$session,
+      expected_session_revision:$session_revision,
+      worker_run_id:$run,
+      expected_run_revision:$run_revision,
+      agent_turn_id:$turn,
+      expected_turn_revision:$turn_revision,
+      interaction_kind:$kind,
+      message:$message
+    }' > "$work/$stage-request.json"
+  post_json "/api/v1/tasks/$task_id/continue" \
+    "$work/$stage-request.json" "$work/$stage-response.json"
+  wait_worker_stage "$previous_run" delivered "$stage" || return 1
+  cp "$work/$stage-task.json" "$work/current-task.json"
+  cp "$work/$stage-worker.json" "$work/current-worker.json"
+}
+
+wait_initial_delivery || {
+  printf 'Initial Worker delivery did not converge\n' >&2
+  exit 1
+}
+cp "$work/initial-task.json" "$work/current-task.json"
+cp "$work/initial-worker.json" "$work/current-worker.json"
+initial_run_id=$(jq -er '.data.active_worker_run_id' "$work/current-worker.json")
+initial_turn_id=$(jq -er '.data.active_agent_turn_id' "$work/current-worker.json")
+
+continue_task chat \
+  "Continue this exact Task in the same WorkerSession. Re-read counter.Add, run go test ./..., and publish a fresh report and patch for this AgentTurn. Do not write remotely." \
+  "direct-chat" || {
+  printf 'Direct delivered Task chat did not complete\n' >&2
+  exit 1
+}
+direct_chat_run_id=$(jq -er '.data.active_worker_run_id' "$work/current-worker.json")
+direct_chat_turn_id=$(jq -er '.data.active_agent_turn_id' "$work/current-worker.json")
+
+continue_task rework \
+  "Rework this same Task delivery in the same WorkerSession. Verify the implementation and tests again, make any necessary local correction, and publish a replacement report and patch. Do not write remotely." \
+  "same-task-rework" || {
+  printf 'Same-Task rework did not complete\n' >&2
+  exit 1
+}
+rework_run_id=$(jq -er '.data.active_worker_run_id' "$work/current-worker.json")
+rework_turn_id=$(jq -er '.data.active_agent_turn_id' "$work/current-worker.json")
+
+pre_accept_run_id=$rework_run_id
+jq -n \
+  --arg key "m2-real-accept-$run_tag" \
+  --argjson revision "$(jq -er '.data.revision' "$work/current-task.json")" '{
+    schema_version:"gateway.task_command.v1",
+    idempotency_key:$key,
+    expected_task_revision:$revision
+  }' > "$work/accept-request.json"
+post_json "/api/v1/tasks/$task_id/accept" "$work/accept-request.json" "$work/accept-response.json"
+
+index=1
+while test "$index" -le 240; do
+  task_code=$(curl -sS -o "$work/task.json" -w '%{http_code}' \
+    "$base_url/api/v1/views/task_summary/$task_id")
+  worker_code=$(curl -sS -o "$work/worker.json" -w '%{http_code}' \
+    "$base_url/api/v1/views/worker_detail/$worker_session_id")
+  if test "$task_code" = 200 && test "$worker_code" = 200; then
+    task_status=$(jq -r '.data.status // ""' "$work/task.json")
+    if test "$task_status" = completed &&
+      jq -e --arg task "$task_id" '
+        .data.task_status == "completed" and
+        .data.task_status_label == "Accepted" and
+        any(.available_actions[]?; .action == "worker.follow_up") and
+        (all(.available_actions[]?; .action != "task.continue" and .action != "task.rework"))
+      ' "$work/worker.json" >/dev/null; then
+      break
+    fi
+  fi
+  index=$((index + 1))
+  sleep 1
+done
+
+jq -e '
+  .data.status == "completed" and
+  .data.worker_session_id != null
+' "$work/task.json" >/dev/null
+jq -e '
+  .data.run_status == "completed" and
+  .data.turn_status == "completed" and
+  .data.agent_profile == "deepseek-codex-openai-v1"
+' "$work/worker.json" >/dev/null
+accepted_task_revision=$(jq -er '.data.revision' "$work/task.json")
+cp "$work/task.json" "$work/current-task.json"
+cp "$work/worker.json" "$work/current-worker.json"
+
+jq -n \
+  --arg key "m2-real-standalone-follow-up-$run_tag" \
+  --arg run "$(jq -er '.data.active_worker_run_id' "$work/current-worker.json")" \
+  --arg turn "$(jq -er '.data.active_agent_turn_id' "$work/current-worker.json")" \
+  --argjson session_revision "$(jq -er '.data.session_revision' "$work/current-worker.json")" \
+  --argjson run_revision "$(jq -er '.data.active_run_revision' "$work/current-worker.json")" \
+  --argjson turn_revision "$(jq -er '.data.active_turn_revision' "$work/current-worker.json")" '{
+    schema_version:"gateway.worker_command.v1",
+    idempotency_key:$key,
+    expected_session_revision:$session_revision,
+    worker_run_id:$run,
+    expected_run_revision:$run_revision,
+    agent_turn_id:$turn,
+    expected_turn_revision:$turn_revision,
+    content:"The Task is accepted. Start a standalone follow-up in this same live WorkerSession: run go test ./... once more and publish a report and patch without modifying the accepted Task."
+  }' > "$work/standalone-follow-up-request.json"
+post_json "/api/v1/worker-sessions/$worker_session_id/follow-up" \
+  "$work/standalone-follow-up-request.json" "$work/standalone-follow-up-response.json"
+wait_worker_stage "$pre_accept_run_id" completed "standalone-follow-up" || {
+  printf 'Terminal-Task standalone Worker follow-up did not complete\n' >&2
+  exit 1
+}
+cp "$work/standalone-follow-up-task.json" "$work/current-task.json"
+cp "$work/standalone-follow-up-worker.json" "$work/current-worker.json"
+standalone_run_id=$(jq -er '.data.active_worker_run_id' "$work/current-worker.json")
+standalone_turn_id=$(jq -er '.data.active_agent_turn_id' "$work/current-worker.json")
+test "$(jq -er '.data.revision' "$work/current-task.json")" = "$accepted_task_revision" || {
+  printf 'Standalone Worker follow-up rewrote the accepted Task\n' >&2
+  exit 1
+}
+
+test "$initial_run_id" != "$direct_chat_run_id"
+test "$direct_chat_run_id" != "$rework_run_id"
+test "$rework_run_id" != "$standalone_run_id"
+test "$(jq -er '.data.worker_session_id' "$work/current-worker.json")" = "$worker_session_id"
+
+artifact_projection_count=0
+for artifact_id in $(jq -r '.data.artifacts[].artifact_id' "$work/current-worker.json" | LC_ALL=C sort -u); do
+  artifact_run_id=$(jq -er --arg artifact "$artifact_id" '
+    [.data.artifacts[] | select(.artifact_id == $artifact)] as $artifacts |
+    if ($artifacts | length) == 1 then $artifacts[0].worker_run_id else error("artifact provenance is ambiguous") end
+  ' "$work/current-worker.json")
+  artifact_turn_id=$(jq -er --arg artifact "$artifact_id" '
+    [.data.artifacts[] | select(.artifact_id == $artifact)] as $artifacts |
+    if ($artifacts | length) == 1 then $artifacts[0].agent_turn_id else error("artifact provenance is ambiguous") end
+  ' "$work/current-worker.json")
+  wait_artifact_projection "$artifact_id" "$work/artifact-$artifact_id.json"
+  jq -e \
+    --arg artifact "$artifact_id" \
+    --arg run "$artifact_run_id" \
+    --arg turn "$artifact_turn_id" '
+    .data.artifact_id == $artifact and
+    .data.worker_run_id == $run and
+    .data.agent_turn_id == $turn and
+    (.data.review_manifest.outcome == "online" or .data.review_manifest.outcome == "empty") and
+    (.data.checksum | test("^sha256:[0-9a-f]{64}$"))
+  ' "$work/artifact-$artifact_id.json" >/dev/null
+  if grep -Ei \
+    'proxy_server_request|litellm_params|reasoning_content|chain.?of.?thought|model metadata for|"(authorization|api[_-]?key|raw_(request|response))"' \
+    "$work/artifact-$artifact_id.json" >/dev/null 2>&1; then
+    printf 'raw provider payload reached Artifact projection\n' >&2
+    exit 1
+  fi
+  artifact_projection_count=$((artifact_projection_count + 1))
+done
+test "$artifact_projection_count" = 8 || {
+  printf 'Artifact projection did not verify all eight accepted details\n' >&2
+  exit 1
+}
+
+artifact_ids_json=$(jq -c '[.data.artifacts[].artifact_id] | unique | sort' "$work/current-worker.json")
+home_projection_match_count=0
+index=1
+while test "$index" -le 120; do
+  curl -fsS -o "$work/home.json" "$base_url/api/v1/views/home_dashboard/index"
+  home_projection_match_count=$(jq -er \
+    --arg task "$task_id" \
+    --arg session "$worker_session_id" \
+    --argjson artifacts "$artifact_ids_json" '
+      [.data.recent_deliveries[]? |
+        select(
+          .task_id == $task and
+          .worker_session_id == $session and
+          .status == "completed" and
+          ([.artifacts[].artifact_id] | unique | sort) == $artifacts
+        )
+      ] | length
+    ' "$work/home.json")
+  test "$home_projection_match_count" = 1 && break
+  index=$((index + 1))
+  sleep 1
+done
+test "$home_projection_match_count" = 1 || {
+  printf 'Home projection did not contain one exact accepted delivery\n' >&2
+  exit 1
+}
+
+fixture_after=$(find "$fixture" -type f -print | LC_ALL=C sort |
+  while IFS= read -r file; do shasum -a 256 "$file"; done |
+  shasum -a 256 | awk '{print $1}')
+test "$fixture_before" = "$fixture_after" || {
+  printf 'source acceptance fixture changed\n' >&2
+  exit 1
+}
+
+docker exec \
+  -e "SWITCHBACK_ACCEPTANCE_CONVERSATION_ID=$conversation_id" \
+  -i "$postgres_container" \
+  sh -eu -c '
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql -X \
+      --username="$POSTGRES_USER" \
+      --dbname=switchback \
+      --no-align \
+      --tuples-only \
+      --quiet \
+      --set=ON_ERROR_STOP=1 \
+      --set=conversation_id="$SWITCHBACK_ACCEPTANCE_CONVERSATION_ID"
+  ' > "$work/assistant-runs.json" <<'SQL'
+SELECT COALESCE(
+  json_agg(
+    json_build_object(
+      'assistant_run_id', run.assistant_run_id,
+      'status', run.status,
+      'attempt_count', run.attempt_count,
+      'policy_revision', run.policy_revision,
+      'context_pack_count', context_evidence.context_pack_count,
+      'context_pack_policy_revision', context_evidence.policy_revision,
+      'profile_id', run.model_profile,
+      'profile_revision', run.model_profile_revision::bigint,
+      'profile_digest', run.model_profile_digest
+    )
+    ORDER BY run.run_sequence
+  ),
+  '[]'::json
+)
+FROM assistant_runs AS run
+CROSS JOIN LATERAL (
+  SELECT
+    count(*)::bigint AS context_pack_count,
+    COALESCE(max(pack.compiled_payload->>'policy_revision'), '') AS policy_revision
+  FROM assistant_context_packs AS pack
+  WHERE pack.assistant_run_id = run.assistant_run_id
+) AS context_evidence
+WHERE run.conversation_id = :'conversation_id';
+SQL
+assistant_run_count=$(jq -er 'length' "$work/assistant-runs.json")
+test "$assistant_run_count" -gt 0 &&
+  jq -e \
+    --arg expected_profile "$assistant_profile" \
+    --argjson expected_profile_revision "$expected_assistant_profile_revision" \
+    --arg expected_profile_digest "$expected_assistant_profile_digest" '
+      length > 0 and
+      all(.[];
+        (.assistant_run_id | length) > 0 and
+        .status == "completed" and
+        .attempt_count == 1 and
+        (.policy_revision | length) > 0 and
+        .context_pack_count == 1 and
+        .context_pack_policy_revision == .policy_revision and
+        .profile_id == $expected_profile and
+        .profile_revision == $expected_profile_revision and
+        .profile_digest == $expected_profile_digest
+      )
+    ' "$work/assistant-runs.json" >/dev/null || {
+  printf 'Assistant Run audit evidence did not match the completed single-attempt contract\n' >&2
+  exit 1
+}
+
+generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+summary_candidate="$work/summary-candidate.json"
+summary_final=$(mktemp "$data_root/.m2-real-provider-summary.XXXXXX")
+summary_final_created=1
+jq -n \
+  --arg generated_at "$generated_at" \
+  --arg assistant_profile "$assistant_profile" \
+  --argjson expected_assistant_profile_revision "$expected_assistant_profile_revision" \
+  --arg expected_assistant_profile_digest "$expected_assistant_profile_digest" \
+  --arg assistant_litellm_model_alias "$assistant_litellm_model_alias" \
+  --arg conversation_id "$conversation_id" \
+  --arg task_id "$task_id" \
+  --arg worker_session_id "$worker_session_id" \
+  --arg initial_run_id "$initial_run_id" \
+  --arg initial_turn_id "$initial_turn_id" \
+  --arg direct_chat_run_id "$direct_chat_run_id" \
+  --arg direct_chat_turn_id "$direct_chat_turn_id" \
+  --arg rework_run_id "$rework_run_id" \
+  --arg rework_turn_id "$rework_turn_id" \
+  --arg standalone_run_id "$standalone_run_id" \
+  --arg standalone_turn_id "$standalone_turn_id" \
+  --argjson accepted_task_revision "$accepted_task_revision" \
+  --argjson task_creation_count "$task_creation_count" \
+  --argjson home_projection_match_count "$home_projection_match_count" \
+  --argjson artifact_projection_count "$artifact_projection_count" \
+  --slurpfile assistant_runs "$work/assistant-runs.json" '{
+    schema_version:"switchback.m2-real-provider-acceptance.v1",
+    generated_at:$generated_at,
+    assistant_profile:$assistant_profile,
+    assistant_profile_revision:$expected_assistant_profile_revision,
+    assistant_profile_digest:$expected_assistant_profile_digest,
+    assistant_litellm_model_alias:$assistant_litellm_model_alias,
+    assistant_runs:$assistant_runs[0],
+    assistant_run_count:($assistant_runs[0] | length),
+    conversation_id:$conversation_id,
+    task_id:$task_id,
+    task_creation_count:$task_creation_count,
+    worker_session_id:$worker_session_id,
+    stages:{
+      initial_delivery:{worker_run_id:$initial_run_id,agent_turn_id:$initial_turn_id},
+      direct_task_chat:{worker_run_id:$direct_chat_run_id,agent_turn_id:$direct_chat_turn_id},
+      same_task_rework:{worker_run_id:$rework_run_id,agent_turn_id:$rework_turn_id},
+      standalone_follow_up:{worker_run_id:$standalone_run_id,agent_turn_id:$standalone_turn_id}
+    },
+    home_projection_match_count:$home_projection_match_count,
+    artifact_projection_count:$artifact_projection_count,
+    accepted_task_revision:$accepted_task_revision,
+    task_status:"completed",
+    worker_run_status:"completed",
+    agent_turn_status:"completed",
+    artifact_types:["patch","report"]
+  }' > "$summary_candidate"
+
+for credential_name in SWITCHBACK_KIMI_KEY_FILE SWITCHBACK_DEEPSEEK_KEY_FILE; do
+  credential_file=$(awk -F= -v name="$credential_name" '$1==name{sub(/^[^=]*=/,""); print}' "$env_file")
+  scan_provider_credential "$credential_file" "$data_root" "$work"
+done
+
+if find "$work" -type f -name '*.json' ! -name '*-request.json' -exec \
+  grep -Eil 'proxy_server_request|litellm_params|reasoning_content|chain.?of.?thought|model metadata for|"(authorization|api[_-]?key|raw_(request|response))"' {} + |
+  grep -q .; then
+  printf 'raw provider payload reached browser-facing response or projection\n' >&2
+  exit 1
+fi
+if grep -Ei 'proxy_server_request|litellm_params|reasoning_content|chain.?of.?thought|model metadata for|"(authorization|api[_-]?key|raw_(request|response))"' \
+  "$summary_candidate" >/dev/null 2>&1; then
+  printf 'raw provider payload reached Acceptance summary candidate\n' >&2
+  exit 1
+fi
+
+jq '.
+  + {
+      outcome:"passed",
+      assistant_clarification_observed:true,
+      assistant_ready_observed:true,
+      direct_task_chat_observed:true,
+      same_task_rework_observed:true,
+      task_accept_observed:true,
+      standalone_follow_up_observed:true,
+      task_identity_preserved:true,
+      worker_session_identity_preserved:true,
+      display_timeline_verified:true,
+      artifact_provenance_verified:true,
+      home_projection_verified:(.home_projection_match_count == 1),
+      artifact_projection_verified:(.artifact_projection_count == 8),
+      assistant_profile_runs_verified:true,
+      worker_detail_safe_projection:true,
+      source_fixture_immutable:true,
+      known_token_absence:true
+    }' "$summary_candidate" > "$summary_final"
+
+if grep -Ei 'proxy_server_request|litellm_params|reasoning_content|chain.?of.?thought|model metadata for|"(authorization|api[_-]?key|raw_(request|response))"' \
+  "$summary_final" >/dev/null 2>&1; then
+  printf 'raw provider payload reached final Acceptance summary\n' >&2
+  exit 1
+fi
+
+publish_validated_acceptance_summary
+
+printf 'm2_real_provider_summary=%s\n' "$summary"

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+lock_file="${SWITCHBACK_SPIKE_IMAGE_LOCK:-$root_dir/image-lock.json}"
+platform="linux/arm64"
+
+die() {
+	echo "lock-images: $*" >&2
+	exit 2
+}
+
+command -v docker >/dev/null 2>&1 || die "docker is required"
+command -v jq >/dev/null 2>&1 || die "jq is required"
+command -v shasum >/dev/null 2>&1 || die "shasum is required"
+
+names=(buf golang node python debian langfuse-web langfuse-worker postgres redis clickhouse minio)
+sources=(
+	"docker.io/bufbuild/buf:1.71.0"
+	"docker.io/library/golang:1.26.4-bookworm"
+	"docker.io/library/node:24.17.0-bookworm-slim"
+	"docker.io/library/python:3.13-slim-bookworm"
+	"docker.io/library/debian:bookworm-slim"
+	"docker.io/langfuse/langfuse:3.217.0"
+	"docker.io/langfuse/langfuse-worker:3.217.0"
+	"docker.io/library/postgres:17"
+	"docker.io/library/redis:7"
+	"docker.io/clickhouse/clickhouse-server"
+	"cgr.dev/chainguard/minio"
+)
+provenance=(
+	"Task 12 pinned Buf toolchain source"
+	"Task 12 pinned Go 1.26.4 Bookworm source"
+	"Task 12 pinned Node 24.17.0 Bookworm slim source"
+	"Task 12 pinned Python 3.13 Bookworm source"
+	"Task 12 minimal Backend runtime base"
+	"Langfuse v3.217.0 official docker-compose.yml at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+	"Langfuse v3.217.0 official docker-compose.yml at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+	"Langfuse v3.217.0 official docker-compose.yml postgres:17 at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+	"Langfuse v3.217.0 official docker-compose.yml redis:7 at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+	"Langfuse v3.217.0 official docker-compose.yml untagged ClickHouse source at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+	"Langfuse v3.217.0 official docker-compose.yml untagged MinIO source at commit 1f28a2989cad75eeb102adf2544e7f76eb7d9fed"
+)
+
+tmp_dir="$(mktemp -d)"
+tmp_lock="$tmp_dir/image-lock.json"
+trap 'rm -rf "$tmp_dir"' EXIT
+printf '{"schema_version":1,"platform":"%s","images":[' "$platform" >"$tmp_lock"
+for index in "${!names[@]}"; do
+	name="${names[$index]}"
+	source="${sources[$index]}"
+	raw="$tmp_dir/$name.json"
+	docker buildx imagetools inspect --raw "$source" >"$raw" || die "resolve $source"
+	manifest_digest="sha256:$(shasum -a 256 "$raw" | awk '{print $1}')"
+	platform_digest="$(jq -er --arg platform "$platform" '
+		if has("manifests") then
+			(.manifests[] | select((.platform.os + "/" + .platform.architecture) == $platform) | .digest) // empty
+		else empty end
+	' "$raw")" || die "resolve $platform manifest for $source"
+	[[ "$platform_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || die "invalid platform digest for $source"
+	repository="$source"
+	last_segment="${source##*/}"
+	if [[ "$last_segment" == *:* ]]; then
+		repository="${source%:*}"
+	fi
+	if (( index > 0 )); then
+		printf ',' >>"$tmp_lock"
+	fi
+	jq -cn \
+		--arg name "$name" \
+		--arg source "$source" \
+		--arg runtime "${repository}@${platform_digest}" \
+		--arg manifest "$manifest_digest" \
+		--arg platform_digest "$platform_digest" \
+		--arg platform "$platform" \
+		--arg provenance "${provenance[$index]}" \
+		'{name:$name,source_ref:$source,runtime_ref:$runtime,manifest_digest:$manifest,platform_digest:$platform_digest,platform:$platform,provenance:$provenance}' >>"$tmp_lock"
+done
+printf ']}' >>"$tmp_lock"
+jq -e . "$tmp_lock" >/dev/null || die "generated lock is invalid JSON"
+mv "$tmp_lock" "$lock_file"

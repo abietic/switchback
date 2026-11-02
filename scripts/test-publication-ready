@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/switchback-publication-test.XXXXXX")
+trap 'rm -rf "$fixture_root"' EXIT
+
+new_fixture() {
+  local name=$1
+  local root="$fixture_root/$name"
+  mkdir -p "$root/scripts"
+  cp "$repo_root/scripts/check-publication-ready" "$root/scripts/check-publication-ready"
+  cp "$repo_root/scripts/check-secrets" "$root/scripts/check-secrets"
+  printf '%s\n' 'safe public content' > "$root/README.md"
+  git -C "$root" init -q
+  git -C "$root" add .
+  printf '%s\n' "$root"
+}
+
+expect_failure() {
+  local root=$1
+  local expected=$2
+  local output="$root/check.out"
+  if "$root/scripts/check-publication-ready" "$root" >"$output" 2>&1; then
+    printf 'expected publication audit to fail: %s\n' "$expected" >&2
+    exit 1
+  fi
+  rg -F "$expected" "$output" >/dev/null
+}
+
+clean=$(new_fixture clean)
+"$clean/scripts/check-publication-ready" "$clean"
+
+nongit="$fixture_root/non-git"
+mkdir -p "$nongit/scripts"
+cp "$repo_root/scripts/check-publication-ready" "$nongit/scripts/check-publication-ready"
+cp "$repo_root/scripts/check-secrets" "$nongit/scripts/check-secrets"
+printf '%s\n' 'safe public content' > "$nongit/README.md"
+expect_failure "$nongit" 'not a Git worktree'
+
+enumeration_failure=$(new_fixture enumeration-failure)
+fake_bin=$(mktemp -d "$fixture_root/fake-git.XXXXXX")
+real_git=$(command -v git)
+printf '%s\n' '#!/usr/bin/env bash' 'case "$*" in' '  *ls-files*) exit 73 ;;' 'esac' "exec \"$real_git\" \"\$@\"" > "$fake_bin/git"
+chmod +x "$fake_bin/git"
+enumeration_output="$enumeration_failure/check.out"
+if PATH="$fake_bin:$PATH" "$enumeration_failure/scripts/check-publication-ready" "$enumeration_failure" >"$enumeration_output" 2>&1; then
+  printf '%s\n' 'expected publication audit to fail when tracked-file enumeration fails' >&2
+  exit 1
+fi
+rg -F 'tracked-file enumeration failed' "$enumeration_output" >/dev/null
+
+legacy=$(new_fixture legacy)
+printf '%s%s\n' 'hai' 'lix' > "$legacy/legacy.txt"
+git -C "$legacy" add legacy.txt
+expect_failure "$legacy" 'legacy product identity'
+
+private_email=$(new_fixture private-email)
+printf '%s%s%s\n' 'iam' 'yhc' '@live.cn' > "$private_email/contact.txt"
+git -C "$private_email" add contact.txt
+expect_failure "$private_email" 'private author email'
+
+personal_path=$(new_fixture personal-path)
+printf '/Users/%s%s/project\n' 'yu' 'haichuan' > "$personal_path/path.txt"
+git -C "$personal_path" add path.txt
+expect_failure "$personal_path" 'machine-specific personal path'
+
+environment=$(new_fixture environment)
+printf '%s\n' 'TOKEN=example' > "$environment/.env.local"
+git -C "$environment" add .env.local
+expect_failure "$environment" 'tracked environment or key file'
+
+oversized=$(new_fixture oversized)
+dd if=/dev/zero of="$oversized/oversized.bin" bs=1048577 count=1 status=none
+git -C "$oversized" add oversized.bin
+expect_failure "$oversized" 'tracked file exceeds 1 MiB'
+
+printf '%s\n' 'publication audit characterization passed'

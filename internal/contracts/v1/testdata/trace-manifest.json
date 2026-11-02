@@ -1,0 +1,21 @@
+{
+  "schema_version": "trace.manifest.v1",
+  "trace_stream_id": "trace-stream-1",
+  "tenant_id": "tenant-local",
+  "user_id": "user-local",
+  "workspace_id": "workspace-demo",
+  "worker_session_id": "session-1",
+  "worker_run_id": "run-1",
+  "agent_turn_id": "turn-1",
+  "runtime_instance_id": "runtime-1",
+  "runtime_generation": 1,
+  "segments": [{"kind":"normalized","uri":"object://tenant-local/user-local/workspace-demo/trace.jsonl","first_sequence":1,"last_sequence":3,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size_bytes":512,"record_count":3}],
+  "first_recorded_at": "2026-07-23T00:00:00Z",
+  "last_recorded_at": "2026-07-23T00:01:00Z",
+  "schema_versions": ["trace.v1"],
+  "lifecycle_policy_ref": "trace-default-v1",
+  "storage_tier": "hot",
+  "availability": "online",
+  "analytics_cursor": "3",
+  "langfuse_export": {"status":"pending","trace_id":"trace-1"}
+}
