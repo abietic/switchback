@@ -26,6 +26,12 @@ jobs:
           node-version: 24.17.0
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Install ripgrep for source scans
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ripgrep
+          command -v rg
+          rg --version
       - name: Run static and contract checks
         run: make fmt-check migration-check generated-protocol-check worker-image-check vet secret-scan publication-check openspec-check
       - name: Characterize integration evidence validator
