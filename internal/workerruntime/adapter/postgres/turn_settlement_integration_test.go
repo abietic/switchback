@@ -2684,7 +2684,7 @@ func validTurnSettlementCheckpoint(
 			TerminalReason:          "end_turn",
 		}
 	}
-	recordedAt = recordedAt.UTC()
+	recordedAt = recordedAt.UTC().Truncate(time.Microsecond)
 	checkpoint := map[string]any{
 		"schema_version": 1,
 		"frozen_artifacts": map[string]any{

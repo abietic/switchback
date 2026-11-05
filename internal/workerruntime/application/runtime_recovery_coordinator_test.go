@@ -513,7 +513,7 @@ func TestRuntimeRecoveryCoordinatorPreparationRetryHonorsDeadlineAndCancellation
 	for _, mode := range []string{"temporary", "permanent", "cancelled", "deadline", "absolute-expiry"} {
 		t.Run(mode, func(t *testing.T) {
 			var journal []string
-			now := time.Now().UTC()
+			now := time.Now().UTC().Truncate(time.Microsecond)
 			state := coordinatorProvisioningState()
 			state.AgentTurnDeadlineAt = now.Add(time.Minute)
 			state.SessionAbsoluteExpiresAt = now.Add(time.Hour)
