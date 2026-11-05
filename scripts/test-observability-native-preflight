@@ -24,7 +24,8 @@ run 2
 run 2 relative
 run 2 "$fixture"
 run 1 "$fixture/new-output"
-test "$(stat -f '%Lp' "$fixture/new-output" 2>/dev/null || stat -c '%a' "$fixture/new-output")" = 700
+mode=$(stat -f '%Lp' "$fixture/new-output" 2>/dev/null) || mode=$(stat -c '%a' "$fixture/new-output")
+test "$mode" = 700
 project=switchback-obsv-characterization
 password=$(printf '%064d' 0)
 mkdir "$fixture/claim"
