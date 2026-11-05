@@ -55,22 +55,22 @@ G0–G7 是证据分类，不是新增授权制度。不得用一个格子的通
 本节由发布执行方在真实完成后填写。勾选必须附可公开核验的 commit、CI run 或 settings 结果；计划不能勾作完成。原私有历史保留，与独立公开快照分开。
 
 - [x] 私有 checkpoint 已隔离保存，原工作区 HEAD/index/未提交内容保持。
-- [ ] 独立公开快照已完成脱敏；不含私有 ledger、原始审计、凭据、个人路径、私有历史引用。
+- [x] 独立公开快照已完成脱敏；不含私有 ledger、原始审计、凭据、个人路径、私有历史引用。
 - [x] 本目录四文件已进入公开快照；53 个稳定 RUN-ID 完整，主入口可达。
-- [ ] 现有 Static、Go/race、PG/no-skip、Web、Browser、Required CI 已保留，并补 publication/Python runtime 检查。
-- [ ] 依赖私有历史的 CI 基线已替换为可移植 exact baseline。
-- [ ] publication/local checks 与独立 review 已通过，阻塞失败已修正。
-- [ ] 独立远端 master 的完整 CI 已通过；已记录 exact commit 与 run。
-- [ ] 远端公开可见性及 master 严格 Required、PR-only、无 bypass/force/delete 已读回；secret scanning/push protection 状态已核实。
-- [ ] 原工作区和冻结运行证据未改；发布结果回执已记录。
+- [x] 现有 Static、Go/race、PG/no-skip、Web、Browser、Required CI 已保留，并补 publication/Python runtime 检查。
+- [x] 依赖私有历史的 CI 基线已替换为可移植 exact baseline。
+- [x] publication/local checks 与独立 review 已通过，阻塞失败已修正。
+- [x] 独立远端 master 的完整 CI 已通过；已记录 exact commit 与 run。
+- [x] 远端公开可见性及 master 严格 Required、PR-only、无 bypass/force/delete 已读回；secret scanning/push protection 状态已核实。
+- [x] 原工作区和冻结运行证据未改；发布结果回执已记录。
 - [ ] 发布完成后回到上述下一次真实执行；不把发布授权解释为续跑已失效窗口。
 
 | 发布记录 | 当前值 |
 | --- | --- |
-| 公开 exact commit | 待发布执行方填写 |
-| 完整 CI run / 结果 | 待发布执行方填写 |
-| 可见性 / 保护设置读回 | 待发布执行方填写 |
-| 原本地状态保持核验 | 待发布执行方填写 |
+| 公开 exact commit | `53f767437042314aafb0b6683d030f272737a38f` |
+| 完整 CI run / 结果 | [42055615324：六项通过](https://github.com/abietic/switchback/actions/runs/42055615324) |
+| 可见性 / 保护设置读回 | public；strict Required/PR/admin/no-force/no-delete；squash only；secret scanning/push protection enabled |
+| 原本地状态保持核验 | 原HEAD/index一致；公开副本独立对象库、仅公开3提交、发布审计通过 |
 
 ## 📚 更新规则与证据
 

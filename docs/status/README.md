@@ -4,11 +4,11 @@
 
 最新实际 CI 发现另两项问题：RUN-052 为 Go/Python Engine 文件合同不一致（代码修复已通过定向测试，旧候选需更新）；RUN-053 为驻留后续 Turn、返工、续作、恢复等生产 owner 尚未接通。保留原有拒绝，不删除或改弱测试来制造全绿。
 
-_截至 2026-11-02；运行状态与仓库发布状态分开跟踪。_
+_截至 2026-11-05；运行状态与仓库发布状态分开跟踪。_
 
 ---
 
-当前产品完整验收仍未完成。历史已有真实 Engine ready、有限 namespace 诊断和原生 PostgreSQL 局部成功；历史候选的 sealed main 尚未启动；包含 RUN-052 修复的新候选尚待组装，G2–G7 均待验。最近两次停止发生在宿主控制器，不能记作新的 Engine 产品故障。
+当前产品完整验收仍未完成。历史已有真实 Engine ready、有限 namespace 诊断和原生 PostgreSQL 局部成功；历史候选的 sealed main 尚未启动；包含 RUN-052 修复的新kit/bundle已完整构建，维护载体/seal/reader仍在重绑，G2–G7 均待验。最近两次停止发生在宿主控制器，不能记作新的 Engine 产品故障。
 
 ## 📋 当前状态
 
@@ -16,11 +16,13 @@ _截至 2026-11-02；运行状态与仓库发布状态分开跟踪。_
 | --- | --- | --- |
 | 最后成功步骤 | 历史候选完整验封 EXIT0；154.816 秒，未进入 sealed main；新候选未验封 | G1 / RUN-049、051 |
 | 最新控制器 | 旧绑定 v2 reader 离线 9 项通过、独立 C0/I0/M0；新候选组装后须重绑 | G0 / RUN-051 |
-| 当前阻塞 | 须组装含 RUN-052 两个 exact leaf 修复的新候选，并重绑 RUN-051 控制器；新 seal/binding 尚未生成、无真实收据 | G2–G5 |
+| 当前阻塞 | 新20二进制和kit/bundle已构建；继续完成维护载体、seal和RUN-051控制器重绑，尚无新真实收据 | G2–G5 |
 | 当前产品验收 | Worker exact-CID Start、ACP、Task→正式报告→页面接受→同 Task 观测仍待真实证明 | G6–G7 / RUN-050 |
 | 下一次具体实跑 | 新候选及重绑控制器就绪后，在新的明确单次授权内 fresh 验封并单次调用 sealed actual 入口；优先验证支持的 initial 闭环 | [执行清单](runtime-checklist.md#下一次单次执行) |
 | 停止条件 | 任意失败或效果 unknown 立即结束；不续跑、不重试、不做失败后 guest 读回或 Stop | [执行清单](runtime-checklist.md) |
-| 仓库同步与 CI | 独立公开快照及远端 CI/保护设置单独核验；本页不宣称发布已完成 | [发布清单](runtime-checklist.md#仓库同步与-ci) |
+| 仓库同步与 CI | 公开主线完整六项CI通过，public/严格Required/PR/管理员约束及密钥保护已读回 | [发布清单](runtime-checklist.md#仓库同步与-ci) |
+
+[2026-11-05仓库交付与CI记录](repository-delivery-2026-11-05.md)提供实际提交、CI和新候选身份。
 
 ## 🔗 跟踪方式
 
