@@ -8,7 +8,7 @@ import {
   productionViews,
   type ProductionViewKind,
 } from "../projections/productionViewRegistry";
-import { workerData } from "../projections/testdata/workerFixtures";
+import { artifactSummary, timelineTurn, workerData } from "../projections/testdata/workerFixtures";
 import { ThemeProvider } from "../providers/ThemeProvider";
 import { clientViewReplicas } from "../state/clientViewReplica";
 import { createAppRouter, routeHandle, settleAssistantCreationOperation } from "./routes";
@@ -249,9 +249,71 @@ afterEach(() => {
 });
 
 describe("production route tree", () => {
+  it("clears old links on route target change and fences a late reply when the selected Artifact vanishes", async () => {
+    const late = deferred<Response>();
+    const diagnosticResponse = (run: string, turn: string) => new Response(JSON.stringify({
+      links: [{ kind: "grafana", url: "http://localhost:3001/d/sb-worker-runtime/worker-runtime" }, { kind: "logs", url: "http://localhost:3001/explore" }],
+      grafana_status: "configured", langfuse_status: "identity_unavailable",
+      target: { worker_session_id: "session-route", worker_run_id: run, agent_turn_id: turn },
+    }), { status: 200 });
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("worker_run_id=run-b")) return late.promise;
+      if (url.includes("/diagnostics")) return diagnosticResponse("run-a", "turn-a");
+      return new Response(JSON.stringify(workerSnapshot(4,14)), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetcher); vi.stubGlobal("EventSource", RouteEventSource);
+    const router = createAppRouter(["/workers/session-route?worker_run_id=run-a&agent_turn_id=turn-a"]);
+    render(<ThemeProvider><RouterProvider router={router} /></ThemeProvider>);
+    await screen.findByRole("link", { name: /Grafana/ });
+    await act(async () => { await router.navigate("/workers/session-route?worker_run_id=run-b&agent_turn_id=turn-b"); });
+    expect(screen.queryByRole("link", { name: /Grafana/ })).not.toBeInTheDocument();
+    await act(async () => { await router.navigate("/workers/session-route?artifact_id=gone"); });
+    await screen.findByText("Selected diagnostic target unavailable.");
+    await act(async () => { late.resolve(diagnosticResponse("run-b","turn-b")); });
+    expect(screen.queryByRole("link", { name: /Grafana/ })).not.toBeInTheDocument();
+    router.dispose();
+  });
+  it.each(["artifact_id=old-report", "worker_run_id=old-run&agent_turn_id=old-turn"])("restores historical diagnostics from %s without finding the target in the first timeline page", async (search) => {
+    const old = artifactSummary({ artifact_id: "old-report", worker_run_id: "old-run", agent_turn_id: "old-turn", generated_at: "2026-07-24T00:00:00Z" });
+    const latest = artifactSummary({ artifact_id: "new-report", worker_run_id: "new-run", agent_turn_id: "new-turn" });
+    const snapshot = { ...workerSnapshot(4, 14), related_refs: [old, latest].map((artifact) => ({ type: "artifact_detail", id: artifact.artifact_id, href: `/api/v1/views/artifact_detail/${artifact.artifact_id}` })) };
+    snapshot.data = workerData({ worker_session_id: "session-route", session_revision: 14, artifacts: [old, latest], approvals: [], timeline_groups: Array.from({ length: 20 }, (_, index) => timelineTurn({ agent_turn_id: `new-turn-${index}`, display_stream_id: `display-${index}` })), timeline_has_more: true, timeline_cursor: btoa("20\0new-turn").replace(/=+$/, ""), stage_report: null });
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/diagnostics")) return new Response(JSON.stringify({ links: [], grafana_status: "disabled", langfuse_status: "disabled", target: { worker_session_id: "session-route", worker_run_id: "old-run", agent_turn_id: "old-turn" } }), { status: 200 });
+      if (url.includes("/artifact_detail/")) {
+        const id = url.split("/").at(-1)!;
+        const detail = artifactSnapshot(id);
+        detail.data = { ...detail.data, ...(id === "old-report" ? old : latest), type: "report", completeness: "complete", content: id === "old-report" ? "# Restored old report" : "# New report" };
+        return new Response(JSON.stringify(detail), { status: 200 });
+      }
+      return new Response(JSON.stringify(snapshot), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetcher); vi.stubGlobal("EventSource", RouteEventSource);
+    const router = createAppRouter([`/workers/session-route?${search}`]);
+    render(<ThemeProvider><RouterProvider router={router} /></ThemeProvider>);
+    await screen.findByText("Diagnostic links disabled.");
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes("/diagnostics")).map(([url]) => String(url))).toEqual(["/api/v1/views/worker_detail/session-route/diagnostics?worker_run_id=old-run&agent_turn_id=old-turn"]);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes("/timeline?"))).toBe(false);
+    if (search.startsWith("artifact")) { await screen.findByRole("heading", { name: "Restored old report" }); expect(screen.queryByRole("heading", { name: "New report" })).not.toBeInTheDocument(); }
+    router.dispose();
+  });
+
+  it.each(["artifact_id=gone", "artifact_id=old&worker_run_id=old-run", "agent_turn_id=old-turn", "worker_run_id=", "worker_run_id=one&worker_run_id=two", "worker_run_id=%xx"])("fails malformed or vanished selection closed: %s", async (search) => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify(workerSnapshot(4, 14)), { status: 200 }));
+    vi.stubGlobal("fetch", fetcher); vi.stubGlobal("EventSource", RouteEventSource);
+    const router = createAppRouter([`/workers/session-route?${search}`]);
+    render(<ThemeProvider><RouterProvider router={router} /></ThemeProvider>);
+    await screen.findByText("Selected diagnostic target unavailable.");
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes("/diagnostics"))).toBe(false);
+    expect(router.state.location.search).toBe(`?${search}`);
+    router.dispose();
+  });
   it.each([
     ["/", "overview", "工作台"],
     ["/tasks", "overview", "任务交付"],
+    ["/observability", "overview", "可观测性"],
     ["/assistant", "overview", "Assistant"],
     ["/assistant/conversation-1", "focused", "Assistant"],
     ["/workers/session-1", "focused", "Worker"],
@@ -267,6 +329,7 @@ describe("production route tree", () => {
   it.each([
     ["/", "工作台"],
     ["/tasks", "任务交付"],
+    ["/observability", "可观测性"],
     ["/assistant", "Assistant"],
     ["/assistant/conversation-heading", "Assistant"],
     ["/workers/session-heading", "Worker"],

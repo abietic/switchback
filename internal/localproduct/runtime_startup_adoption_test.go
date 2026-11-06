@@ -3,12 +3,44 @@ package localproduct
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 )
+
+func TestRunOnceCapacityWaitStillReconcilesOldWork(t *testing.T) {
+	runner := &runtimeRunner{}
+	runner.startupReady.Store(true)
+	steps := 0
+	dependencies := runtimeRunOnceDependencies{
+		reconcileSettlement: func(context.Context) (string, bool, error) {
+			return "settlement-guarded", true, errRuntimeStartCapacityUnavailable
+		},
+		startAdoption:  func(context.Context) (bool, error) { steps++; return false, nil },
+		detectFailures: func(context.Context) error { steps++; return nil },
+		reconcileRecovery: func(context.Context) (workerapp.RuntimeRecoveryState, bool, error) {
+			steps++
+			return workerapp.RuntimeRecoveryState{}, false, nil
+		},
+		cleanupTerminal: func(context.Context) error { steps++; return nil },
+		startQueuedTask: func(context.Context) error { t.Fatal("capacity wait started a queued Task"); return nil },
+		executeTurn:     func(context.Context) error { t.Fatal("capacity wait dispatched a new prompt"); return nil },
+	}
+	err := runner.runOnceWith(context.Background(), dependencies)
+	if !errors.Is(err, errRuntimeStartCapacityUnavailable) || steps != 4 {
+		t.Fatalf("guarded settlement err=%v reconciliation steps=%d", err, steps)
+	}
+	ordinary := errors.New("ordinary settlement failure")
+	dependencies.reconcileSettlement = func(context.Context) (string, bool, error) { return "", true, ordinary }
+	steps = 0
+	if err := runner.runOnceWith(context.Background(), dependencies); !errors.Is(err, ordinary) || steps != 0 {
+		t.Fatalf("ordinary error reinterpreted: err=%v steps=%d", err, steps)
+	}
+}
 
 func TestRunOnceContinuesWhileUnownedRuntimeAdoptionBlocks(t *testing.T) {
 	restoreStarted := make(chan struct{})
@@ -402,5 +434,92 @@ func TestUnownedRuntimeAdoptionContextIsCancelledWithRunner(t *testing.T) {
 			t.Fatal("cancelled adoption did not clear its singleflight marker")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestRunOnceTypedWaitDrainsOwnedWork(t *testing.T) {
+	for _, stage := range []string{"settlement", "adoption", "failure", "recovery", "cleanup"} {
+		t.Run(stage, func(t *testing.T) {
+			runner := &runtimeRunner{}
+			runner.startupReady.Store(true)
+			cause := fmt.Errorf("pending initial owner: %w", workerapp.InitialRuntimeStartReplayPending)
+			var calls []string
+			step := func(name string) error {
+				calls = append(calls, name)
+				if stage == name {
+					return cause
+				}
+				return nil
+			}
+			err := runner.runOnceWith(context.Background(), runtimeRunOnceDependencies{
+				reconcileSettlement: func(context.Context) (string, bool, error) { return "", false, step("settlement") },
+				startAdoption:       func(context.Context) (bool, error) { return false, step("adoption") },
+				detectFailures:      func(context.Context) error { return step("failure") },
+				reconcileRecovery: func(context.Context) (workerapp.RuntimeRecoveryState, bool, error) {
+					return workerapp.RuntimeRecoveryState{}, false, step("recovery")
+				},
+				cleanupTerminal: func(context.Context) error { return step("cleanup") },
+				startQueuedTask: func(context.Context) error { t.Fatal("pending owner dispatched Task"); return nil },
+				executeTurn:     func(context.Context) error { t.Fatal("pending owner dispatched Prompt"); return nil },
+			})
+			if err != cause || !reflect.DeepEqual(calls, []string{"settlement", "adoption", "failure", "recovery", "cleanup"}) {
+				t.Fatalf("cause identity=%t calls=%v error=%v", err == cause, calls, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeStagingWaitClassifierPreservesHardCauses(t *testing.T) {
+	waits := []error{errRuntimeStartCapacityUnavailable, workerapp.CapacityUninitialized, workerapp.CapacityEvidenceInvalid, workerapp.CapacityEvidenceStale, workerapp.CapacityIdentityDrift, workerapp.CapacityInventoryUnknown, workerapp.CapacityExhausted, workerapp.CapacityPathNotIntegrated, workerapp.CapacityContainerProofPending, workerapp.InitialRuntimeStartReplayPending}
+	hard := []error{context.Canceled, context.DeadlineExceeded, workerapp.CapacityBindingMismatch, workerapp.CapacityRequestExpired, workerapp.CapacitySecretFenceUnproven, workerapp.CapacityWaitReason("future_unknown"), errors.New("authorization/database/revision")}
+	for _, wait := range waits {
+		if !runtimeStagingWait(wait) || !runtimeStagingWait(fmt.Errorf("wrapped: %w", wait)) {
+			t.Fatalf("known wait rejected: %v", wait)
+		}
+		for _, failure := range hard {
+			if runtimeStagingWait(errors.Join(wait, failure)) || runtimeStagingWait(fmt.Errorf("wrapped join: %w", errors.Join(wait, failure))) {
+				t.Fatalf("hard cause hidden: %v", failure)
+			}
+		}
+	}
+	for _, failure := range hard {
+		if runtimeStagingWait(failure) || runtimeStagingWait(fmt.Errorf("wrapped: %w", failure)) {
+			t.Fatalf("hard cause classified: %v", failure)
+		}
+	}
+	if runtimeStagingWait(errors.Join(waits[0], waits[1])) {
+		t.Fatal("ambiguous multi-cause wait accepted")
+	}
+}
+
+func TestRunOnceTypedWaitDoesNotHideLaterHardFailure(t *testing.T) {
+	for _, hard := range []error{context.Canceled, context.DeadlineExceeded, workerapp.CapacityBindingMismatch, workerapp.CapacityRequestExpired, workerapp.CapacitySecretFenceUnproven, errors.Join(workerapp.CapacityExhausted, errors.New("security"))} {
+		runner := &runtimeRunner{}
+		runner.startupReady.Store(true)
+		called := false
+		err := runner.runOnceWith(context.Background(), runtimeRunOnceDependencies{
+			reconcileSettlement: func(context.Context) (string, bool, error) { return "", true, workerapp.CapacityEvidenceStale },
+			startAdoption:       func(context.Context) (bool, error) { return false, nil },
+			detectFailures:      func(context.Context) error { return hard },
+			reconcileRecovery: func(context.Context) (workerapp.RuntimeRecoveryState, bool, error) {
+				called = true
+				return workerapp.RuntimeRecoveryState{}, false, nil
+			},
+			cleanupTerminal: func(context.Context) error { called = true; return nil },
+			startQueuedTask: func(context.Context) error { called = true; return nil }, executeTurn: func(context.Context) error { called = true; return nil },
+		})
+		if err != hard || called {
+			t.Fatalf("hard failure hidden: err=%v calls=%t", err, called)
+		}
+	}
+}
+
+func TestPendingInitialStartRefusalHasNoCleanupEffects(t *testing.T) {
+	// Nil effect dependencies make accidental cleanup observable as a panic.
+	runner := &runtimeRunner{}
+	for _, cause := range []error{workerapp.InitialRuntimeStartReplayPending, fmt.Errorf("actual CID unavailable: %w", workerapp.CapacityContainerProofPending)} {
+		if err := runner.reconcileFailedRuntimeStart(context.Background(), workerapp.StartedWorkerRun{RuntimeInstanceID: "original"}, cause); err != cause {
+			t.Fatalf("pending cause replaced: %v", err)
+		}
 	}
 }

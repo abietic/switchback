@@ -84,6 +84,8 @@ type Provisioner struct {
 	options         Options
 	profiles        config.ProfileRegistry
 	networkProfiles config.RuntimeNetworkProfileRegistry
+	workerSeccomp   string
+	policyHandoffs  workerPolicyHandoffs
 	mu              sync.Mutex
 }
 
@@ -101,67 +103,127 @@ func NewProvisioner(engine Engine, options Options) (*Provisioner, error) {
 	if err := validateOptions(options); err != nil {
 		return nil, err
 	}
+	workerSeccomp, err := buildWorkerSeccomp(embeddedWorkerSeccompBaseline)
+	if err != nil {
+		return nil, err
+	}
 	return &Provisioner{
 		engine: engine, options: options, profiles: config.ProductionProfileRegistry(),
 		networkProfiles: config.ProductionRuntimeNetworkProfiles(),
+		workerSeccomp:   workerSeccomp,
 	}, nil
 }
 
-func (p *Provisioner) Provision(ctx context.Context, request application.RuntimeProvisionRequest) (application.ProvisionedRuntime, error) {
+func (p *Provisioner) Provision(ctx context.Context, request application.RuntimeProvisionRequest, preStart application.RuntimePreStartCheck) (application.ProvisionedRuntime, error) {
+	partial := provisioned(request, "", time.Time{})
+	if preStart == nil {
+		return partial, fmt.Errorf("Runtime pre-start check is required")
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	resources, err := p.validateRequest(request)
 	if err != nil {
-		return application.ProvisionedRuntime{}, err
+		return partial, err
+	}
+	if err := p.CheckWritableLayer(ctx); err != nil {
+		return partial, err
 	}
 	name := containerName(request.RuntimeInstanceID)
 	inspected, err := p.engine.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err == nil {
+		partial := provisioned(request, inspected.Container.ID, time.Time{})
+		partial.PhysicalEffectUnknown = true
 		if err := p.verifyExisting(inspected, request, resources); err != nil {
-			return application.ProvisionedRuntime{}, err
+			return partial, err
 		}
-		if inspected.Container.State == nil {
-			return application.ProvisionedRuntime{}, fmt.Errorf("runtime container identity conflict")
-		}
-		if !inspected.Container.State.Running {
-			if _, err := p.engine.ContainerStart(ctx, inspected.Container.ID, client.ContainerStartOptions{}); err != nil {
-				return application.ProvisionedRuntime{}, dockerError("start existing runtime container", err)
-			}
-		}
-		return provisioned(request, inspected.Container.ID, parseCreated(inspected.Container.Created)), nil
+		return partial, fmt.Errorf("initial runtime container already exists; explicit reconciliation required")
 	}
 	if !cerrdefs.IsNotFound(err) {
-		return application.ProvisionedRuntime{}, dockerError("inspect runtime container", err)
+		return partial, dockerError("inspect runtime container", err)
 	}
 
 	paths := hostPathRequirements(request)
 	if err := p.options.HostPathVerifier.VerifyHostPaths(ctx, p.options.EngineDataRoot, paths); err != nil {
-		return application.ProvisionedRuntime{}, fmt.Errorf("verify Docker HostPaths: %w", err)
+		return partial, fmt.Errorf("verify Docker HostPaths: %w", err)
 	}
+	// Staging itself issues physical effects before the Worker Create. Any error
+	// from this point conservatively retains ownership, even without a Worker CID.
+	partial.PhysicalEffectUnknown = true
 	secretVolume, err := p.stageSecretVolume(ctx, request)
 	if err != nil {
-		return application.ProvisionedRuntime{}, err
+		return partial, err
 	}
-	removeVolume := true
-	defer func() {
-		if removeVolume {
-			_, _ = p.engine.VolumeRemove(context.WithoutCancel(ctx), secretVolume, client.VolumeRemoveOptions{Force: true})
-		}
-	}()
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
 	created, err := p.engine.ContainerCreate(ctx, p.createOptions(request, resources, secretVolume))
+	partial.ContainerID = created.ID
 	if err != nil {
-		return application.ProvisionedRuntime{}, dockerError("create runtime container", err)
+		return partial, dockerError("create runtime container", err)
 	}
-	if created.ID == "" {
-		return application.ProvisionedRuntime{}, fmt.Errorf("create runtime container returned an empty id")
+	if err := validateIdentity("created container id", created.ID); err != nil {
+		return partial, fmt.Errorf("create runtime container returned an invalid id: %w", err)
 	}
+	identity := application.CreatedRuntimeIdentity{
+		ContainerID: created.ID, RuntimeInstanceID: request.RuntimeInstanceID,
+		WorkerSessionID: request.WorkerSessionID, Generation: request.Generation,
+	}
+	if err := p.verifyCreated(ctx, request, resources, identity); err != nil {
+		return partial, err
+	}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
+	if err := preStart(ctx, identity); err != nil {
+		return partial, fmt.Errorf("runtime pre-start check: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
+	if err := p.verifyCreated(ctx, request, resources, identity); err != nil {
+		return partial, err
+	}
+	if err := ctx.Err(); err != nil {
+		return partial, err
+	}
+	if err := p.policyHandoffs.publish(identity); err != nil {
+		return partial, err
+	}
+	// A failed Start response cannot prove absence or non-running state. The
+	// controlled cleaner owns reconciliation; do not eagerly remove by name/CID.
 	if _, err := p.engine.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
-		_, cleanupErr := p.engine.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true})
-		return application.ProvisionedRuntime{}, errors.Join(dockerError("start runtime container", err), cleanupErr)
+		return partial, dockerError("start runtime container", err)
 	}
-	removeVolume = false
 	return provisioned(request, created.ID, time.Now().UTC()), nil
+}
+
+// verifyCreated checks the exact create result, never a same-name replacement.
+func (p *Provisioner) verifyCreated(ctx context.Context, request application.RuntimeProvisionRequest, resources config.RuntimeResourceProfile, identity application.CreatedRuntimeIdentity) error {
+	inspected, err := p.engine.ContainerInspect(ctx, identity.ContainerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return dockerError("inspect created runtime container", err)
+	}
+	if inspected.Container.ID != identity.ContainerID {
+		return fmt.Errorf("created runtime container identity conflict")
+	}
+	if err := p.verifyExisting(inspected, request, resources); err != nil {
+		return err
+	}
+	state := inspected.Container.State
+	if state == nil || state.Status != "created" || state.Running || state.Paused || state.Restarting || state.Dead ||
+		inspected.Container.RestartCount != 0 || !neverStarted(state.StartedAt) || !neverStarted(state.FinishedAt) {
+		return fmt.Errorf("created runtime container has prior start or invalid state")
+	}
+	return nil
+}
+
+func neverStarted(value string) bool {
+	if value == "" {
+		return true
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil && timestamp.IsZero()
 }
 
 func (p *Provisioner) Inspect(ctx context.Context, runtimeInstanceID string) (application.RuntimeInspection, error) {
@@ -226,31 +288,34 @@ func (p *Provisioner) Cleanup(
 	if err != nil {
 		return observation, err
 	}
+	var removalErr error
 	if containerExists {
-		_, _ = p.engine.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true})
+		_, removalErr = p.engine.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true})
 	}
 	volumeExists, err := p.inspectCleanupVolume(ctx, request)
 	if err != nil {
-		return observation, err
+		return observation, errors.Join(removalErr, err)
 	}
 	if volumeExists {
-		_, _ = p.engine.VolumeRemove(ctx, observation.SecretVolumeRef, client.VolumeRemoveOptions{Force: true})
+		_, volumeErr := p.engine.VolumeRemove(ctx, observation.SecretVolumeRef, client.VolumeRemoveOptions{Force: true})
+		removalErr = errors.Join(removalErr, volumeErr)
 	}
 
 	_, observation.ContainerExists, err = p.inspectCleanupContainer(ctx, request)
 	if err != nil {
-		return observation, err
+		return observation, errors.Join(removalErr, err)
 	}
 	observation.SecretVolumeExists, err = p.inspectCleanupVolume(ctx, request)
 	if err != nil {
-		return observation, err
+		return observation, errors.Join(removalErr, err)
 	}
 	observation.ObservedAt = time.Now().UTC()
 	observation.Confirmed = !observation.ContainerExists && !observation.SecretVolumeExists
 	if !observation.Confirmed {
-		return observation, fmt.Errorf("Runtime cleanup residue remains")
+		return observation, errors.Join(removalErr, fmt.Errorf("Runtime cleanup residue remains"))
 	}
-	return observation, nil
+	p.policyHandoffs.clearConfirmed(request, containerID)
+	return observation, removalErr
 }
 
 func (p *Provisioner) inspectCleanupContainer(
@@ -367,14 +432,17 @@ func (p *Provisioner) createOptions(request application.RuntimeProvisionRequest,
 			ReadonlyRootfs:  false,
 			CapDrop:         []string{"ALL"},
 			CapAdd:          []string{"KILL", "SETUID", "SETGID"},
-			SecurityOpt:     []string{"no-new-privileges"},
+			SecurityOpt:     []string{"no-new-privileges", "seccomp=" + p.workerSeccomp},
 			CgroupnsMode:    container.CgroupnsModePrivate,
 			IpcMode:         container.IPCModePrivate,
 			RestartPolicy:   container.RestartPolicy{Name: container.RestartPolicyDisabled},
+			StorageOpt:      map[string]string{"size": strconv.FormatInt(resources.WritableLayerBytes, 10)},
 			Resources: container.Resources{
-				NanoCPUs:  resources.CPUUnits * 1_000_000_000,
-				Memory:    resources.MemoryBytes,
-				PidsLimit: &pids,
+				CgroupParent: "switchback-workers.slice",
+				NanoCPUs:     resources.CPUUnits * 1_000_000_000,
+				Memory:       resources.MemoryBytes,
+				MemorySwap:   resources.MemoryBytes,
+				PidsLimit:    &pids,
 			},
 			Mounts: storageMounts(request.Storage, secretVolume),
 		},
@@ -389,10 +457,21 @@ func (p *Provisioner) verifyExisting(inspected client.ContainerInspectResult, re
 	want := p.createOptions(request, resources, secretVolumeName(request))
 	gotHost := inspected.Container.HostConfig
 	if inspected.Container.Config.Image != p.options.Image || inspected.Container.Config.User != workerUser ||
+		inspected.Container.Config.WorkingDir != want.Config.WorkingDir ||
+		!reflect.DeepEqual(inspected.Container.Config.Entrypoint, want.Config.Entrypoint) ||
+		!reflect.DeepEqual(inspected.Container.Config.Cmd, want.Config.Cmd) || len(inspected.Container.Config.ExposedPorts) != 0 ||
+		gotHost.ReadonlyRootfs != want.HostConfig.ReadonlyRootfs || gotHost.PidMode != want.HostConfig.PidMode ||
+		gotHost.IpcMode != want.HostConfig.IpcMode || gotHost.CgroupnsMode != want.HostConfig.CgroupnsMode ||
+		!reflect.DeepEqual(gotHost.CapAdd, want.HostConfig.CapAdd) || !reflect.DeepEqual(gotHost.CapDrop, want.HostConfig.CapDrop) ||
+		!reflect.DeepEqual(gotHost.SecurityOpt, want.HostConfig.SecurityOpt) ||
+		gotHost.RestartPolicy != want.HostConfig.RestartPolicy ||
 		gotHost.Privileged || gotHost.PublishAllPorts || len(gotHost.PortBindings) != 0 ||
 		gotHost.NetworkMode != want.HostConfig.NetworkMode ||
 		!reflect.DeepEqual(gotHost.ExtraHosts, want.HostConfig.ExtraHosts) ||
 		!reflect.DeepEqual(gotHost.Mounts, want.HostConfig.Mounts) ||
+		!reflect.DeepEqual(gotHost.StorageOpt, want.HostConfig.StorageOpt) ||
+		gotHost.Resources.CgroupParent != want.HostConfig.Resources.CgroupParent ||
+		gotHost.Resources.MemorySwap != want.HostConfig.Resources.MemorySwap ||
 		gotHost.Resources.NanoCPUs != want.HostConfig.Resources.NanoCPUs || gotHost.Resources.Memory != want.HostConfig.Resources.Memory ||
 		gotHost.Resources.PidsLimit == nil || *gotHost.Resources.PidsLimit != resources.PIDsLimit {
 		return fmt.Errorf("runtime container immutable configuration conflict")
@@ -554,20 +633,12 @@ func secretResourceLabels(request application.RuntimeProvisionRequest) map[strin
 }
 
 func provisioned(request application.RuntimeProvisionRequest, containerID string, startedAt time.Time) application.ProvisionedRuntime {
-	if startedAt.IsZero() {
-		startedAt = time.Now().UTC()
-	}
 	return application.ProvisionedRuntime{
 		RuntimeInstanceID: request.RuntimeInstanceID,
 		ContainerID:       containerID,
 		Generation:        request.Generation,
 		StartedAt:         startedAt.UTC(),
 	}
-}
-
-func parseCreated(value string) time.Time {
-	created, _ := time.Parse(time.RFC3339Nano, value)
-	return created
 }
 
 func containerName(runtimeInstanceID string) string {

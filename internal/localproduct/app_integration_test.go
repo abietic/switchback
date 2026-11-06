@@ -25,6 +25,7 @@ import (
 	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/controlgrpc"
 	workerfake "github.com/abietic/switchback/internal/workerruntime/adapter/fake"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/localstorage"
@@ -233,6 +234,7 @@ func TestAssistantClarificationConfirmsTaskAndDispatchesFakeWorker(t *testing.T)
 	t.Cleanup(model.Close)
 
 	pool := postgrestest.Open(t)
+	runtimecapacity.Initialize(t, pool)
 	profile, err := config.LoadSingleUserLocalProfile(mapLookup(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +354,7 @@ SELECT allocation_request_id FROM session_allocation_requests WHERE owner_id=$1`
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{
 		TenantID: profile.TenantID, UserID: profile.ActorUserID,
 		WorkerSessionID: allocated.WorkerSessionID, RuntimeGeneration: 1,
-		CapacityAdmissionRef: "capacity-local-standard", IdempotencyKey: "assistant-e2e-dispatch",
+		IdempotencyKey: "assistant-e2e-dispatch",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -464,7 +466,9 @@ func TestRuntimeRunnerAllocatesIndependentTaskWhileExitedRuntimeHasNoTerminal(
 		app.runtime,
 		grpcAddress,
 	)
+	app.runtime.starts.CreatedLayerChecker = syntheticInitialCreatedLayerChecker{}
 	app.runtime.starts.Provisioner = fakeRuntime
+	allowSyntheticRuntimeStarts(t, app)
 	runResult := make(chan error, 1)
 	go func() { runResult <- app.runtime.Run(runnerCtx) }()
 	t.Cleanup(func() {
@@ -527,8 +531,14 @@ func TestRuntimeRunnerAllocatesIndependentTaskWhileExitedRuntimeHasNoTerminal(
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	taskAAfterExit := readRuntimeRunnerTaskState(t, pool, taskA)
-	if taskAAfterExit != taskAActive {
+	taskAAfterExit := waitRuntimeRunnerTaskState(t, pool, taskA, func(state runtimeRunnerTaskState) bool {
+		return state.AgentTurnStatus == "failed" && state.RuntimeStatus == "terminated"
+	})
+	if taskAAfterExit.WorkerSessionID != taskAActive.WorkerSessionID ||
+		taskAAfterExit.WorkerRunID != taskAActive.WorkerRunID ||
+		taskAAfterExit.AgentTurnID != taskAActive.AgentTurnID ||
+		taskAAfterExit.RuntimeInstanceID != taskAActive.RuntimeInstanceID ||
+		taskAAfterExit.RuntimeGeneration != taskAActive.RuntimeGeneration {
 		t.Fatalf(
 			"Task A identity changed after Runtime exit: active=%+v after=%+v",
 			taskAActive,
@@ -683,9 +693,17 @@ func newExitedRuntimeProvisioner(
 }
 
 func (provisioner *exitedRuntimeProvisioner) Provision(
-	_ context.Context,
+	ctx context.Context,
 	request workerapp.RuntimeProvisionRequest,
+	check workerapp.RuntimePreStartCheck,
 ) (workerapp.ProvisionedRuntime, error) {
+	partial := workerapp.ProvisionedRuntime{RuntimeInstanceID: request.RuntimeInstanceID, ContainerID: "container-" + request.RuntimeInstanceID, Generation: request.Generation}
+	if err := publishSyntheticFixtureContainer(ctx, provisioner.runner, request, partial.ContainerID); err != nil {
+		return partial, err
+	}
+	if err := fixtureRuntimePreStart(ctx, request, partial, check); err != nil {
+		return partial, err
+	}
 	provisioner.firstProvision.Do(func() {
 		go provisioner.runFirstRuntime(request)
 	})

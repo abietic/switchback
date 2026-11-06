@@ -275,7 +275,7 @@ type recoveryCleanupEngine struct {
 	bootstrapPreserved bool
 }
 
-func (engine *recoveryCleanupEngine) Provision(ctx context.Context, request workerapp.RuntimeProvisionRequest) (workerapp.ProvisionedRuntime, error) {
+func (engine *recoveryCleanupEngine) Provision(ctx context.Context, request workerapp.RuntimeProvisionRequest, _ workerapp.RuntimePreStartCheck) (workerapp.ProvisionedRuntime, error) {
 	engine.provisions++
 	if engine.expectedBootstrap != nil {
 		content, err := os.ReadFile(request.Secrets.Bootstrap.BackendPath)

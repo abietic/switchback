@@ -1,5 +1,6 @@
 import {
   type StatusTone,
+  type RuntimeDispatchWait,
   type TaskIndexData,
   type TaskListItem,
   requireArray,
@@ -80,6 +81,8 @@ function parseTask(value: unknown): TaskListItem {
       "Task index item Worker identity",
     ),
     updated_at: requireTimestamp(task.updated_at, "Task index item updated_at"),
+    ...(Object.hasOwn(task, "runtime_dispatch_wait")
+      ? {runtime_dispatch_wait: parseRuntimeDispatchWait(task.runtime_dispatch_wait, status)} : {}),
   };
 }
 
@@ -102,4 +105,17 @@ function requireNonNegativeSafeInteger(value: unknown, label: string): number {
   const parsed = requireNonNegativeInteger(value, label);
   if (!isNonNegativeSafeInteger(parsed)) throw new Error(`${label} is invalid`);
   return parsed;
+}
+
+function parseRuntimeDispatchWait(value: unknown, status: string): RuntimeDispatchWait {
+  if (status !== "queued") throw new Error("Runtime dispatch wait requires queued Task");
+  const wait = requireRecord(value, "Runtime dispatch wait");
+  const reason = requireString(wait.reason, "Runtime dispatch wait reason");
+  switch (reason) {
+    case "capacity_uninitialized": case "capacity_evidence_invalid": case "capacity_evidence_stale":
+    case "capacity_identity_drift": case "capacity_inventory_unknown": case "capacity_exhausted":
+    case "capacity_path_not_integrated":
+      return {reason, observed_at: requireTimestamp(wait.observed_at, "Runtime dispatch wait observed_at")};
+    default: throw new Error("Unknown runtime dispatch wait reason");
+  }
 }

@@ -69,6 +69,11 @@ func (coordinator RuntimeRecoveryCoordinator) Reconcile(
 		if reason := coordinator.preemptionReason(state); reason != "" {
 			return coordinator.exhaust(ctx, state, reason, nil)
 		}
+		// Persisted replacement intent is not integrated execution authority.
+		// Check after deadline/expiry preemption so fencing and cleanup still converge.
+		if state.Phase == domain.RecoveryProvisioning || state.Phase == domain.RecoveryReattaching {
+			return state, CapacityPathNotIntegrated
+		}
 		switch state.Phase {
 		case domain.RecoveryOpen:
 			next, err := coordinator.advance(ctx, state, AdvanceRuntimeRecoveryCommand{
@@ -123,7 +128,7 @@ func (coordinator RuntimeRecoveryCoordinator) Reconcile(
 				return coordinator.exhaust(ctx, state, "replacement_identity_mismatch", err)
 			}
 			effectContext, cancel = coordinator.effectContext(ctx, state)
-			provisioned, err := coordinator.Provisioner.Provision(effectContext, request)
+			provisioned, err := coordinator.Provisioner.Provision(effectContext, request, RejectRuntimePreStart)
 			cancel()
 			if reason := coordinator.preemptionReason(state); reason != "" {
 				if provisionedReplacementMatches(state, provisioned) {

@@ -1,0 +1,17 @@
+[Unit]
+Description=Switchback M1 resident Engine
+Requisite=switchback-m1-containerd.service
+After=switchback-m1-containerd.service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/dockerd -H unix:///run/switchback-engine/docker.sock --group=root --containerd=/run/switchback-engine/m1-resident/containerd.sock --pidfile=/run/switchback-engine/m1-resident/docker.pid --exec-root=/run/switchback-engine/m1-resident/docker --config-file=/etc/switchback/m1-engine/daemon.json
+Slice=switchback-core.slice
+Delegate=yes
+User=root
+Group=root
+UMask=0077
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=10
+KillMode=control-group

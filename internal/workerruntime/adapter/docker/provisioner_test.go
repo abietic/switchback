@@ -24,10 +24,10 @@ import (
 func TestProvisionCreatesOneFixedIsolatedWorkerContainer(t *testing.T) {
 	engine := &recordingEngine{inspectErr: cerrdefs.ErrNotFound}
 	verifier := &recordingVerifier{}
-	provisioner := newProvisioner(t, engine, verifier)
+	provisioner := newProvisioner(t, classicOverlay2Engine(engine), verifier)
 	request := validRequest(t)
 
-	got, err := provisioner.Provision(context.Background(), request)
+	got, err := provisioner.Provision(context.Background(), request, allowSyntheticPreStart)
 	if err != nil {
 		t.Fatalf("provision: %v", err)
 	}
@@ -96,9 +96,14 @@ func TestProvisionCreatesOneFixedIsolatedWorkerContainer(t *testing.T) {
 	if !slices.Contains(create.HostConfig.SecurityOpt, "no-new-privileges") {
 		t.Fatalf("Worker security options = %v", create.HostConfig.SecurityOpt)
 	}
-	if create.HostConfig.Resources.NanoCPUs != 2_000_000_000 || create.HostConfig.Resources.Memory != 4<<30 ||
+	if create.HostConfig.Resources.CgroupParent != "switchback-workers.slice" ||
+		create.HostConfig.Resources.NanoCPUs != 2_000_000_000 || create.HostConfig.Resources.Memory != 4<<30 ||
+		create.HostConfig.Resources.MemorySwap != 4<<30 ||
 		create.HostConfig.Resources.PidsLimit == nil || *create.HostConfig.Resources.PidsLimit != 512 {
 		t.Fatalf("Worker resources = %+v", create.HostConfig.Resources)
+	}
+	if !reflect.DeepEqual(create.HostConfig.StorageOpt, map[string]string{"size": "10737418240"}) {
+		t.Fatalf("Worker writable-layer size = %v, want fixed 10 GiB", create.HostConfig.StorageOpt)
 	}
 	if len(create.HostConfig.Mounts) != 4 {
 		t.Fatalf("Worker mounts = %+v", create.HostConfig.Mounts)
@@ -207,45 +212,48 @@ func TestCleanupRejectsDifferentEngineContainerIDBeforeRemoval(t *testing.T) {
 
 func TestProvisionRejectsArbitraryMountAndProfileOverridesBeforeDocker(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*application.RuntimeProvisionRequest)
+		name    string
+		wantErr string
+		mutate  func(*application.RuntimeProvisionRequest)
 	}{
-		{name: "docker socket", mutate: func(request *application.RuntimeProvisionRequest) {
+		{name: "docker socket", wantErr: "working copy mount is not server-derived", mutate: func(request *application.RuntimeProvisionRequest) {
 			request.Storage.WorkingCopy.EngineSource = "/var/run/docker.sock"
 		}},
-		{name: "outside root", mutate: func(request *application.RuntimeProvisionRequest) {
+		{name: "outside root", wantErr: "agent state mount is not server-derived", mutate: func(request *application.RuntimeProvisionRequest) {
 			request.Storage.AgentState.EngineSource = "/tmp/caller"
 		}},
-		{name: "wrong Worker target", mutate: func(request *application.RuntimeProvisionRequest) { request.Storage.TraceSpool.WorkerPath = "/caller" }},
-		{name: "resource revision", mutate: func(request *application.RuntimeProvisionRequest) { request.ResourceProfile.Revision++ }},
-		{name: "resource digest", mutate: func(request *application.RuntimeProvisionRequest) { request.ResourceProfile.Digest = "sha256:caller" }},
-		{name: "agent profile", mutate: func(request *application.RuntimeProvisionRequest) { request.AgentProfile.ID = "caller-profile" }},
-		{name: "network profile", mutate: func(request *application.RuntimeProvisionRequest) { request.NetworkProfile.ID = "caller-profile" }},
-		{name: "network digest", mutate: func(request *application.RuntimeProvisionRequest) { request.NetworkProfile.Digest = "sha256:caller" }},
-		{name: "network status", mutate: func(request *application.RuntimeProvisionRequest) { request.NetworkEnforcementStatus = "caller-status" }},
+		{name: "wrong Worker target", wantErr: "trace spool mount is not server-derived", mutate: func(request *application.RuntimeProvisionRequest) { request.Storage.TraceSpool.WorkerPath = "/caller" }},
+		{name: "resource revision", wantErr: "runtime resource profile \"local_standard_v1\" reference is stale or invalid", mutate: func(request *application.RuntimeProvisionRequest) { request.ResourceProfile.Revision++ }},
+		{name: "resource profile", wantErr: "runtime resource profile \"caller-profile\" is unsupported", mutate: func(request *application.RuntimeProvisionRequest) { request.ResourceProfile.ID = "caller-profile" }},
+		{name: "resource digest", wantErr: "runtime resource profile \"local_standard_v1\" reference is stale or invalid", mutate: func(request *application.RuntimeProvisionRequest) { request.ResourceProfile.Digest = "sha256:caller" }},
+		{name: "agent profile", wantErr: "agent profile \"caller-profile\" is unsupported", mutate: func(request *application.RuntimeProvisionRequest) { request.AgentProfile.ID = "caller-profile" }},
+		{name: "network profile", wantErr: "Runtime network profile is unavailable or stale", mutate: func(request *application.RuntimeProvisionRequest) { request.NetworkProfile.ID = "caller-profile" }},
+		{name: "network digest", wantErr: "Runtime network profile is unavailable or stale", mutate: func(request *application.RuntimeProvisionRequest) { request.NetworkProfile.Digest = "sha256:caller" }},
+		{name: "network status", wantErr: "Runtime network profile is unavailable or stale", mutate: func(request *application.RuntimeProvisionRequest) { request.NetworkEnforcementStatus = "caller-status" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := &recordingEngine{inspectErr: cerrdefs.ErrNotFound}
+			recording := &recordingEngine{inspectErr: cerrdefs.ErrNotFound}
+			engine := classicOverlay2Engine(recording)
 			request := validRequest(t)
 			tt.mutate(&request)
-			if _, err := newProvisioner(t, engine, &recordingVerifier{}).Provision(context.Background(), request); err == nil {
-				t.Fatal("unsafe Runtime provision request was accepted")
+			verifier := &recordingVerifier{}
+			if _, err := newProvisioner(t, engine, verifier).Provision(context.Background(), request, allowSyntheticPreStart); err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("unsafe Runtime provision error = %v, want %q", err, tt.wantErr)
 			}
-			if len(engine.creates) != 0 {
-				t.Fatal("Docker was called before request rejection")
+			if recording.inspections != 0 || len(recording.creates) != 0 || len(recording.started) != 0 || len(recording.volumeCreates) != 0 || len(verifier.paths) != 0 {
+				t.Fatalf("request validation reached provision operations: inspect=%d creates=%d starts=%v volumes=%d paths=%v", recording.inspections, len(recording.creates), recording.started, len(recording.volumeCreates), verifier.paths)
 			}
 		})
 	}
 }
 
-func TestProvisionReusesOnlyExactInspectedNetworkConfiguration(t *testing.T) {
+func TestProvisionRejectsEvenExactExistingNetworkConfiguration(t *testing.T) {
 	request := validRequest(t)
 	createdEngine := &recordingEngine{inspectErr: cerrdefs.ErrNotFound}
-	if _, err := newProvisioner(t, createdEngine, &recordingVerifier{}).Provision(
+	if _, err := newProvisioner(t, classicOverlay2Engine(createdEngine), &recordingVerifier{}).Provision(
 		context.Background(),
-		request,
-	); err != nil {
+		request, allowSyntheticPreStart); err != nil {
 		t.Fatal(err)
 	}
 	created := createdEngine.creates[1]
@@ -257,15 +265,11 @@ func TestProvisionReusesOnlyExactInspectedNetworkConfiguration(t *testing.T) {
 		State: &container.State{Running: true},
 	}}
 	exactEngine := &recordingEngine{inspect: inspection}
-	reused, err := newProvisioner(t, exactEngine, &recordingVerifier{}).Provision(
+	reused, err := newProvisioner(t, classicOverlay2Engine(exactEngine), &recordingVerifier{}).Provision(
 		context.Background(),
-		request,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reused.ContainerID != "container-existing" || len(exactEngine.creates) != 0 {
-		t.Fatalf("exact Runtime was not reused: result=%+v creates=%d", reused, len(exactEngine.creates))
+		request, allowSyntheticPreStart)
+	if err == nil || reused.ContainerID != "container-existing" || !reused.StartedAt.IsZero() || len(exactEngine.creates) != 0 || len(exactEngine.started) != 0 {
+		t.Fatalf("existing Runtime must remain pending without adoption: result=%+v err=%v creates=%d starts=%v", reused, err, len(exactEngine.creates), exactEngine.started)
 	}
 
 	driftedLabels := make(map[string]string, len(inspectedConfig.Labels))
@@ -280,10 +284,9 @@ func TestProvisionReusesOnlyExactInspectedNetworkConfiguration(t *testing.T) {
 		Config: &driftedConfig, HostConfig: created.HostConfig,
 		State: &container.State{Running: true},
 	}}}
-	if _, err := newProvisioner(t, driftedEngine, &recordingVerifier{}).Provision(
+	if _, err := newProvisioner(t, classicOverlay2Engine(driftedEngine), &recordingVerifier{}).Provision(
 		context.Background(),
-		request,
-	); err == nil {
+		request, allowSyntheticPreStart); err == nil {
 		t.Fatal("existing Runtime with drifted network evidence was reused")
 	}
 }
@@ -456,12 +459,15 @@ func (v *recordingVerifier) VerifyHostPaths(_ context.Context, root string, path
 }
 
 type recordingEngine struct {
-	creates       []client.ContainerCreateOptions
-	started       []string
-	removed       []string
-	volumeCreates []client.VolumeCreateOptions
-	inspect       client.ContainerInspectResult
-	inspectErr    error
+	creates           []client.ContainerCreateOptions
+	started           []string
+	removed           []string
+	volumeCreates     []client.VolumeCreateOptions
+	volumeInspections int
+	volumeRemoved     []string
+	inspect           client.ContainerInspectResult
+	inspectErr        error
+	inspections       int
 }
 
 type cleanupEngine struct {
@@ -526,7 +532,18 @@ func (e *recordingEngine) ContainerStart(_ context.Context, id string, _ client.
 	return client.ContainerStartResult{}, nil
 }
 
-func (e *recordingEngine) ContainerInspect(_ context.Context, _ string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+func (e *recordingEngine) ContainerInspect(_ context.Context, id string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	e.inspections++
+	for i, created := range e.creates {
+		if id == fmt.Sprintf("container-%d", i+1) {
+			cfg := *created.Config
+			cfg.Image = created.Image
+			return client.ContainerInspectResult{Container: container.InspectResponse{
+				ID: id, Config: &cfg, HostConfig: created.HostConfig,
+				State: &container.State{Status: "created"},
+			}}, nil
+		}
+	}
 	return e.inspect, e.inspectErr
 }
 
@@ -548,10 +565,12 @@ func (e *recordingEngine) VolumeCreate(_ context.Context, options client.VolumeC
 }
 
 func (e *recordingEngine) VolumeInspect(_ context.Context, _ string, _ client.VolumeInspectOptions) (client.VolumeInspectResult, error) {
+	e.volumeInspections++
 	return client.VolumeInspectResult{}, cerrdefs.ErrNotFound
 }
 
-func (e *recordingEngine) VolumeRemove(_ context.Context, _ string, _ client.VolumeRemoveOptions) (client.VolumeRemoveResult, error) {
+func (e *recordingEngine) VolumeRemove(_ context.Context, name string, _ client.VolumeRemoveOptions) (client.VolumeRemoveResult, error) {
+	e.volumeRemoved = append(e.volumeRemoved, name)
 	return client.VolumeRemoveResult{}, nil
 }
 
@@ -560,3 +579,24 @@ var (
 	_ dockeradapter.HostPathVerifier = (*recordingVerifier)(nil)
 	_ application.RuntimeProvisioner = (*dockeradapter.Provisioner)(nil)
 )
+
+// Synthetic only: production always requires trusted created-layer evidence.
+func allowSyntheticPreStart(context.Context, application.CreatedRuntimeIdentity) error { return nil }
+
+func TestProvisionRequiresPreStartCheckBeforeAnyEffects(t *testing.T) {
+	recording := &recordingEngine{inspectErr: cerrdefs.ErrNotFound}
+	engine := classicOverlay2Engine(recording)
+	verifier := &recordingVerifier{}
+	request := validRequest(t)
+	got, err := newProvisioner(t, engine, verifier).Provision(context.Background(), request, nil)
+	if err == nil {
+		t.Fatal("missing per-call pre-start check accepted")
+	}
+	if got.RuntimeInstanceID != request.RuntimeInstanceID || got.Generation != request.Generation || got.PhysicalEffectUnknown || !got.StartedAt.IsZero() {
+		t.Fatalf("unissued effect identity = %+v", got)
+	}
+	if engine.infoCalls != 0 {
+		t.Fatalf("missing check reached Info: %d", engine.infoCalls)
+	}
+	assertNoProvisionSideEffects(t, recording, verifier, request.Secrets.Bootstrap.BackendPath)
+}

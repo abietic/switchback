@@ -4,8 +4,21 @@
 The system SHALL create at most one active RuntimeRecoveryIncident for a WorkerSession and failed Runtime generation and SHALL permit at most one automatic replacement attempt within that incident.
 
 #### Scenario: Current Runtime container exits
-- **WHEN** Docker, Shim process exit or authenticated ACP EOF proves that the active nonterminal Runtime failed
+- **WHEN** automatic recovery is enabled and Docker, Shim process exit or authenticated ACP EOF proves that the active nonterminal Runtime failed
 - **THEN** Worker Runtime persists one incident, marks the Session recovering, revokes new dispatch and returns the same incident on duplicate evidence
+
+#### Scenario: Hard container failure with automatic recovery disabled
+- **WHEN** server-owned inspection proves the exact current Runtime container exited or is missing while automatic recovery is disabled and no terminal, deadline, expiry or cancellation authority has won
+- **THEN** Worker Runtime atomically persists an exhausted incident with zero attempts and no replacement, fails the active Turn and pauses the same Run and Session, fences database control and dispatch authority, and emits the Worker failure event without directly changing Task state or manufacturing Runtime terminal or Artifact evidence
+- **AND** external write fencing remains unproven until cleanup provides evidence; the terminal incident permits existing cleanup reconciliation after restart, and an exact Turn/Runtime/generation/epoch reader hands waiters off without sending an interrupt to the failed Runtime
+
+#### Scenario: Disabled admission preserves earlier recovery ownership
+- **WHEN** automatic recovery is disabled after an incident was already opened
+- **THEN** that existing incident continues its previously authorized reconciliation to recovered or exhausted; the flag does not cancel it or create another attempt
+
+#### Scenario: Inspection cannot establish hard failure
+- **WHEN** inspection fails, returns a different container or generation, or proves a running container despite transport closure or quiet output
+- **THEN** disabled recovery admission does not create a failure incident from that observation
 
 #### Scenario: WorkerControl transport closes while the Runtime remains healthy
 - **WHEN** the control stream closes but Docker still proves the exact Runtime container is running and the authenticated Shim has not crossed the unhealthy boundary

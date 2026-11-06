@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	contractsv1 "github.com/abietic/switchback/internal/contracts/v1"
 )
 
 type PauseTaskCommand struct {
@@ -14,6 +16,8 @@ type PauseTaskCommand struct {
 	ExpectedTaskRevision uint64
 	Reason               string
 	IdempotencyKey       string
+	// Internal owner evidence; never supplied by a user or inferred from actor payload.
+	RuntimeFailureEvent *contractsv1.IntegrationEvent
 }
 
 type PauseTaskRecord struct {

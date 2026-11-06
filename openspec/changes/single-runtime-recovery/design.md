@@ -375,6 +375,8 @@ If recovery exhausts:
 
 TaskTransition and owner-stream IntegrationEvent commits remain transactionally ordered. EventCenter and Frontier project recovery but do not own its state machine.
 
+With automatic recovery disabled, a server-owned exact container-exited/missing inspection still records failure. A single Worker transaction commits an exhausted incident with `attempt_count=0`, no replacement identity, `runtime_recovery_disabled`, failed active Turn and waiting-user Run/Session, and the Worker failure Outbox. It shares the per-Turn advisory-before-graph locks and preserves terminal/deadline/expiry/cancellation precedence. It revokes database control/dispatch authority but records external fencing as unproven. Existing exhausted-incident discovery and durable cleanup scheduling perform external cleanup after commit. Task state remains owned by a separate durable Task consumer. Exact terminal-failure reads survive Backend restart and stop waiters from dispatching interrupts or using an ordinary Runtime terminal finalizer. No committed open/provisioning window is exposed by this path.
+
 ### 9. Preserve evidence across generations
 
 Trace JSONL segments retain Runtime generation and ChannelEpoch provenance under the same Session/Run/Turn lineage. Proven pre-failure TraceManifest and ArtifactRef records remain authoritative. Late old-generation events are captured as non-authoritative Trace evidence and cannot mutate current aggregates, DisplayCheckpoint or Artifact finalization.
@@ -399,7 +401,7 @@ Recovery metadata is available to operations and future Evolution consumption, b
 
 1. Add incident, mount-fence, heartbeat observation and replacement-intent persistence without enabling automatic replacement.
 2. Generalize generation-1 validators, Runtime secrets, WorkerControl and Docker identity to generation `N`.
-3. Add the liveness monitor and incident creation behind a disabled server feature flag.
+3. Add liveness-triggered automatic recovery admission behind a disabled server feature flag. Exact hard container failure remains observable while disabled and commits directly to a zero-attempt exhausted incident without automatic replacement.
 4. Add durable WorkerControl authority, bidirectional journal, explicit resume frames and active-Turn effect acknowledgement while keeping recovery disabled.
 5. Rehydrate healthy live Runtime control identities at Backend startup and change transport close from an immediate failure trigger to bounded reconnect/liveness evaluation.
 6. Implement old-generation fencing, exact cleanup and generation `N+1` provisioning with deterministic fake adapters.

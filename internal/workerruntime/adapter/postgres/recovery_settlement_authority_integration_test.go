@@ -645,6 +645,7 @@ func (io *unexpectedRuntimeRecoveryIO) VerifyReplacementRuntime(
 func (io *unexpectedRuntimeRecoveryIO) Provision(
 	context.Context,
 	workerapplication.RuntimeProvisionRequest,
+	workerapplication.RuntimePreStartCheck,
 ) (workerapplication.ProvisionedRuntime, error) {
 	return workerapplication.ProvisionedRuntime{}, io.unexpected()
 }

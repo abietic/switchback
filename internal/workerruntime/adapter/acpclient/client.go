@@ -15,7 +15,7 @@ import (
 
 type protocolClient struct {
 	workspaceRoot string
-	onUpdate      func(sdk.SessionNotification)
+	onUpdate      func(context.Context, sdk.SessionNotification) error
 }
 
 var _ sdk.Client = (*protocolClient)(nil)
@@ -26,9 +26,9 @@ func (*protocolClient) RequestPermission(context.Context, sdk.RequestPermissionR
 	}}, nil
 }
 
-func (c *protocolClient) SessionUpdate(_ context.Context, notification sdk.SessionNotification) error {
+func (c *protocolClient) SessionUpdate(ctx context.Context, notification sdk.SessionNotification) error {
 	if c.onUpdate != nil {
-		c.onUpdate(notification)
+		return c.onUpdate(ctx, notification)
 	}
 	return nil
 }

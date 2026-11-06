@@ -530,8 +530,11 @@ func validateHistoricalProvenance(ctx context.Context, q fragmentQueryer, e arti
 	err := q.QueryRow(ctx, `SELECT r.request_bytes FROM observation_fragment_requests r WHERE r.request_digest=$1 AND r.version=$2 AND r.tenant_id=$3 AND r.actor_user_id=$4
  AND EXISTS(SELECT 1 FROM jsonb_array_elements(r.source_set) x WHERE x->>'kind'=$5 AND x->>'source_id'=$6 AND x->>'frame_digest'=$7)
  AND EXISTS(SELECT 1 FROM observation_fragment_run_exclusions ex WHERE ex.version=r.version AND ex.worker_run_id=$8 AND ex.tenant_id=$3 AND ex.user_id=$4 AND ex.workspace_id=$9 AND ex.worker_session_id=$10)`, p.RequestDigest, artifactapp.FragmentProjectionVersion, f.Scope.TenantID, f.Scope.UserID, e.Source.Kind, e.Source.SourceID, e.Source.FrameDigest, f.Scope.WorkerRunID, f.Scope.WorkspaceID, f.Scope.WorkerSessionID).Scan(&raw)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return p, fragmentProofError()
+	}
+	if err != nil {
+		return p, err
 	}
 	var r artifactapp.RequestHistoricalFragments
 	if json.Unmarshal(raw, &r) != nil || r.Scope != f.Scope {

@@ -1,9 +1,20 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TransientDisplayDelta, WorkerTimelineTurn } from "../../api/contracts";
 import { WorkerTimeline } from "./WorkerTimeline";
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("WorkerTimeline", () => {
+  it.each([false, true])("selects canonical older Turn refs and rejects malformed history (%s)", async (malformed) => {
+    const old: WorkerTimelineTurn = { worker_run_id: "old-run", agent_turn_id: malformed ? "" : "old-turn", display_stream_id: "display-old", status: "completed", started_at: "2026-07-25T00:00:00Z", terminal_at: "2026-07-25T00:01:00Z", prompt: "Older prompt", checkpoint_version: 1, checkpoint_complete: true, backfill_status: "online", parts: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ turns: [old], has_more: false }) }));
+    const select = vi.fn();
+    render(<WorkerTimeline workerSessionId="session-1" initialGroups={[]} initialCursor="cursor" initialHasMore transient={[]} onArtifact={vi.fn()} onDiagnosticTarget={select} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load older activity" }));
+    if (malformed) { await screen.findByRole("alert"); expect(screen.queryByText("Older prompt")).not.toBeInTheDocument(); }
+    else { fireEvent.click(await screen.findByRole("button", { name: "Diagnostics for Turn old-turn" })); expect(select).toHaveBeenCalledWith("old-run", "old-turn"); }
+  });
   it("shows Agent Markdown and keeps long safe Tool output collapsed", () => {
     const turn: WorkerTimelineTurn = {
       worker_run_id: "run-1", agent_turn_id: "turn-1", display_stream_id: "display-1",

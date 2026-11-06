@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -15,6 +16,7 @@ type Clock interface {
 }
 
 type RuntimeProvisionRequest struct {
+	SourcePlanDigest         string
 	WorkerSessionID          string
 	WorkerRunID              string
 	RuntimeInstanceID        string
@@ -38,6 +40,8 @@ type ProvisionedRuntime struct {
 	ContainerID       string
 	Generation        uint64
 	StartedAt         time.Time
+	// PhysicalEffectUnknown forbids no-CID release/discard after an issued effect.
+	PhysicalEffectUnknown bool
 }
 
 type RuntimeInspection struct {
@@ -49,8 +53,34 @@ type RuntimeInspection struct {
 	ObservedAt  time.Time
 }
 
+// CreatedRuntimeIdentity is the actual Engine create result for this invocation.
+type CreatedRuntimeIdentity struct {
+	ContainerID       string
+	RuntimeInstanceID string
+	WorkerSessionID   string
+	Generation        uint64
+}
+
+// RuntimePreStartCheck is required per call; it never travels in a TaskSpec/context.
+type RuntimePreStartCheck func(context.Context, CreatedRuntimeIdentity) error
+
+type InitialCreatedLayerChecker interface {
+	CheckCreatedLayer(context.Context, RuntimeProvisionRequest, CreatedRuntimeIdentity) error
+}
+
+// RejectRuntimePreStart keeps callers without initial physical proof fail closed.
+func RejectRuntimePreStart(context.Context, CreatedRuntimeIdentity) error {
+	return fmt.Errorf("initial created-layer physical proof is unavailable")
+}
+
+type UnavailableInitialCreatedLayerChecker struct{}
+
+func (UnavailableInitialCreatedLayerChecker) CheckCreatedLayer(ctx context.Context, _ RuntimeProvisionRequest, identity CreatedRuntimeIdentity) error {
+	return RejectRuntimePreStart(ctx, identity)
+}
+
 type RuntimeProvisioner interface {
-	Provision(context.Context, RuntimeProvisionRequest) (ProvisionedRuntime, error)
+	Provision(context.Context, RuntimeProvisionRequest, RuntimePreStartCheck) (ProvisionedRuntime, error)
 	Inspect(context.Context, string) (RuntimeInspection, error)
 }
 

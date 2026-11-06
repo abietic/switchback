@@ -6,10 +6,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	artifactapp "github.com/abietic/switchback/internal/artifacttrace/application"
+	artifactdomain "github.com/abietic/switchback/internal/artifacttrace/domain"
 	projectionapp "github.com/abietic/switchback/internal/eventingprojection/application"
 )
 
@@ -19,9 +22,56 @@ type diagnosticLink struct {
 }
 
 type diagnosticLinks struct {
-	Links          []diagnosticLink `json:"links"`
-	GrafanaStatus  string           `json:"grafana_status"`
-	LangfuseStatus string           `json:"langfuse_status"`
+	Links          []diagnosticLink    `json:"links"`
+	GrafanaStatus  string              `json:"grafana_status"`
+	LangfuseStatus string              `json:"langfuse_status"`
+	Target         diagnosticTarget    `json:"target"`
+	Identity       *diagnosticIdentity `json:"identity,omitempty"`
+}
+
+type diagnosticTarget struct {
+	WorkerSessionID string `json:"worker_session_id"`
+	WorkerRunID     string `json:"worker_run_id,omitempty"`
+	AgentTurnID     string `json:"agent_turn_id,omitempty"`
+}
+
+type diagnosticIdentity struct {
+	Version               string                     `json:"version"`
+	TraceID               string                     `json:"trace_id"`
+	SelectedObservationID string                     `json:"selected_observation_id,omitempty"`
+	Sources               []diagnosticIdentitySource `json:"sources"`
+}
+
+type diagnosticIdentitySource struct {
+	Kind        string `json:"kind"`
+	SourceID    string `json:"source_id"`
+	FrameDigest string `json:"frame_digest"`
+}
+
+var diagnosticPathSegment = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var diagnosticProjectionID = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var diagnosticFrameDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+func validDiagnosticIdentity(identity *artifactapp.ProjectionNavigationIdentity, turn bool) bool {
+	if identity == nil || identity.Version != artifactapp.FragmentProjectionVersion || !diagnosticProjectionID.MatchString(identity.TraceID) ||
+		(!turn && identity.SelectedObservationID != "") || (turn && (!diagnosticProjectionID.MatchString(identity.SelectedObservationID) || identity.SelectedObservationID == identity.TraceID)) {
+		return false
+	}
+	want := 1
+	if turn {
+		want = 2
+	}
+	if len(identity.Sources) != want {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, source := range identity.Sources {
+		if (source.Kind != "run_basis" && source.Kind != "turn_basis") || seen[source.Kind] || source.SourceID == "" || len(source.SourceID) > 512 || strings.ContainsAny(source.SourceID, " \t\r\n\x00") || !diagnosticFrameDigest.MatchString(source.FrameDigest) {
+			return false
+		}
+		seen[source.Kind] = true
+	}
+	return seen["run_basis"] && seen["turn_basis"] == turn
 }
 
 func (handler *handler) workerDiagnostics(response http.ResponseWriter, request *http.Request) {
@@ -54,7 +104,42 @@ func (handler *handler) workerDiagnostics(response http.ResponseWriter, request 
 		}
 		return
 	}
-	result := diagnosticLinks{Links: []diagnosticLink{}, GrafanaStatus: "disabled", LangfuseStatus: "identity_unavailable"}
+	result := diagnosticLinks{Links: []diagnosticLink{}, GrafanaStatus: "disabled", LangfuseStatus: "disabled",
+		Target: diagnosticTarget{WorkerSessionID: target.WorkerSessionID, WorkerRunID: target.WorkerRunID, AgentTurnID: target.AgentTurnID}}
+	if handler.langfuseBrowserBaseURL != "" || handler.langfuseProjectID != "" {
+		result.LangfuseStatus = "invalid_config"
+		if base, valid := localBrowserOrigin(handler.langfuseBrowserBaseURL); valid && diagnosticPathSegment.MatchString(handler.langfuseProjectID) && len(handler.langfuseProjectID) <= 512 {
+			result.LangfuseStatus = "identity_unavailable"
+			if target.WorkerRunID != "" && handler.projectionNavigation != nil {
+				navigation, readErr := handler.projectionNavigation.ReadProjectionNavigation(request.Context(), artifactapp.ProjectionNavigationQuery{
+					ActorID: handler.viewer.UserID, Scope: artifactdomain.ObservationScope{TenantID: handler.viewer.TenantID, UserID: handler.viewer.UserID, WorkspaceID: handler.workspaceID, WorkerSessionID: target.WorkerSessionID, WorkerRunID: target.WorkerRunID}, AgentTurnID: target.AgentTurnID,
+				})
+				if readErr != nil {
+					result.LangfuseStatus = "unavailable"
+				} else {
+					switch navigation.Status {
+					case artifactapp.ProjectionNavigationPending, artifactapp.ProjectionNavigationBlocked, artifactapp.ProjectionNavigationIdentityUnavailable:
+						result.LangfuseStatus = string(navigation.Status)
+					case artifactapp.ProjectionNavigationVerified:
+						identity := navigation.Identity
+						if !validDiagnosticIdentity(identity, target.AgentTurnID != "") {
+							result.LangfuseStatus = "blocked"
+						} else {
+							result.LangfuseStatus = "historically_verified"
+							result.Identity = &diagnosticIdentity{Version: identity.Version, TraceID: identity.TraceID, SelectedObservationID: identity.SelectedObservationID}
+							for _, source := range identity.Sources {
+								result.Identity.Sources = append(result.Identity.Sources, diagnosticIdentitySource{Kind: source.Kind, SourceID: source.SourceID, FrameDigest: source.FrameDigest})
+							}
+							base.Path = "/project/" + handler.langfuseProjectID + "/traces/" + identity.TraceID
+							result.Links = append(result.Links, diagnosticLink{Kind: "langfuse", URL: base.String()})
+						}
+					default:
+						result.LangfuseStatus = "unavailable"
+					}
+				}
+			}
+		}
+	}
 	if handler.grafanaBrowserBaseURL != "" {
 		base, valid := localBrowserOrigin(handler.grafanaBrowserBaseURL)
 		result.GrafanaStatus = "invalid_config"

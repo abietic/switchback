@@ -32,6 +32,7 @@ import (
 	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"github.com/abietic/switchback/internal/testsupport/workspacefixture"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/fake"
 	workerpostgres "github.com/abietic/switchback/internal/workerruntime/adapter/postgres"
@@ -51,6 +52,7 @@ func exerciseFakeAgentVerticalSlice(t *testing.T, restart bool) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 23, 18, 0, 0, 0, time.UTC)
 	pool := postgrestest.Open(t)
+	runtimecapacity.Initialize(t, pool)
 	ids := &sequentialIDs{}
 	fixture, err := workspacefixture.Load(filepath.Join("..", ".."), filepath.Join("..", "..", "test", "fixtures", "m1", "workspace-revision.json"))
 	if err != nil {
@@ -129,7 +131,7 @@ func exerciseFakeAgentVerticalSlice(t *testing.T, restart bool) {
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{
 		TenantID: fixture.TenantID, UserID: fixture.ActorUserID,
 		WorkerSessionID: allocated.WorkerSessionID, RuntimeGeneration: 1,
-		CapacityAdmissionRef: "capacity-local-standard", IdempotencyKey: "e2e-dispatch-task",
+		IdempotencyKey: "e2e-dispatch-task",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +163,7 @@ func exerciseFakeAgentVerticalSlice(t *testing.T, restart bool) {
 	residency := workerapp.RuntimeResidencyService{
 		Store: workerpostgres.NewRuntimeResidencyStore(pool), Now: func() time.Time { return now },
 	}
+	runtimecapacity.ObserveContainer(t, pool, started.WorkerSessionID, started.RuntimeInstanceID, "fake-container-1", 1)
 	active, err := residency.Activate(ctx, workerapp.ActivateResidentRuntimeCommand{
 		TenantID: fixture.TenantID, WorkerSessionID: started.WorkerSessionID,
 		WorkerRunID: started.WorkerRunID, AgentTurnID: started.AgentTurnID,

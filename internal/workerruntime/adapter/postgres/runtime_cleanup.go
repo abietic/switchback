@@ -18,6 +18,45 @@ type RuntimeCleanupStore struct {
 	pool *pgxpool.Pool
 }
 
+// ConfirmedRuntimeCleanupIdentity binds the immutable failure snapshot to the
+// current Session revision. No field represents caller-asserted confirmation.
+type ConfirmedRuntimeCleanupIdentity struct {
+	TenantID, WorkerSessionID, RuntimeInstanceID                         string
+	Generation, ChannelEpoch                                             uint64
+	FailedRuntimeRevision, FailedSessionRevision, CurrentSessionRevision uint64
+}
+
+// ReadConfirmedRuntimeCleanup performs only SELECT in the caller's transaction;
+// it neither locks nor starts transactions. False means proof is absent; ordinary
+// database errors remain errors. Both Task consumption and Worker release use
+// this exact existing cleanup lease/diagnostic proof.
+func ReadConfirmedRuntimeCleanup(ctx context.Context, query interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, identity ConfirmedRuntimeCleanupIdentity) (bool, error) {
+	var proven bool
+	err := query.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM runtime_instances cleaned
+ JOIN scheduled_commands cleanup ON cleanup.scheduled_command_id=cleaned.cleanup_diagnostic->>'scheduled_command_id'
+ WHERE cleaned.runtime_instance_id=$3 AND cleaned.worker_session_id=$2
+   AND cleaned.generation=$4 AND cleaned.control_channel_epoch=$5
+   AND cleaned.status='terminated' AND cleaned.cleanup_confirmed
+   AND cleaned.cleanup_diagnostic @> '{"status":"confirmed","fence_status":"confirmed","observation":{"Confirmed":true,"ContainerExists":false,"SecretVolumeExists":false}}'::jsonb
+   AND COALESCE(cleaned.cleanup_diagnostic->>'error_code','')=''
+   AND cleanup.tenant_id=$1 AND cleanup.command_type='runtime_cleanup_reconcile'
+   AND cleanup.target_type='RuntimeInstance' AND cleanup.target_id=$3
+   AND cleanup.status IN ('cancelled','leased','applied')
+   AND cleanup.idempotency_key=cleaned.cleanup_diagnostic->>'idempotency_key'
+   AND cleanup.expected_revision>$6 AND cleaned.revision>cleanup.expected_revision
+   AND (cleanup.payload->>'expected_session_revision')::bigint >= $7
+   AND (cleanup.payload->>'expected_session_revision')::bigint < $8
+   AND cleanup.payload @> jsonb_build_object('tenant_id',$1::text,'worker_session_id',$2::text,
+     'runtime_instance_id',$3::text,'runtime_generation',$4::bigint,
+     'expected_container_id',cleaned.container_id,'scheduled_command_id',cleanup.scheduled_command_id,
+     'idempotency_key',cleanup.idempotency_key,'expected_runtime_revision',cleanup.expected_revision)
+)`, identity.TenantID, identity.WorkerSessionID, identity.RuntimeInstanceID, identity.Generation, identity.ChannelEpoch, identity.FailedRuntimeRevision, identity.FailedSessionRevision, identity.CurrentSessionRevision).Scan(&proven)
+	return proven, err
+}
+
 func NewRuntimeCleanupStore(pool *pgxpool.Pool) *RuntimeCleanupStore {
 	return &RuntimeCleanupStore{pool: pool}
 }

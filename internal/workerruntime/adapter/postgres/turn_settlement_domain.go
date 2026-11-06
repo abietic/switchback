@@ -34,9 +34,10 @@ func (repository *TurnSettlementRepository) CommitTurnSettlementDomain(
 		)
 	}
 	var result application.CommitTurnSettlementDomainResult
-	err := platformpostgres.InTransaction(
+	err := inTerminalCapacityTransaction(
 		ctx,
 		repository.pool,
+		func() string { return record.Command.Resident.AgentTurnID },
 		func(tx platformpostgres.Tx) error {
 			current, err := readTurnSettlement(
 				ctx,

@@ -1,0 +1,490 @@
+{
+  "schema": "switchback.engine.deployment_receipt.v2",
+  "status": "engine_ready",
+  "bundle_manifest_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "kit_manifest_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "source_root": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "templates_root": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "boot_id": "00000000-0000-4000-8000-000000000001",
+  "filesystem": {
+    "mountpoint": "/mnt/lima-sbquota",
+    "fs_type": "xfs",
+    "uuid": "00000000-0000-4000-8000-000000000004",
+    "major": 8,
+    "minor": 17,
+    "root_inode": 128,
+    "quota_enforced": true
+  },
+  "runtime_parent": {
+    "path": "/run/switchback-engine",
+    "device": 20,
+    "inode": 100,
+    "uid": 0,
+    "gid": 0,
+    "mode": 448,
+    "fs_type": "tmpfs",
+    "size_bytes": 134217728,
+    "inodes": 4096
+  },
+  "daemons": [
+    {
+      "unit": "switchback-m1-containerd.service",
+      "main_pid": 101,
+      "start_tick": 1001,
+      "exe": "/usr/bin/containerd",
+      "exe_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "cgroup": "/switchback.slice/switchback-core.slice/switchback-m1-containerd.service",
+      "boot_id": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "unit": "switchback-m1-engine.service",
+      "main_pid": 102,
+      "start_tick": 1002,
+      "exe": "/usr/bin/dockerd",
+      "exe_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "cgroup": "/switchback.slice/switchback-core.slice/switchback-m1-engine.service",
+      "boot_id": "00000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "installed_files": [
+    {
+      "source_path": "deploy/experience/engine/switchback-m1-containerd.service",
+      "target_path": "/etc/systemd/system/switchback-m1-containerd.service",
+      "sha256": "sha256:8a6fd2d811e054e9ebb0dbeaf9f7a9259b524930ce0169d88e673105126d3337",
+      "mode": 420,
+      "uid": 0,
+      "gid": 0,
+      "bytes": 323
+    },
+    {
+      "source_path": "deploy/experience/engine/switchback-m1-engine.service",
+      "target_path": "/etc/systemd/system/switchback-m1-engine.service",
+      "sha256": "sha256:c5c9b53ea85031ed252d011faa138e33ccf9972d8e8bc27a0ebf46e9dfd5232e",
+      "mode": 420,
+      "uid": 0,
+      "gid": 0,
+      "bytes": 609
+    },
+    {
+      "source_path": "deploy/experience/engine/containerd.toml",
+      "target_path": "/etc/switchback/m1-engine/containerd.toml",
+      "sha256": "sha256:549de3dcb35f9c6d8d057abf5a795825ef01f7dc5838f0c9251b312b1e713407",
+      "mode": 384,
+      "uid": 0,
+      "gid": 0,
+      "bytes": 1090
+    },
+    {
+      "source_path": "deploy/experience/engine/daemon.json",
+      "target_path": "/etc/switchback/m1-engine/daemon.json",
+      "sha256": "sha256:cd3854431b6523a6ec4cac6b8853524db23e6657c032deb0c304ff46bd382765",
+      "mode": 384,
+      "uid": 0,
+      "gid": 0,
+      "bytes": 326
+    }
+  ],
+  "sockets": [
+    {
+      "path": "/run/switchback-engine/m1-resident/containerd.sock",
+      "device": 20,
+      "inode": 201,
+      "kernel_inode": 301,
+      "kind": "socket",
+      "nlink": 1,
+      "uid": 0,
+      "gid": 0,
+      "mode": 432,
+      "owner_unit": "switchback-m1-containerd.service",
+      "owner_pid": 101,
+      "owner_start_tick": 1001,
+      "parent_path": "/run/switchback-engine/m1-resident",
+      "parent_device": 20,
+      "parent_inode": 101,
+      "parent_uid": 0,
+      "parent_gid": 0,
+      "parent_mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/containerd.ttrpc",
+      "device": 20,
+      "inode": 202,
+      "kernel_inode": 302,
+      "kind": "socket",
+      "nlink": 1,
+      "uid": 0,
+      "gid": 0,
+      "mode": 432,
+      "owner_unit": "switchback-m1-containerd.service",
+      "owner_pid": 101,
+      "owner_start_tick": 1001,
+      "parent_path": "/run/switchback-engine/m1-resident",
+      "parent_device": 20,
+      "parent_inode": 101,
+      "parent_uid": 0,
+      "parent_gid": 0,
+      "parent_mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/docker.sock",
+      "device": 20,
+      "inode": 203,
+      "kernel_inode": 303,
+      "kind": "socket",
+      "nlink": 1,
+      "uid": 0,
+      "gid": 0,
+      "mode": 432,
+      "owner_unit": "switchback-m1-engine.service",
+      "owner_pid": 102,
+      "owner_start_tick": 1002,
+      "parent_path": "/run/switchback-engine",
+      "parent_device": 20,
+      "parent_inode": 100,
+      "parent_uid": 0,
+      "parent_gid": 0,
+      "parent_mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/docker/extensions/callback.sock",
+      "device": 20,
+      "inode": 91003,
+      "kernel_inode": 92003,
+      "kind": "socket",
+      "nlink": 1,
+      "uid": 0,
+      "gid": 0,
+      "mode": 511,
+      "owner_unit": "switchback-m1-engine.service",
+      "owner_pid": 102,
+      "owner_start_tick": 1002,
+      "parent_path": "/run/switchback-engine/m1-resident/docker/extensions",
+      "parent_device": 20,
+      "parent_inode": 90004,
+      "parent_uid": 0,
+      "parent_gid": 0,
+      "parent_mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/docker/metrics.sock",
+      "device": 20,
+      "inode": 91004,
+      "kernel_inode": 92004,
+      "kind": "socket",
+      "nlink": 1,
+      "uid": 0,
+      "gid": 0,
+      "mode": 511,
+      "owner_unit": "switchback-m1-engine.service",
+      "owner_pid": 102,
+      "owner_start_tick": 1002,
+      "parent_path": "/run/switchback-engine/m1-resident/docker",
+      "parent_device": 20,
+      "parent_inode": 90003,
+      "parent_uid": 0,
+      "parent_gid": 0,
+      "parent_mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/docker/libnetwork/0123456789ab.sock",
+      "device": 20,
+      "inode": 91005,
+      "kernel_inode": 92005,
+      "kind": "socket",
+      "nlink": 1,
+      "uid": 0,
+      "gid": 0,
+      "mode": 384,
+      "owner_unit": "switchback-m1-engine.service",
+      "owner_pid": 102,
+      "owner_start_tick": 1002,
+      "parent_path": "/run/switchback-engine/m1-resident/docker/libnetwork",
+      "parent_device": 20,
+      "parent_inode": 90005,
+      "parent_uid": 0,
+      "parent_gid": 0,
+      "parent_mode": 448
+    }
+  ],
+  "engine": {
+    "id": "SYNTHETIC-ENGINE-ID-NEVER-RUNTIME-EVIDENCE",
+    "version": "29.9.0",
+    "data_root": "/mnt/lima-sbquota/docker",
+    "storage_driver": "overlay2",
+    "containerd_snapshotter": false,
+    "cgroup_parent": "switchback-core.slice",
+    "containers": 0,
+    "volumes": 0,
+    "plugins": 0
+  },
+  "networks": [
+    {
+      "name": "switchback-core1011_core",
+      "id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "driver": "bridge",
+      "scope": "local",
+      "internal": true,
+      "labels": {
+        "com.switchback.owner": "m1-resident-engine",
+        "com.switchback.engine-profile": "m1-resident-engine-v1"
+      },
+      "enable_ipv6": false,
+      "attachable": false,
+      "ingress": false,
+      "options": {},
+      "ipam": {
+        "driver": "default",
+        "options": {},
+        "config": [
+          {
+            "subnet": "172.30.0.0/24",
+            "gateway": "172.30.0.1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "switchback-m1-worker-control",
+      "id": "2222222222222222222222222222222222222222222222222222222222222222",
+      "driver": "bridge",
+      "scope": "local",
+      "internal": false,
+      "labels": {
+        "com.switchback.owner": "m1-resident-engine",
+        "com.switchback.engine-profile": "m1-resident-engine-v1"
+      },
+      "enable_ipv6": false,
+      "attachable": false,
+      "ingress": false,
+      "options": {},
+      "ipam": {
+        "driver": "default",
+        "options": {},
+        "config": [
+          {
+            "subnet": "172.31.0.0/24",
+            "gateway": "172.31.0.1"
+          }
+        ]
+      }
+    }
+  ],
+  "steps": [
+    {
+      "name": "preflight",
+      "status": "succeeded",
+      "started_ms": 0,
+      "finished_ms": 100,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [],
+      "unknown_effects": []
+    },
+    {
+      "name": "claim_stage",
+      "status": "succeeded",
+      "started_ms": 100,
+      "finished_ms": 200,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "created_private_stage"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "install_files",
+      "status": "succeeded",
+      "started_ms": 200,
+      "finished_ms": 300,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "installed_new_files"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "daemon_reload",
+      "status": "succeeded",
+      "started_ms": 300,
+      "finished_ms": 400,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "systemd_daemon_reload"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "effective_configuration",
+      "status": "succeeded",
+      "started_ms": 400,
+      "finished_ms": 500,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [],
+      "unknown_effects": []
+    },
+    {
+      "name": "containerd_start",
+      "status": "succeeded",
+      "started_ms": 500,
+      "finished_ms": 600,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "containerd_start_once"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "containerd_ready",
+      "status": "succeeded",
+      "started_ms": 600,
+      "finished_ms": 700,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "containerd_metadata_writes_possible"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "engine_start",
+      "status": "succeeded",
+      "started_ms": 700,
+      "finished_ms": 800,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "engine_start_once",
+        "guest_bridge_nat_forwarding"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "engine_ready",
+      "status": "succeeded",
+      "started_ms": 800,
+      "finished_ms": 900,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "engine_metadata_writes_gc_possible"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "networks",
+      "status": "succeeded",
+      "started_ms": 900,
+      "finished_ms": 1000,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "fixed_networks_created_or_verified"
+      ],
+      "unknown_effects": []
+    },
+    {
+      "name": "final_identity",
+      "status": "succeeded",
+      "started_ms": 1000,
+      "finished_ms": 1100,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [],
+      "unknown_effects": []
+    },
+    {
+      "name": "write_receipt",
+      "status": "succeeded",
+      "started_ms": 1100,
+      "finished_ms": 1200,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "known_effects": [
+        "operational_receipt_written"
+      ],
+      "unknown_effects": []
+    }
+  ],
+  "elapsed_ms": 1200,
+  "known_effects": [
+    "created_private_stage",
+    "installed_new_files",
+    "systemd_daemon_reload",
+    "containerd_start_once",
+    "containerd_metadata_writes_possible",
+    "engine_start_once",
+    "guest_bridge_nat_forwarding",
+    "engine_metadata_writes_gc_possible",
+    "fixed_networks_created_or_verified",
+    "operational_receipt_written"
+  ],
+  "unknown_effects": [],
+  "runtime_qualification": false,
+  "capacity_ready": false,
+  "execution_enabled": false,
+  "paid_consumed": false,
+  "socket_parents": [
+    {
+      "path": "/run/switchback-engine",
+      "device": 20,
+      "inode": 100,
+      "kind": "directory",
+      "uid": 0,
+      "gid": 0,
+      "mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident",
+      "device": 20,
+      "inode": 101,
+      "kind": "directory",
+      "uid": 0,
+      "gid": 0,
+      "mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/docker",
+      "device": 20,
+      "inode": 90003,
+      "kind": "directory",
+      "uid": 0,
+      "gid": 0,
+      "mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/docker/extensions",
+      "device": 20,
+      "inode": 90004,
+      "kind": "directory",
+      "uid": 0,
+      "gid": 0,
+      "mode": 448
+    },
+    {
+      "path": "/run/switchback-engine/m1-resident/docker/libnetwork",
+      "device": 20,
+      "inode": 90005,
+      "kind": "directory",
+      "uid": 0,
+      "gid": 0,
+      "mode": 448
+    }
+  ]
+}

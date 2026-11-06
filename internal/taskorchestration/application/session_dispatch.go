@@ -33,12 +33,11 @@ type EnqueuedTask struct {
 }
 
 type IssueTaskPermitCommand struct {
-	TenantID             string
-	UserID               string
-	WorkerSessionID      string
-	RuntimeGeneration    uint64
-	CapacityAdmissionRef string
-	IdempotencyKey       string
+	TenantID          string
+	UserID            string
+	WorkerSessionID   string
+	RuntimeGeneration uint64
+	IdempotencyKey    string
 }
 
 type IssueTaskPermitRecord struct {
@@ -108,9 +107,8 @@ func (service SessionDispatchService) IssueTaskPermit(
 	}
 	if err := validateDispatchStrings(map[string]string{
 		"tenant_id": command.TenantID, "user_id": command.UserID,
-		"worker_session_id":      command.WorkerSessionID,
-		"capacity_admission_ref": command.CapacityAdmissionRef,
-		"idempotency_key":        command.IdempotencyKey,
+		"worker_session_id": command.WorkerSessionID,
+		"idempotency_key":   command.IdempotencyKey,
 	}); err != nil {
 		return IssuedTaskPermit{}, err
 	}

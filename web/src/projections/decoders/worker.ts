@@ -6,6 +6,7 @@ import {
   type StatusTone,
   type WorkerDetailData,
   type WorkerTimelineTurn,
+  type WorkerTimelinePage,
   requireArray,
   requireBoolean,
   requireNonNegativeInteger,
@@ -383,6 +384,17 @@ function parseApproval(value: unknown): ApprovalRequest {
     expires_at: requireTimestamp(approval.expires_at, "approval expires_at"),
     scope_options: scopes,
   };
+}
+
+export function parseWorkerTimelinePage(value: unknown): WorkerTimelinePage {
+  const page = requireRecord(value, "Worker timeline page");
+  const turns = requireArray(page.turns, "Worker timeline turns").map(parseTimelineTurn);
+  if (turns.length > 20) throw new Error("Worker timeline page is invalid");
+  requireUnique(turns.map((turn) => turn.agent_turn_id), "Worker timeline AgentTurn identity");
+  const hasMore = requireBoolean(page.has_more, "Worker timeline has_more");
+  const cursor = optionalOmitted(page, "next_cursor", parseTimelineCursor);
+  if (hasMore !== (cursor !== undefined)) throw new Error("Worker timeline cursor authority is invalid");
+  return { turns, has_more: hasMore, ...(cursor === undefined ? {} : { next_cursor: cursor }) };
 }
 
 function parseTimelineTurn(value: unknown): WorkerTimelineTurn {

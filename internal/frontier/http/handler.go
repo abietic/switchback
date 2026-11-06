@@ -8,17 +8,21 @@ import (
 	"net/http"
 	"strconv"
 
+	artifactapp "github.com/abietic/switchback/internal/artifacttrace/application"
 	projectionapp "github.com/abietic/switchback/internal/eventingprojection/application"
 )
 
 type Options struct {
-	Viewer                projectionapp.Viewer
-	Views                 *projectionapp.ViewContinuityReader
-	Streams               http.Handler
-	Timeline              projectionapp.WorkerTimelineReader
-	Diagnostics           projectionapp.WorkerDiagnosticReader
-	WorkspaceID           string
-	GrafanaBrowserBaseURL string
+	Viewer                 projectionapp.Viewer
+	Views                  *projectionapp.ViewContinuityReader
+	Streams                http.Handler
+	Timeline               projectionapp.WorkerTimelineReader
+	Diagnostics            projectionapp.WorkerDiagnosticReader
+	WorkspaceID            string
+	GrafanaBrowserBaseURL  string
+	LangfuseBrowserBaseURL string
+	LangfuseProjectID      string
+	ProjectionNavigation   artifactapp.ProjectionNavigationReader
 }
 
 func NewHandler(options Options) (http.Handler, error) {
@@ -28,6 +32,7 @@ func NewHandler(options Options) (http.Handler, error) {
 	handler := &handler{
 		viewer: options.Viewer, views: options.Views, timeline: options.Timeline,
 		diagnostics: options.Diagnostics, workspaceID: options.WorkspaceID, grafanaBrowserBaseURL: options.GrafanaBrowserBaseURL,
+		langfuseBrowserBaseURL: options.LangfuseBrowserBaseURL, langfuseProjectID: options.LangfuseProjectID, projectionNavigation: options.ProjectionNavigation,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/views/{view_type}/{view_id}", handler.snapshot)
@@ -47,12 +52,15 @@ func NewHandler(options Options) (http.Handler, error) {
 }
 
 type handler struct {
-	viewer                projectionapp.Viewer
-	views                 *projectionapp.ViewContinuityReader
-	timeline              projectionapp.WorkerTimelineReader
-	diagnostics           projectionapp.WorkerDiagnosticReader
-	workspaceID           string
-	grafanaBrowserBaseURL string
+	viewer                 projectionapp.Viewer
+	views                  *projectionapp.ViewContinuityReader
+	timeline               projectionapp.WorkerTimelineReader
+	diagnostics            projectionapp.WorkerDiagnosticReader
+	workspaceID            string
+	grafanaBrowserBaseURL  string
+	langfuseBrowserBaseURL string
+	langfuseProjectID      string
+	projectionNavigation   artifactapp.ProjectionNavigationReader
 }
 
 func (handler *handler) snapshot(response http.ResponseWriter, request *http.Request) {

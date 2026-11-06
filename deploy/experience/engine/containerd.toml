@@ -1,0 +1,32 @@
+version = 4
+root = "/mnt/lima-sbquota/docker/containerd"
+state = "/run/switchback-engine/m1-resident/containerd"
+temp = "/run/switchback-engine/m1-resident/tmp"
+imports = []
+disabled_plugins = ["io.containerd.grpc.v1.cri", "io.containerd.cri.v1.images", "io.containerd.cri.v1.runtime", "io.containerd.nri.v1.nri", "io.containerd.internal.v1.opt", "io.containerd.image-verifier.v1.bindir", "io.containerd.monitor.container.v1.restart"]
+required_plugins = ["io.containerd.server.v1.grpc", "io.containerd.server.v1.ttrpc", "io.containerd.shim.v1.manager"]
+
+[plugins."io.containerd.server.v1.grpc"]
+address = "/run/switchback-engine/m1-resident/containerd.sock"
+uid = 0
+gid = 0
+
+[plugins."io.containerd.server.v1.ttrpc"]
+address = "/run/switchback-engine/m1-resident/containerd.ttrpc"
+uid = 0
+gid = 0
+
+[plugins."io.containerd.server.v1.grpc-tcp"]
+address = ""
+
+[plugins."io.containerd.server.v1.debug"]
+address = ""
+uid = 0
+gid = 0
+
+[plugins."io.containerd.server.v1.metrics"]
+address = ""
+
+[plugins."io.containerd.shim.v1.manager"]
+socket_dir = "/run/switchback-engine/m1-resident/s"
+env = []

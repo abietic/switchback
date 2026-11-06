@@ -46,6 +46,102 @@ afterEach(() => {
 });
 
 describe("ArtifactWorkbench", () => {
+  it("shows an empty state instead of loading when no artifacts exist", () => {
+    renderWorkbench({ artifacts: [], onRequestedArtifactHandled: vi.fn() });
+    expect(screen.getByText("No artifact")).toBeInTheDocument();
+    expect(screen.queryByText("Loading artifact…")).not.toBeInTheDocument();
+  });
+
+  it("shows the report when it arrives after an empty projection", async () => {
+    mockArtifact({
+      ...artifact, availability: "online", content: "# Arrived report",
+      review_manifest: manifest("online", true, true),
+    });
+    const handled = vi.fn();
+    const view = renderWorkbench({ artifacts: [], onRequestedArtifactHandled: handled });
+    view.rerender(<ThemeProvider>
+      <ArtifactWorkbench artifacts={[artifact]} onRequestedArtifactHandled={handled} />
+    </ThemeProvider>);
+    expect(await screen.findByRole("heading", { name: "Arrived report" })).toBeInTheDocument();
+  });
+
+  it("keeps a cached report visible after another artifact fails", async () => {
+    const patch = { ...artifact, artifact_id: "patch-failed", type: "patch" as const };
+    const detail: ArtifactDetailData = {
+      ...artifact, availability: "online", content: "# Cached report",
+      review_manifest: manifest("online", true, true),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) =>
+      Promise.resolve(String(input).endsWith(artifact.artifact_id)
+        ? new Response(JSON.stringify(artifactSnapshot(detail)), { status: 200 })
+        : new Response("Unavailable", { status: 503 }))));
+    renderWorkbench({ artifacts: [artifact, patch], onRequestedArtifactHandled: vi.fn() });
+    await screen.findByRole("heading", { name: "Cached report" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+    await screen.findByText("Artifact unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    expect(await screen.findByRole("heading", { name: "Cached report" })).toBeInTheDocument();
+    expect(screen.queryByText("Artifact unavailable")).not.toBeInTheDocument();
+  });
+
+  it("discards a late response from an aborted artifact request", async () => {
+    const patch = { ...artifact, artifact_id: "patch-late", type: "patch" as const };
+    const reportDetail: ArtifactDetailData = {
+      ...artifact, availability: "online", content: "# Current report",
+      review_manifest: manifest("online", true, true),
+    };
+    const lateDetail: ArtifactDetailData = {
+      ...patch, availability: "parse_failed", content: "",
+      review_manifest: manifest("parse_failed", false, true, "text/x-diff"),
+    };
+    const currentDetail: ArtifactDetailData = {
+      ...patch, size_bytes: 0, availability: "empty", content: "",
+      review_manifest: manifest("empty", false, true, "text/x-diff"),
+    };
+    const response = (detail: ArtifactDetailData) =>
+      new Response(JSON.stringify(artifactSnapshot(detail)), { status: 200 });
+    let completeAbortedRequest!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response(reportDetail))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { completeAbortedRequest = resolve; }))
+      .mockResolvedValueOnce(response(currentDetail)));
+    renderWorkbench({ artifacts: [artifact, patch], onRequestedArtifactHandled: vi.fn() });
+    await screen.findByRole("heading", { name: "Current report" });
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+    await screen.findByText("Loading artifact…");
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+    await act(async () => { completeAbortedRequest(response(lateDetail)); });
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+
+    expect(await screen.findByText("No code changes.")).toBeInTheDocument();
+    expect(screen.queryByText("Patch cannot be parsed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading artifact…")).not.toBeInTheDocument();
+  });
+
+  it("keeps the same artifact request alive across summary projection refreshes", async () => {
+    const detail: ArtifactDetailData = {
+      ...artifact, availability: "online", content: "# Refreshed report",
+      review_manifest: manifest("online", true, true),
+    };
+    let completeRequest!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { completeRequest = resolve; }))
+      .mockImplementation(() => new Promise<Response>(() => {})));
+    const handled = vi.fn();
+    const view = renderWorkbench({ artifacts: [artifact], onRequestedArtifactHandled: handled });
+    await screen.findByText("Loading artifact…");
+    view.rerender(<ThemeProvider>
+      <ArtifactWorkbench artifacts={[{ ...artifact }]} onRequestedArtifactHandled={handled} />
+    </ThemeProvider>);
+    await act(async () => {
+      completeRequest(new Response(JSON.stringify(artifactSnapshot(detail)), { status: 200 }));
+    });
+
+    expect(await screen.findByRole("heading", { name: "Refreshed report" })).toBeInTheDocument();
+  });
+
   it("renders a checksum-reviewed Markdown report with provenance", async () => {
     mockArtifact({
       ...artifact,

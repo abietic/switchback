@@ -20,6 +20,7 @@ import (
 	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	workerpostgres "github.com/abietic/switchback/internal/workerruntime/adapter/postgres"
 	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 	workerdomain "github.com/abietic/switchback/internal/workerruntime/domain"
@@ -2582,6 +2583,7 @@ func startActiveSettlementFixtures(
 	t.Helper()
 	ctx := context.Background()
 	seedAllocationRequests(t, pool, count, now)
+	capacity := runtimecapacity.NewInventory(t, pool)
 	ids := &concurrentAllocationIDs{}
 	started := make([]workerapp.StartedWorkerRun, 0, count)
 	for sequence := 1; sequence <= count; sequence++ {
@@ -2625,8 +2627,7 @@ WHERE worker_session_id=$1`,
 		permit, err := dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{
 			TenantID: "tenant-local", UserID: "user-local",
 			WorkerSessionID:   allocated.WorkerSessionID,
-			RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local",
-			IdempotencyKey: "permit-" + taskID,
+			RuntimeGeneration: 1, IdempotencyKey: "permit-" + taskID,
 		})
 		if err != nil {
 			t.Fatalf("issue settlement fixture permit %d: %v", sequence, err)
@@ -2639,6 +2640,7 @@ WHERE worker_session_id=$1`,
 		if err != nil {
 			t.Fatalf("start settlement fixture %d: %v", sequence, err)
 		}
+		capacity.Observe(fixture.WorkerSessionID, fixture.RuntimeInstanceID, fmt.Sprintf("container-settlement-%02d", sequence), 1)
 		if _, err := (workerapp.RuntimeResidencyService{
 			Store: workerpostgres.NewRuntimeResidencyStore(pool),
 			Now:   func() time.Time { return now.Add(5 * time.Minute) },

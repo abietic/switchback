@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/abietic/switchback/internal/platform/qualificationio"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/shimruntime"
 	sdk "github.com/coder/acp-go-sdk"
 )
@@ -46,6 +47,9 @@ func run(arguments []string, output io.Writer) error {
 func runContext(ctx context.Context, arguments []string, output io.Writer) error {
 	if len(arguments) == 1 && arguments[0] == "--build-info" {
 		return json.NewEncoder(output).Encode(currentBuildInfo())
+	}
+	if len(arguments) == 1 && arguments[0] == "qualify-worker" {
+		return qualificationio.RunWorker(ctx, output)
 	}
 	if len(arguments) != 0 {
 		return fmt.Errorf("Worker Shim argument is unsupported")

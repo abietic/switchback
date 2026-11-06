@@ -26,6 +26,7 @@ import (
 	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/testsupport/postgrestest"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	workerpostgres "github.com/abietic/switchback/internal/workerruntime/adapter/postgres"
 	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 	workerdomain "github.com/abietic/switchback/internal/workerruntime/domain"
@@ -141,6 +142,7 @@ func newFragmentFixtureConfigured(t *testing.T, withModel, historical bool, conf
 	t.Helper()
 	ctx := context.Background()
 	f := &fragmentFixture{pool: postgrestest.Open(t), ids: &fragmentIDs{}, now: time.Now().UTC().Truncate(time.Microsecond).Add(-10 * time.Minute)}
+	runtimecapacity.Initialize(t, f.pool)
 	if configure != nil {
 		configure(f)
 	}
@@ -181,7 +183,7 @@ func newFragmentFixtureConfigured(t *testing.T, withModel, historical bool, conf
 	if _, err := dispatch.EnqueueTask(ctx, taskapp.EnqueueTaskCommand{TenantID: "tenant-local", UserID: "user-local", TaskID: "task-01", WorkerSessionID: allocated.WorkerSessionID, ExpectedTaskRevision: 1, ExpectedSessionRevision: 2, IdempotencyKey: "enqueue-01"}); err != nil {
 		t.Fatal(err)
 	}
-	permit, err := dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID, RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-01"})
+	permit, err := dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID, RuntimeGeneration: 1, IdempotencyKey: "permit-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +207,7 @@ func newFragmentFixtureConfigured(t *testing.T, withModel, historical bool, conf
 		}
 	}
 	f.now = f.now.Add(time.Minute)
+	runtimecapacity.ObserveContainer(t, f.pool, s.WorkerSessionID, s.RuntimeInstanceID, "fragment-test-container", 1)
 	if _, err := (workerapp.RuntimeResidencyService{Store: workerpostgres.NewRuntimeResidencyStore(f.pool), Now: func() time.Time { return f.now }}).Activate(ctx, workerapp.ActivateResidentRuntimeCommand{TenantID: "tenant-local", WorkerSessionID: s.WorkerSessionID, WorkerRunID: s.WorkerRunID, AgentTurnID: s.AgentTurnID, RuntimeInstanceID: s.RuntimeInstanceID, ContainerID: "fragment-test-container", RuntimeGeneration: 1, ControlChannelEpoch: 1, ExpectedSessionRevision: s.SessionRevision, ExpectedRunRevision: 1, ExpectedTurnRevision: 1, ExpectedRuntimeRevision: 1}); err != nil {
 		t.Fatal(err)
 	}

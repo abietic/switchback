@@ -2103,6 +2103,9 @@ func (runner *runtimeRunner) settleRuntimeSettlementContinuation(
 			}
 		return checkpoint, nil
 	}
+	if err := checkRuntimeStart(ctx, runner.startPolicy); err != nil {
+		return runtimeTurnSettlementCheckpoint{}, err
+	}
 	input := checkpoint.EvidenceInput
 	continued, err := runner.queued.ExecuteSettlement(
 		ctx,

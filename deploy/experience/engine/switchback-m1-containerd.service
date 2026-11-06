@@ -1,0 +1,16 @@
+[Unit]
+Description=Switchback M1 resident containerd
+After=local-fs.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/containerd --config /etc/switchback/m1-engine/containerd.toml
+Slice=switchback-core.slice
+Delegate=yes
+User=root
+Group=root
+UMask=0077
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=10
+KillMode=control-group

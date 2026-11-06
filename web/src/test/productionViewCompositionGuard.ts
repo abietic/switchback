@@ -54,6 +54,7 @@ export function findProductionViewCompositionViolations(
         inspection,
         decoderSpec,
         internalFactoryBindings,
+        internalBindings,
       );
     } else if (
       INTERNAL_COMPOSITION_IMPORTERS.has(inspection.path)
@@ -387,8 +388,11 @@ function inspectDecoderModule(
   inspection: SourceInspection,
   spec: DecoderFactorySpec,
   internalFactoryBindings: ReadonlySet<string>,
+  internalBindings: ReadonlySet<string>,
 ): void {
   const { program, body, path, violations } = inspection;
+  const parserForbiddenBindings = new Set([...internalBindings, spec.factoryName]);
+  propagateInternalAliases(program, parserForbiddenBindings);
   let factory: OxcNode | undefined;
   for (const statement of body) {
     if (statement.type === "ExportDefaultDeclaration" || statement.type === "ExportAllDeclaration") {
@@ -411,7 +415,7 @@ function inspectDecoderModule(
           addBoundaryViolation(violations, path, "duplicate decoder factory");
         }
         factory = declaration;
-      } else {
+      } else if (!isClosedWorkerTimelineParser(declaration, path, parserForbiddenBindings)) {
         addBoundaryViolation(violations, path, "decoder runtime export outside singleton allowlist");
       }
     }
@@ -428,6 +432,29 @@ function inspectDecoderModule(
   ) {
     addBoundaryViolation(violations, path, "decoder factory shape is not closed");
   }
+}
+
+// This data-only parser reuses the private Turn decoder for paged history.
+// It is not another projection factory and cannot expose composition authority.
+function isClosedWorkerTimelineParser(
+  declaration: OxcNode,
+  path: string,
+  forbiddenBindings: ReadonlySet<string>,
+): boolean {
+  const params = oxcNodes(declaration.params);
+  const input = oxcNode(params[0]?.typeAnnotation);
+  const result = oxcNode(oxcNode(declaration.returnType)?.typeAnnotation);
+  return path === "src/projections/decoders/worker.ts"
+    && declaration.type === "FunctionDeclaration"
+    && oxcName(declaration.id) === "parseWorkerTimelinePage"
+    && declaration.async !== true && declaration.generator !== true && declaration.declare !== true
+    && declaration.typeParameters == null
+    && params.length === 1 && params[0].type === "Identifier" && params[0].optional !== true
+    && input?.type === "TSTypeAnnotation" && oxcNode(input.typeAnnotation)?.type === "TSUnknownKeyword"
+    && result?.type === "TSTypeReference" && oxcName(result.typeName) === "WorkerTimelinePage"
+    && result.typeArguments == null
+    && oxcNode(declaration.body)?.type === "BlockStatement"
+    && !nodeContainsBoundIdentifier(declaration, forbiddenBindings);
 }
 
 function isClosedDecoderFactory(

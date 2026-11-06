@@ -34,41 +34,7 @@ func (s *FragmentCoverageStore) Read(ctx context.Context, actor string, scope ar
 		return out, err
 	}
 	defer tx.Rollback(ctx)
-	var authorized, live bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_runs r JOIN worker_sessions s USING(worker_session_id) WHERE r.worker_run_id=$1 AND s.worker_session_id=$2 AND s.tenant_id=$3 AND s.user_id=$4 AND s.workspace_id=$5),
- EXISTS(SELECT 1 FROM observation_fragment_activations WHERE version=$6) AND NOT EXISTS(SELECT 1 FROM observation_fragment_run_exclusions WHERE version=$6 AND worker_run_id=$1)`, scope.WorkerRunID, scope.WorkerSessionID, scope.TenantID, scope.UserID, scope.WorkspaceID, version).Scan(&authorized, &live)
-	if err != nil {
-		return out, err
-	}
-	if !authorized {
-		return out, artifactapp.ErrHistoricalSelection
-	}
-	selected := map[string]artifactapp.FragmentRef{}
-	rows, err := tx.Query(ctx, `SELECT request_bytes,source_set FROM observation_fragment_requests WHERE tenant_id=$1 AND actor_user_id=$2 AND version=$3`, scope.TenantID, actor, version)
-	if err != nil {
-		return out, err
-	}
-	for rows.Next() {
-		var raw, sourceSet []byte
-		if err = rows.Scan(&raw, &sourceSet); err != nil {
-			rows.Close()
-			return out, err
-		}
-		var r artifactapp.RequestHistoricalFragments
-		var members []historySelectionMember
-		if json.Unmarshal(raw, &r) != nil || r.Scope != scope {
-			continue
-		}
-		if json.Unmarshal(sourceSet, &members) != nil {
-			rows.Close()
-			return out, fragmentProofError()
-		}
-		for _, m := range members {
-			selected[m.Kind+"/"+m.SourceID] = artifactapp.FragmentRef{Kind: m.Kind, SourceID: m.SourceID, FrameDigest: m.FrameDigest}
-		}
-	}
-	err = rows.Err()
-	rows.Close()
+	live, selected, err := fragmentCoverageSelection(ctx, tx, scope, actor, version)
 	if err != nil {
 		return out, err
 	}
@@ -146,9 +112,61 @@ func (s *FragmentCoverageStore) Read(ctx context.Context, actor string, scope ar
 	return out, nil
 }
 
+// Shared snapshot eligibility for coverage and identity navigation. An excluded
+// Run is visible only through an explicit exact source/digest selection.
+func fragmentCoverageSelection(ctx context.Context, tx pgx.Tx, scope artifactdomain.ObservationScope, actor, version string) (bool, map[string]artifactapp.FragmentRef, error) {
+	var authorized, live bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_runs r JOIN worker_sessions s USING(worker_session_id) WHERE r.worker_run_id=$1 AND s.worker_session_id=$2 AND s.tenant_id=$3 AND s.user_id=$4 AND s.workspace_id=$5),
+ EXISTS(SELECT 1 FROM observation_fragment_activations WHERE version=$6) AND NOT EXISTS(SELECT 1 FROM observation_fragment_run_exclusions WHERE version=$6 AND worker_run_id=$1)`, scope.WorkerRunID, scope.WorkerSessionID, scope.TenantID, scope.UserID, scope.WorkspaceID, version).Scan(&authorized, &live)
+	if err != nil {
+		return false, nil, err
+	}
+	if !authorized {
+		return false, nil, artifactapp.ErrHistoricalSelection
+	}
+	selected := map[string]artifactapp.FragmentRef{}
+	rows, err := tx.Query(ctx, `SELECT request_bytes,source_set FROM observation_fragment_requests WHERE tenant_id=$1 AND actor_user_id=$2 AND version=$3`, scope.TenantID, actor, version)
+	if err != nil {
+		return false, nil, err
+	}
+	for rows.Next() {
+		var raw, sourceSet []byte
+		if err = rows.Scan(&raw, &sourceSet); err != nil {
+			rows.Close()
+			return false, nil, err
+		}
+		var r artifactapp.RequestHistoricalFragments
+		var members []historySelectionMember
+		if json.Unmarshal(raw, &r) != nil || r.Scope != scope {
+			continue
+		}
+		if json.Unmarshal(sourceSet, &members) != nil {
+			rows.Close()
+			return false, nil, fragmentProofError()
+		}
+		for _, m := range members {
+			selected[m.Kind+"/"+m.SourceID] = artifactapp.FragmentRef{Kind: m.Kind, SourceID: m.SourceID, FrameDigest: m.FrameDigest}
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return false, nil, err
+	}
+	return live, selected, nil
+}
+
 // Start from frozen basis facts and accepted journal outcomes, not candidates,
 // publications or jobs. This preserves honest no-content/missing-proof gaps.
 func coverageAcceptedSources(ctx context.Context, tx pgx.Tx, s artifactdomain.ObservationScope) (map[string]artifactapp.FragmentRef, error) {
+	refs, err := coverageAcceptedBasisSources(ctx, tx, s)
+	if err != nil {
+		return nil, err
+	}
+	return coverageAcceptedModels(ctx, tx, s, refs)
+}
+
+func coverageAcceptedBasisSources(ctx context.Context, tx pgx.Tx, s artifactdomain.ObservationScope) (map[string]artifactapp.FragmentRef, error) {
 	refs := map[string]artifactapp.FragmentRef{}
 	add := func(kind artifactdomain.FragmentKind, id string) {
 		refs[string(kind)+"/"+id] = artifactapp.FragmentRef{Kind: string(kind), SourceID: id}
@@ -189,7 +207,11 @@ func coverageAcceptedSources(ctx context.Context, tx pgx.Tx, s artifactdomain.Ob
 	if err != nil {
 		return nil, err
 	}
-	rows, err = tx.Query(ctx, `SELECT m.envelope,m.message_id,m.sequence,m.fingerprint FROM runtime_control_messages m WHERE m.direction='event' AND m.effect_status='applied' AND m.outcome::jsonb='{"status":"model_observation_recorded"}'::jsonb AND m.envelope->>'message_type'='model.observation' AND m.envelope->>'worker_run_id'=$1 AND m.envelope->>'worker_session_id'=$2`, s.WorkerRunID, s.WorkerSessionID)
+	return refs, nil
+}
+
+func coverageAcceptedModels(ctx context.Context, tx pgx.Tx, s artifactdomain.ObservationScope, refs map[string]artifactapp.FragmentRef) (map[string]artifactapp.FragmentRef, error) {
+	rows, err := tx.Query(ctx, `SELECT m.envelope,m.message_id,m.sequence,m.fingerprint FROM runtime_control_messages m WHERE m.direction='event' AND m.effect_status='applied' AND m.outcome::jsonb='{"status":"model_observation_recorded"}'::jsonb AND m.envelope->>'message_type'='model.observation' AND m.envelope->>'worker_run_id'=$1 AND m.envelope->>'worker_session_id'=$2`, s.WorkerRunID, s.WorkerSessionID)
 	if err != nil {
 		return nil, err
 	}

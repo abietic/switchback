@@ -91,6 +91,61 @@ type RuntimeRecoveryStore interface {
 	AdvanceRuntimeRecovery(context.Context, AdvanceRuntimeRecoveryRecord) (RuntimeRecoveryState, error)
 }
 
+// RuntimeFailureWithoutReplacementStore commits a hard failure directly to its
+// terminal incident. It is separate from automatic recovery admission.
+type RuntimeFailureWithoutReplacementStore interface {
+	RecordRuntimeFailureWithoutReplacement(context.Context, RuntimeFailureWithoutReplacementRecord) (RuntimeRecoveryState, error)
+}
+
+type RuntimeFailureWithoutReplacementCommand struct {
+	OpenRuntimeRecoveryCommand
+	ExpectedContainerID string
+	Inspection          RuntimeInspection
+}
+
+type RuntimeFailureWithoutReplacementRecord struct {
+	Command    RuntimeFailureWithoutReplacementCommand
+	IncidentID string
+	EventID    string
+	Now        time.Time
+}
+
+type RuntimeFailureWithoutReplacementService struct {
+	Store RuntimeFailureWithoutReplacementStore
+	IDs   AllocationIDGenerator
+	Now   func() time.Time
+}
+
+func (service RuntimeFailureWithoutReplacementService) RecordFailureWithoutReplacement(ctx context.Context, command RuntimeFailureWithoutReplacementCommand) (RuntimeRecoveryState, error) {
+	if service.Store == nil || service.IDs == nil || service.Now == nil {
+		return RuntimeRecoveryState{}, fmt.Errorf("Runtime failure dependencies are required")
+	}
+	if err := validateOpenRuntimeRecoveryCommand(command.OpenRuntimeRecoveryCommand); err != nil {
+		return RuntimeRecoveryState{}, err
+	}
+	now := service.Now().UTC()
+	inspection := command.Inspection
+	if inspection.Running || inspection.ObservedAt.IsZero() || !inspection.ObservedAt.Equal(command.EvidenceAt) || inspection.ObservedAt.After(now) {
+		return RuntimeRecoveryState{}, fmt.Errorf("Runtime failure requires a current hard inspection")
+	}
+	if inspection.Exists {
+		if command.Trigger != domain.RecoveryTriggerContainerExit || command.ExpectedContainerID == "" || inspection.ContainerID != command.ExpectedContainerID || inspection.Generation != command.FailedGeneration {
+			return RuntimeRecoveryState{}, fmt.Errorf("Runtime exit inspection identity conflict")
+		}
+	} else if command.Trigger != domain.RecoveryTriggerContainerMissing {
+		return RuntimeRecoveryState{}, fmt.Errorf("Runtime missing inspection identity conflict")
+	}
+	incidentID, err := service.IDs.NewID("runtime-recovery-incident")
+	if err != nil {
+		return RuntimeRecoveryState{}, err
+	}
+	eventID, err := service.IDs.NewID("integration-event-runtime-recovery-failed")
+	if err != nil {
+		return RuntimeRecoveryState{}, err
+	}
+	return service.Store.RecordRuntimeFailureWithoutReplacement(ctx, RuntimeFailureWithoutReplacementRecord{Command: command, IncidentID: incidentID, EventID: eventID, Now: now})
+}
+
 type RuntimeRecoveryService struct {
 	Store RuntimeRecoveryStore
 	IDs   AllocationIDGenerator

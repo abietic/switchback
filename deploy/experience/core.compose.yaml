@@ -1,0 +1,353 @@
+{
+  "name": "switchback-core1011",
+  "x-preparation-status": "preparation_blocked",
+  "services": {
+    "switchback-web": {
+      "image": "${FROZEN_WEB_IMAGE_ID:?externally frozen actual ID required}",
+      "pull_policy": "never",
+      "restart": "no",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "128m",
+      "memswap_limit": "128m",
+      "pids_limit": 128,
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "tmpfs": [
+        "/tmp:size=32m,mode=1777"
+      ],
+      "networks": [
+        "core"
+      ],
+      "ports": [
+        "127.0.0.1:44175:8080"
+      ],
+      "depends_on": [
+        "switchback-backend"
+      ]
+    },
+    "switchback-backend": {
+      "image": "${FROZEN_BACKEND_IMAGE_ID:?externally frozen actual ID required}",
+      "pull_policy": "never",
+      "restart": "no",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "cap_add": [
+        "CHOWN",
+        "DAC_OVERRIDE",
+        "FOWNER"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 256,
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "tmpfs": [
+        "/tmp:size=32m,mode=1777"
+      ],
+      "networks": [
+        "core"
+      ],
+      "user": "0:0",
+      "ports": [
+        "127.0.0.1:48081:8080"
+      ],
+      "depends_on": {
+        "switchback-migrate": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "environment": {
+        "SWITCHBACK_CONTAINERIZED": "1",
+        "SWITCHBACK_WEB_ADDRESS": "0.0.0.0:8080",
+        "SWITCHBACK_LOCAL_TENANT_ID": "tenant-local",
+        "SWITCHBACK_LOCAL_ACTOR_ID": "user-local",
+        "SWITCHBACK_DATABASE_URL": "postgresql://switchback:${SWITCHBACK_POSTGRES_PASSWORD:?external credential required}@postgres:5432/switchback?sslmode=disable",
+        "SWITCHBACK_DATA_ROOT": "/var/lib/switchback",
+        "SWITCHBACK_ENGINE_DATA_ROOT": "/mnt/lima-sbquota/product",
+        "SWITCHBACK_WORKSPACE_SOURCE_ROOT": "/opt/switchback/workspace-source",
+        "SWITCHBACK_M1_WORKER_DELIVERY_ENABLED": "0",
+        "SWITCHBACK_M2_ASSISTANT_ENABLED": "0",
+        "SWITCHBACK_WORKER_NETWORK": "switchback-core1011-worker-control",
+        "SWITCHBACK_GRPC_ADDRESS": "0.0.0.0:9090",
+        "SWITCHBACK_BACKEND_GRPC_TARGET": "switchback-backend:9090",
+        "SWITCHBACK_BACKEND_HTTP_BASE_URL": "http://switchback-backend:8080"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/product",
+          "target": "/var/lib/switchback",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/var/run/docker.sock",
+          "target": "/var/run/docker.sock",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/core/source",
+          "target": "/opt/switchback/workspace-source",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/core/blocked-status",
+          "target": "/run/switchback-capacity",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "assistant-litellm": {
+      "image": "${FROZEN_ASSISTANT_IMAGE_ID:?externally frozen actual ID required}",
+      "pull_policy": "never",
+      "restart": "no",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 128,
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "tmpfs": [
+        "/tmp:size=64m,mode=1777",
+        "/var/lib/switchback-litellm:size=32m,mode=0700,uid=10001,gid=10001"
+      ],
+      "networks": [
+        "core"
+      ],
+      "profiles": [
+        "assistant-disabled"
+      ],
+      "user": "10001:10001",
+      "environment": {
+        "SWITCHBACK_ASSISTANT_LITELLM_PROXY_KEY": "${SWITCHBACK_ASSISTANT_LITELLM_PROXY_KEY:?external credential required}",
+        "SWITCHBACK_ASSISTANT_KIMI_CODE_API_KEY_FILE": "/run/switchback-provider/kimi.key",
+        "SWITCHBACK_ASSISTANT_DEEPSEEK_API_KEY_FILE": "/run/switchback-provider/deepseek.key"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/docker/provider/kimi.key",
+          "target": "/run/switchback-provider/kimi.key",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/docker/provider/deepseek.key",
+          "target": "/run/switchback-provider/deepseek.key",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "postgres": {
+      "image": "docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49",
+      "pull_policy": "never",
+      "restart": "no",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 128,
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "tmpfs": [
+        "/tmp:size=32m,mode=1777",
+        "/var/run/postgresql:size=16m,mode=0775,uid=999,gid=999"
+      ],
+      "networks": [
+        "core"
+      ],
+      "user": "999:999",
+      "environment": {
+        "POSTGRES_USER": "switchback",
+        "POSTGRES_PASSWORD": "${SWITCHBACK_POSTGRES_PASSWORD:?external credential required}",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_WALDIR": "/var/lib/postgresql/wal",
+        "PGDATA": "/var/lib/postgresql/data/pgdata"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/core/postgres/data",
+          "target": "/var/lib/postgresql/data",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/mnt/lima-sbquota/core/postgres/wal",
+          "target": "/var/lib/postgresql/wal",
+          "read_only": false,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "./init-postgres.sh",
+          "target": "/docker-entrypoint-initdb.d/10-switchback-init.sh",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "shm_size": "64m",
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "switchback",
+          "-d",
+          "switchback"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 20
+      }
+    },
+    "switchback-migrate": {
+      "image": "docker.io/library/postgres@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49",
+      "pull_policy": "never",
+      "restart": "no",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cgroup_parent": "switchback-core.slice",
+      "cpus": 0.6,
+      "mem_limit": "128m",
+      "memswap_limit": "128m",
+      "pids_limit": 128,
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "tmpfs": [
+        "/tmp:size=32m,mode=1777"
+      ],
+      "networks": [
+        "core"
+      ],
+      "user": "999:999",
+      "depends_on": {
+        "postgres": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "PGHOST": "postgres",
+        "PGUSER": "switchback",
+        "PGPASSWORD": "${SWITCHBACK_POSTGRES_PASSWORD:?external credential required}",
+        "PGDATABASE": "switchback"
+      },
+      "entrypoint": [
+        "/bin/sh",
+        "/opt/switchback/migrate-postgres.sh"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "./migrate-postgres.sh",
+          "target": "/opt/switchback/migrate-postgres.sh",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "./migrations",
+          "target": "/opt/switchback/migrations",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    }
+  },
+  "networks": {
+    "core": {
+      "internal": true
+    }
+  }
+}

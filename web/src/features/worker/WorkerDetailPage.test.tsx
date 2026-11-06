@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalRequest, TransientDisplayDelta, WorkerDetailData } from "../../api/contracts";
 import { GatewayCommandError } from "../../api/workerCommands";
 import { demoWorker } from "../../demo/data";
@@ -30,7 +30,27 @@ function renderWorker(props: ComponentProps<typeof WorkerDetailPage>) {
   );
 }
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("WorkerDetail", () => {
+  it("keeps an explicitly selected historical report source after active IDs clear and a newer report arrives", async () => {
+    const old = { ...demoWorker.artifacts[0], artifact_id: "old-report", type: "report" as const, worker_run_id: "old-run", agent_turn_id: "old-turn", generated_at: "2026-07-23T00:00:00Z" };
+    const fetcher = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("/diagnostics")) {
+        const query = new URL(url, "http://localhost").searchParams;
+        return { ok: true, json: async () => ({ links: [], grafana_status: "disabled", langfuse_status: "disabled", target: { worker_session_id: demoWorker.worker_session_id, worker_run_id: query.get("worker_run_id") ?? undefined, agent_turn_id: query.get("agent_turn_id") ?? undefined } }) };
+      }
+      return { ok: false };
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const initial = worker({ artifacts: [old], active_worker_run_id: undefined, active_agent_turn_id: undefined });
+    const view = renderWorker({ worker: initial });
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => url.endsWith("/diagnostics"))).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => url.endsWith("?worker_run_id=old-run&agent_turn_id=old-turn"))).toBe(true));
+    view.rerender(<ThemeProvider><WorkerDetailPage worker={{ ...initial, runtime_generation: 2, artifacts: [old, { ...old, artifact_id: "new-report", worker_run_id: "new-run", agent_turn_id: "new-turn", generated_at: "2026-07-24T00:00:00Z" }] }} /></ThemeProvider>);
+    expect(fetcher.mock.calls.filter(([url]) => url.includes("/diagnostics")).at(-1)?.[0]).toContain("worker_run_id=old-run&agent_turn_id=old-turn");
+  });
   it("renders layered execution state and transient activity", () => {
     const live: TransientDisplayDelta = {
       schema_version: "frontier.transient_display_delta.v1",

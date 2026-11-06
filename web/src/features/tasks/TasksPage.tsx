@@ -50,7 +50,9 @@ export function TasksPage({
               {tasks.map((task) => (
                 <tr className="task-row task-data-row" key={task.task_id}>
                   <td><span className="task-title"><strong>{task.title}</strong><small>{task.task_id}</small></span></td>
-                  <td><StatusBadge label={task.status} tone={task.status_tone} /></td>
+                  <td><StatusBadge label={task.status} tone={task.status_tone} />
+                    {task.runtime_dispatch_wait && <p>{runtimeDispatchWaitCopy(task.runtime_dispatch_wait.reason)}</p>}
+                  </td>
                   <td><span className="workspace-cell"><GitBranch aria-hidden="true" size={14} /> {task.workspace}</span></td>
                   <td><span className="muted"><Clock3 aria-hidden="true" size={14} /> {task.updated_at}</span></td>
                   <td className="task-worker-cell">
@@ -142,4 +144,10 @@ function matchesFilter(task: TaskListItem, filter: TaskFilter): boolean {
 
 function titleCase(value: string): string {
   return value[0].toUpperCase() + value.slice(1);
+}
+
+function runtimeDispatchWaitCopy(reason: NonNullable<TaskListItem["runtime_dispatch_wait"]>["reason"]): string {
+  if (reason === "capacity_exhausted") return "Waiting for runtime resources · execution has not started";
+  if (reason === "capacity_path_not_integrated") return "Runtime execution is not ready · execution has not started";
+  return "Runtime capacity checks pending · execution has not started";
 }

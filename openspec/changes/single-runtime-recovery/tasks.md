@@ -14,6 +14,7 @@
 - [ ] 2.3 Open incidents immediately for confirmed container/process exit, missing container or authenticated ACP EOF; treat WorkerControl transport close as bounded reconnect evidence rather than process failure
   - Current: the close observer/trigger path has been removed; transport close only disconnects the durable journal and `worker_control_closed` remains decode/reconcile compatibility for historical incidents.
   - Remaining: complete production/fixed-image acceptance for each eligible hard signal and prove a transport-only disconnect/reconnect creates no incident.
+  - Disabled admission clarification (2026-10-11): exact server-owned exited/missing inspection commits directly to zero-attempt exhausted Worker failure; no automatic replacement, prompt replay or fabricated delivery evidence. Worker transaction, exact waiter handoff and existing cleanup rediscovery have focused PostgreSQL/fake-Docker coverage. Task-owner consumption and production/fixed-image acceptance remain separate gates.
 - [x] 2.4 Keep `active_quiet`, provider latency and missing token output nonterminal and outside recovery
 - [x] 2.5 Add stale heartbeat, duplicate sequence, clock skew, Backend pause and hard-exit tests
 

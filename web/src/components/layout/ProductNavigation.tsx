@@ -14,13 +14,14 @@ export const productNavigationItems = [
   { to: "/", label: "工作台", icon: LayoutDashboard, end: true },
   { to: "/assistant", label: "Assistant 对话", icon: BotMessageSquare, end: false },
   { to: "/tasks", label: "任务交付", icon: ListTodo, end: true },
+  { to: "/observability", label: "可观测性", icon: Gauge, end: true },
 ] as const;
 
 export const plannedNavigationItems = [
   { label: "Workspaces", icon: Boxes },
   { label: "Memory", icon: BrainCircuit },
   { label: "Skills / MCP", icon: Sparkles },
-  { label: "可观测性 / Admin", icon: Gauge },
+  { label: "Admin", icon: Gauge },
 ] as const;
 
 interface ProductNavigationProps {

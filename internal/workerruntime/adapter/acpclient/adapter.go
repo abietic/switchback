@@ -31,13 +31,22 @@ const (
 type Adapter struct {
 	mu sync.Mutex
 
-	options  Options
-	state    adapterState
-	command  *exec.Cmd
-	stdin    io.WriteCloser
-	conn     *sdk.ClientSideConnection
-	recorder *traceRecorder
-	done     chan error
+	options               Options
+	state                 adapterState
+	command               *exec.Cmd
+	stdin                 io.WriteCloser
+	conn                  *sdk.ClientSideConnection
+	recorder              *traceRecorder
+	done                  chan error
+	lifecycle             context.Context
+	cancelLifecycle       context.CancelFunc
+	explicitClose         chan struct{}
+	closeOnce             sync.Once
+	outputReader          *io.PipeReader
+	outputWriter          *io.PipeWriter
+	outputSource          io.ReadCloser
+	notificationCredits   chan struct{}
+	admittedNotifications chan *notificationCredit
 
 	workerSessionID        string
 	runtimeID              string
@@ -47,9 +56,21 @@ type Adapter struct {
 	agentSessionID         string
 	activeTurnID           string
 	lastTerminalTurnID     string
-	activeUpdates          chan application.AgentUpdate
-	cancelRequested        bool
+	activeDelivery         *turnDelivery
 	systemError            bool
+}
+
+type turnDelivery struct {
+	ctx       context.Context
+	updates   chan application.AgentUpdate
+	done      chan struct{}
+	closing   bool           // guarded by Adapter.mu
+	callbacks sync.WaitGroup // Add under Adapter.mu before closing is set
+}
+
+type notificationCredit struct {
+	delivery *turnDelivery
+	release  func()
 }
 
 var _ application.AgentAdapter = (*Adapter)(nil)
@@ -227,17 +248,18 @@ func (a *Adapter) Prompt(ctx context.Context, request application.AgentPromptReq
 	updates := make(chan application.AgentUpdate, 128)
 	a.lastTerminalTurnID = ""
 	a.activeTurnID = request.AgentTurnID
-	a.activeUpdates = updates
-	a.cancelRequested = false
+	delivery := &turnDelivery{ctx: ctx, updates: updates, done: make(chan struct{})}
+	a.activeDelivery = delivery
 	a.systemError = false
 	connection := a.conn
 	a.mu.Unlock()
 
-	go a.runPrompt(ctx, connection, request, updates)
+	go a.runPrompt(ctx, connection, request, delivery)
 	return updates, nil
 }
 
-func (a *Adapter) runPrompt(ctx context.Context, connection *sdk.ClientSideConnection, request application.AgentPromptRequest, updates chan application.AgentUpdate) {
+func (a *Adapter) runPrompt(ctx context.Context, connection *sdk.ClientSideConnection, request application.AgentPromptRequest, delivery *turnDelivery) {
+	updates := delivery.updates
 	response, err := connection.Prompt(ctx, sdk.PromptRequest{
 		SessionId: sdk.SessionId(request.AgentSessionID),
 		Prompt:    []sdk.ContentBlock{sdk.TextBlock(request.Content)},
@@ -249,13 +271,16 @@ func (a *Adapter) runPrompt(ctx context.Context, connection *sdk.ClientSideConne
 		}},
 	})
 	a.mu.Lock()
+	// Normal SDK responses already wait for the notification watermark. Error,
+	// cancellation and Close paths need an explicit send/close barrier too.
+	delivery.closing = true
+	close(delivery.done)
 	systemError := a.systemError
-	cancelRequested := a.cancelRequested
 	a.mu.Unlock()
-	if err != nil && cancelRequested {
-		response.StopReason = sdk.StopReasonCancelled
-		err = nil
-	}
+	delivery.callbacks.Wait()
+	// Only a normal SDK return proves both the response and notification
+	// watermark. Cancel intent, EOF, RPC error and context abort are not proof.
+	// A context cancelled after a proven normal response does not revoke proof.
 	if err != nil || systemError || !terminalStopReason(response.StopReason) {
 		code := "acp_prompt_failed"
 		if err != nil {
@@ -265,6 +290,7 @@ func (a *Adapter) runPrompt(ctx context.Context, connection *sdk.ClientSideConne
 			default:
 			}
 		}
+		a.failClosed()
 		payload, _ := json.Marshal(map[string]string{"code": code})
 		a.sendUpdate(ctx, updates, application.AgentUpdate{
 			Kind: "error", Payload: payload,
@@ -285,8 +311,7 @@ func (a *Adapter) finishPrompt(agentTurnID string) {
 	if a.activeTurnID == agentTurnID {
 		a.lastTerminalTurnID = agentTurnID
 		a.activeTurnID = ""
-		a.activeUpdates = nil
-		a.cancelRequested = false
+		a.activeDelivery = nil
 		a.systemError = false
 	}
 }
@@ -308,39 +333,54 @@ func (a *Adapter) Cancel(ctx context.Context, agentSessionID, agentTurnID string
 		return fmt.Errorf("ACP cancel target is stale or inactive")
 	}
 	connection := a.conn
-	a.cancelRequested = true
 	a.mu.Unlock()
 	if err := connection.Cancel(ctx, sdk.CancelNotification{SessionId: sdk.SessionId(agentSessionID)}); err != nil {
-		a.mu.Lock()
-		if a.activeTurnID == agentTurnID {
-			a.cancelRequested = false
-		}
-		a.mu.Unlock()
 		return fmt.Errorf("cancel ACP prompt")
 	}
 	return nil
 }
 
-func (a *Adapter) observeSessionUpdate(notification sdk.SessionNotification) {
+func (a *Adapter) observeSessionUpdate(ctx context.Context, notification sdk.SessionNotification) error {
+	// The raw tee admits exactly one credit for each typed notification. Binding
+	// its Turn there prevents old queued callbacks from entering a later Prompt.
+	var credit *notificationCredit
+	select {
+	case credit = <-a.admittedNotifications:
+	case <-ctx.Done():
+		a.failClosed()
+		return ctx.Err()
+	case <-a.lifecycle.Done():
+		return a.lifecycle.Err()
+	}
+	defer credit.release()
 	payload, err := json.Marshal(notification.Update)
 	if err != nil {
-		return
+		return err
 	}
 	kind := sessionUpdateKind(payload)
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if string(notification.SessionId) != a.agentSessionID || a.activeTurnID == "" || a.activeUpdates == nil {
-		return
+	delivery := credit.delivery
+	if string(notification.SessionId) != a.agentSessionID || delivery == nil || delivery != a.activeDelivery || delivery.closing || a.state != stateSessionOpen {
+		a.mu.Unlock()
+		return nil
 	}
-	updates := a.activeUpdates
+	delivery.callbacks.Add(1)
 	if a.options.IsSystemError != nil && a.options.IsSystemError(notification) {
 		a.systemError = true
 	}
+	a.mu.Unlock()
+	defer delivery.callbacks.Done()
 	select {
-	case updates <- application.AgentUpdate{Kind: kind, Payload: payload}:
-	default:
-		// Bounded backpressure is a protocol failure, not permission to drop updates.
-		a.systemError = true
+	case delivery.updates <- application.AgentUpdate{Kind: kind, Payload: payload}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-delivery.ctx.Done():
+		return delivery.ctx.Err()
+	case <-delivery.done:
+		return nil
+	case <-a.lifecycle.Done():
+		return a.lifecycle.Err()
 	}
 }
 
@@ -348,6 +388,7 @@ func (a *Adapter) sendUpdate(ctx context.Context, updates chan application.Agent
 	select {
 	case updates <- update:
 	case <-ctx.Done():
+	case <-a.explicitClose:
 	}
 }
 
@@ -357,6 +398,39 @@ func (a *Adapter) failClosed() {
 		a.state = stateUnusable
 	}
 	a.mu.Unlock()
+	a.cancelLifecycle()
+	a.closeOutput()
+}
+
+func (a *Adapter) closeOutput() {
+	a.mu.Lock()
+	reader, writer, source := a.outputReader, a.outputWriter, a.outputSource
+	// Admission and queue teardown share Adapter.mu. A callback may already own
+	// a ticket; its defer releases that credit. Remaining queued tickets are
+	// released here, including a target-write failure's ticket (release is Once).
+	var queued []*notificationCredit
+	for {
+		select {
+		case credit := <-a.admittedNotifications:
+			queued = append(queued, credit)
+		default:
+			goto drained
+		}
+	}
+drained:
+	a.mu.Unlock()
+	for _, credit := range queued {
+		credit.release()
+	}
+	if reader != nil {
+		_ = reader.Close()
+	}
+	if writer != nil {
+		_ = writer.Close()
+	}
+	if source != nil {
+		_ = source.Close()
+	}
 }
 
 func hasAuthMethod(methods []sdk.AuthMethod, wanted string) bool {

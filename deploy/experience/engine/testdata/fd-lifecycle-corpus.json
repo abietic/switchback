@@ -1,0 +1,616 @@
+{
+  "schema": "switchback.engine.fd_lifecycle.corpus.v1",
+  "cases": [
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "stable-source-flags-not-pin",
+      "expected": "stable"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 43,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "source-reused-inode",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 32768
+      },
+      "primitive_error": null,
+      "id": "source-reused-type",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[43]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "source-reused-target",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "flags: 02\nmnt_id: 9\nino: 42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "source-reused-mount",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "pin-open",
+        "errno": 2
+      },
+      "id": "vanished-pin-open",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "source-readlink-before",
+        "errno": 2
+      },
+      "id": "vanished-source-readlink-before",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "source-stat-before",
+        "errno": 2
+      },
+      "id": "vanished-source-stat-before",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "source-fdinfo-open",
+        "errno": 2
+      },
+      "id": "vanished-source-fdinfo-open",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "source-readlink-after",
+        "errno": 2
+      },
+      "id": "vanished-source-readlink-after",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "source-stat-after",
+        "errno": 2
+      },
+      "id": "vanished-source-stat-after",
+      "expected": "sampling_race"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "pin-fstat",
+        "errno": 2
+      },
+      "id": "hard-pin-fstat",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "pin-readlink",
+        "errno": 2
+      },
+      "id": "hard-pin-readlink",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "pin-fdinfo",
+        "errno": 2
+      },
+      "id": "hard-pin-fdinfo",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "pin-close",
+        "errno": 2
+      },
+      "id": "hard-pin-close",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": {
+        "primitive": "source-fdinfo-open",
+        "errno": 13
+      },
+      "id": "hard-source-fdinfo-open",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "flags: 02\nflags: 02\nmnt_id: 8\nino: 42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "duplicate-flags",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "flags: 02\nmnt_id: 8\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "missing-inode",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "flags: 08\nmnt_id: 8\nino: 42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "invalid-flags",
+      "expected": "hard_failure"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t0\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t0\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "stable-zero-mount",
+      "expected": "stable"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t9\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "combined-flags-and-mount",
+      "expected": "hard_failure",
+      "fdinfo_after": "pos:\t0\nflags:\t01\nmnt_id:\t8\nino:\t42\n"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t43\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "combined-flags-and-inode",
+      "expected": "hard_failure",
+      "fdinfo_after": "pos:\t0\nflags:\t01\nmnt_id:\t8\nino:\t42\n"
+    },
+    {
+      "fdinfo": "pos:\t0\nflags:\t02\nmnt_id:\t8\nino:\t42\n",
+      "pin_fdinfo": "pos:\t0\nflags:\t010200000\nmnt_id:\t8\nino:\t42\n",
+      "pin": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_before": {
+        "target": "socket:[43]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "source_after": {
+        "target": "socket:[42]",
+        "device": 5,
+        "inode": 42,
+        "mode": 49152
+      },
+      "primitive_error": null,
+      "id": "combined-flags-and-target",
+      "expected": "hard_failure",
+      "fdinfo_after": "pos:\t0\nflags:\t01\nmnt_id:\t8\nino:\t42\n"
+    }
+  ]
+}

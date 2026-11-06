@@ -3,16 +3,12 @@ package localproduct
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,31 +86,38 @@ func newRuntimeEnvironment(configuration Config, hub *controlgrpc.Hub) *runtimeE
 	}
 }
 
+// PrepareRuntime is a private convenience for existing callers. Production
+// coordination must pin the readonly plan through PlanRuntime before Prepare.
 func (environment *runtimeEnvironment) PrepareRuntime(
 	ctx context.Context,
 	request workerapp.RuntimePreparationRequest,
+) (result workerapp.RuntimeProvisionRequest, resultErr error) {
+	plan, err := environment.PlanRuntime(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, plan.Close()) }()
+	return plan.Prepare(ctx)
+}
+
+func (environment *runtimeEnvironment) preparePlannedRuntime(
+	ctx context.Context,
+	request workerapp.RuntimePreparationRequest,
+	sourcePlan *workspaceSourcePlan,
+	binding workerapp.RuntimeSourcePlanBinding,
+	profiles runtimePreparationProfiles,
 ) (_ workerapp.RuntimeProvisionRequest, resultErr error) {
 	ownership := request.Ownership
-	if environment == nil || environment.hub == nil {
-		return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("Runtime environment is unavailable")
+	profile, resource, network := profiles.agent, profiles.resource, profiles.network
+	if err := ctx.Err(); err != nil {
+		return workerapp.RuntimeProvisionRequest{}, err
 	}
-	profile, ok := environment.profiles.Agent(request.Command.AgentProfileID)
-	if !ok || profile.Digest != request.Command.AgentProfileDigest {
-		return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("AgentProfile is unavailable or stale")
-	}
-	resource, ok := environment.profiles.RuntimeResource(request.Command.ResourceProfileID)
-	if !ok {
-		return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("Runtime resource profile is unavailable")
-	}
-	network, err := environment.networkProfiles.ResolveStored(config.RuntimeNetworkEvidence{
-		ID: request.Command.NetworkPolicyID, Revision: request.Command.NetworkPolicyRevision,
-		Digest:            request.Command.NetworkPolicyDigest,
-		EnforcementStatus: request.Command.NetworkEnforcementStatus,
+	var sourceDigest string
+	storage, err := environment.storage.MaterializeWithBootstrap(ownership.WorkerSessionID, func(workingCopy string) error {
+		var copyErr error
+		sourceDigest, copyErr = sourcePlan.Copy(ctx, workingCopy, (*os.File).Chown)
+		return copyErr
 	})
-	if err != nil || network.EnforcementStatus != request.Command.NetworkEnforcementStatus {
-		return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("Runtime network profile is unavailable or stale")
-	}
-	storage, err := environment.storage.Materialize(ownership.WorkerSessionID)
 	if err != nil {
 		return workerapp.RuntimeProvisionRequest{}, err
 	}
@@ -126,14 +129,6 @@ func (environment *runtimeEnvironment) PrepareRuntime(
 			}
 		}
 	}()
-	sourceDigest, err := copyWorkspaceSource(
-		environment.configuration.WorkspaceSourceRoot,
-		storage.WorkingCopy.BackendPath,
-		os.Chown,
-	)
-	if err != nil {
-		return workerapp.RuntimeProvisionRequest{}, err
-	}
 	identity := controlgrpc.RuntimeIdentity{
 		WorkerSessionID: ownership.WorkerSessionID, RuntimeInstanceID: ownership.RuntimeInstanceID,
 		RuntimeGeneration: uint32(ownership.RuntimeGeneration), ChannelEpoch: ownership.ControlChannelEpoch,
@@ -196,6 +191,7 @@ func (environment *runtimeEnvironment) PrepareRuntime(
 		NetworkProfile: workerapp.ProfileRef{
 			ID: network.ID, Revision: network.Revision, Digest: network.Digest,
 		},
+		SourcePlanDigest:         binding.Digest,
 		NetworkEnforcementStatus: network.EnforcementStatus,
 		Storage:                  storage, Secrets: secretResources,
 	}, nil
@@ -553,163 +549,6 @@ func readProviderCredential(path string) (runtimesecret.ProviderCredential, erro
 		return nil, fmt.Errorf("provider credential file is invalid")
 	}
 	return runtimesecret.ProviderCredential(content), nil
-}
-
-func copyWorkspaceSource(sourceRoot, destinationRoot string, chown func(string, int, int) error) (string, error) {
-	if err := absolutePath("Workspace source root", sourceRoot); err != nil {
-		return "", err
-	}
-	if err := absolutePath("WorkingCopy root", destinationRoot); err != nil {
-		return "", err
-	}
-	if chown == nil {
-		return "", fmt.Errorf("WorkingCopy ownership operation is required")
-	}
-	sourceInfo, err := os.Lstat(sourceRoot)
-	if err != nil || !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("Workspace source root must be a real directory")
-	}
-	destinationInfo, err := os.Lstat(destinationRoot)
-	if err != nil || !destinationInfo.IsDir() || destinationInfo.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("WorkingCopy root must be a real directory")
-	}
-	type sourceFile struct {
-		relative string
-		mode     fs.FileMode
-		digest   string
-	}
-	files := make([]sourceFile, 0)
-	err = filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk Workspace source")
-		}
-		relative, err := filepath.Rel(sourceRoot, path)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("Workspace source path escapes configured root")
-		}
-		if relative == "." {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("Workspace source symlinks are not supported in M1")
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return fmt.Errorf("inspect Workspace source entry")
-		}
-		destination := filepath.Join(destinationRoot, relative)
-		if entry.IsDir() {
-			if err := os.Mkdir(destination, 0o750); err != nil {
-				return fmt.Errorf("create WorkingCopy directory: %w", err)
-			}
-			return chown(destination, runtimesecret.AgentUID, runtimesecret.AgentUID)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("Workspace source contains unsupported file type")
-		}
-		digest, err := copyRegularFile(path, destination, info.Mode(), chown)
-		if err != nil {
-			return err
-		}
-		files = append(files, sourceFile{relative: filepath.ToSlash(relative), mode: info.Mode().Perm(), digest: digest})
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	sort.Slice(files, func(left, right int) bool { return files[left].relative < files[right].relative })
-	tree := sha256.New()
-	for _, file := range files {
-		_, _ = fmt.Fprintf(tree, "%s\x00%o\x00%s\n", file.relative, file.mode, file.digest)
-	}
-	return hex.EncodeToString(tree.Sum(nil)), nil
-}
-
-func workspaceSourceDigest(sourceRoot string) (string, error) {
-	if err := absolutePath("Workspace source root", sourceRoot); err != nil {
-		return "", err
-	}
-	info, err := os.Lstat(sourceRoot)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("Workspace source root must be a real directory")
-	}
-	type sourceFile struct {
-		relative string
-		mode     fs.FileMode
-		digest   string
-	}
-	files := make([]sourceFile, 0)
-	err = filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk Workspace source")
-		}
-		relative, err := filepath.Rel(sourceRoot, path)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("Workspace source path escapes configured root")
-		}
-		if relative == "." || entry.IsDir() {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("Workspace source symlinks are not supported in M1")
-		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("Workspace source contains unsupported file type")
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("open Workspace source file")
-		}
-		hash := sha256.New()
-		_, copyErr := io.Copy(hash, file)
-		closeErr := file.Close()
-		if copyErr != nil || closeErr != nil {
-			return fmt.Errorf("hash Workspace source file")
-		}
-		files = append(files, sourceFile{
-			relative: filepath.ToSlash(relative), mode: info.Mode().Perm(),
-			digest: hex.EncodeToString(hash.Sum(nil)),
-		})
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	sort.Slice(files, func(left, right int) bool { return files[left].relative < files[right].relative })
-	tree := sha256.New()
-	for _, file := range files {
-		_, _ = fmt.Fprintf(tree, "%s\x00%o\x00%s\n", file.relative, file.mode, file.digest)
-	}
-	return hex.EncodeToString(tree.Sum(nil)), nil
-}
-
-func copyRegularFile(source, destination string, sourceMode fs.FileMode, chown func(string, int, int) error) (string, error) {
-	input, err := os.Open(source)
-	if err != nil {
-		return "", fmt.Errorf("open Workspace source file")
-	}
-	defer input.Close()
-	mode := fs.FileMode(0o640)
-	if sourceMode&0o111 != 0 {
-		mode = 0o750
-	}
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
-		return "", fmt.Errorf("create WorkingCopy file: %w", err)
-	}
-	checksum := sha256.New()
-	_, copyErr := io.Copy(io.MultiWriter(output, checksum), input)
-	closeErr := output.Close()
-	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(destination)
-		return "", fmt.Errorf("copy Workspace source file")
-	}
-	if err := chown(destination, runtimesecret.AgentUID, runtimesecret.AgentUID); err != nil {
-		_ = os.Remove(destination)
-		return "", fmt.Errorf("handoff WorkingCopy file: %w", err)
-	}
-	return hex.EncodeToString(checksum.Sum(nil)), nil
 }
 
 func zero(content []byte) {

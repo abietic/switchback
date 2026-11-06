@@ -50,7 +50,7 @@ func (handler LifecycleCommandHandler) timeoutAgentTurn(
 		return fmt.Errorf("deadline target must be AgentTurn")
 	}
 	now := handler.Now().UTC()
-	return platformpostgres.InTransaction(ctx, handler.Pool, func(tx platformpostgres.Tx) error {
+	return inTerminalCapacityTransaction(ctx, handler.Pool, func() string { return command.TargetID }, func(tx platformpostgres.Tx) error {
 		if err := lockAgentTurnOutcome(ctx, tx, command.TargetID); err != nil {
 			return err
 		}
@@ -140,7 +140,7 @@ func (handler LifecycleCommandHandler) expireAbsoluteSession(
 		return fmt.Errorf("absolute expiry target must be WorkerSession")
 	}
 	now := handler.Now().UTC()
-	return platformpostgres.InTransaction(ctx, handler.Pool, func(tx platformpostgres.Tx) error {
+	return InCapacityTransaction(ctx, handler.Pool, func(tx pgx.Tx, capacity *CapacityTx) error {
 		task, err := lockRuntimeTaskBeforeGraph(ctx, tx, command.TargetID)
 		if errors.Is(err, platformpostgres.ErrNotFound) {
 			return nil
@@ -167,6 +167,9 @@ func (handler LifecycleCommandHandler) expireAbsoluteSession(
 			// Turn, Run, Task and Session close in one transaction. The recovery
 			// reconciler observes the same immutable absolute_expires_at value.
 			return nil
+		}
+		if err := rejectUnprovenInitialAbsoluteExpiry(ctx, tx, command.TargetID); err != nil {
+			return err
 		}
 		if session.ActiveRunID != "" {
 			if _, err := tx.Exec(ctx, `

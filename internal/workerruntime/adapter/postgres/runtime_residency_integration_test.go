@@ -5,6 +5,8 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"github.com/abietic/switchback/internal/platform/config"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"testing"
 	"time"
 
@@ -38,6 +40,7 @@ func TestInitialRuntimeOwnershipAllowsControlBindBeforeActivation(t *testing.T) 
 		bound.ChannelEpoch != started.ControlChannelEpoch {
 		t.Fatalf("bound control identity=%+v started=%+v", bound, started)
 	}
+	runtimecapacity.ObserveContainer(t, pool, started.WorkerSessionID, started.RuntimeInstanceID, "container-initial", started.RuntimeGeneration)
 	active, err := (workerapplication.RuntimeResidencyService{
 		Store: workerpostgres.NewRuntimeResidencyStore(pool),
 		Now:   func() time.Time { return now.Add(6 * time.Minute) },
@@ -110,6 +113,7 @@ func startInitialRuntimeBeforeActivation(
 	t.Helper()
 	ctx := context.Background()
 	seedAllocationRequests(t, pool, 1, now)
+	runtimecapacity.Initialize(t, pool)
 	ids := &concurrentAllocationIDs{}
 	allocated, err := (workerapplication.WorkerSessionAllocator{
 		Store: workerpostgres.NewAllocatorStore(pool), IDs: ids,
@@ -138,7 +142,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 	}
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-task-01",
+		RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +174,7 @@ func TestStageCompletionKeepsGenerationOneRuntimeResident(t *testing.T) {
 			ctx := context.Background()
 			now := time.Date(2026, 7, 23, 11, 0, 0, 0, time.UTC)
 			seedAllocationRequests(t, pool, 1, now)
+			runtimecapacity.Initialize(t, pool)
 			ids := &concurrentAllocationIDs{}
 			allocated, err := (workerapplication.WorkerSessionAllocator{
 				Store: workerpostgres.NewAllocatorStore(pool), IDs: ids,
@@ -198,7 +203,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 			}
 			permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 				TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-				RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-task-01",
+				RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -214,6 +219,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 				Store: workerpostgres.NewRuntimeResidencyStore(pool),
 				Now:   func() time.Time { return now.Add(5 * time.Minute) },
 			}
+			runtimecapacity.ObserveContainer(t, pool, started.WorkerSessionID, started.RuntimeInstanceID, "container-resident-1", started.RuntimeGeneration)
 			active, err := residency.Activate(ctx, workerapplication.ActivateResidentRuntimeCommand{
 				TenantID: "tenant-local", WorkerSessionID: started.WorkerSessionID,
 				WorkerRunID: started.WorkerRunID, AgentTurnID: started.AgentTurnID,
@@ -282,6 +288,7 @@ func TestAgentSessionBindingReplacesReservationBeforeRuntimeActivation(t *testin
 	ctx := context.Background()
 	now := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
 	seedAllocationRequests(t, pool, 1, now)
+	runtimecapacity.Initialize(t, pool)
 	ids := &concurrentAllocationIDs{}
 	allocated, err := (workerapplication.WorkerSessionAllocator{
 		Store: workerpostgres.NewAllocatorStore(pool), IDs: ids, Now: func() time.Time { return now.Add(time.Minute) },
@@ -303,7 +310,7 @@ func TestAgentSessionBindingReplacesReservationBeforeRuntimeActivation(t *testin
 	}
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "bind-permit",
+		RuntimeGeneration: 1, IdempotencyKey: "bind-permit",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -343,6 +350,7 @@ func TestAgentSessionBindingReplacesReservationBeforeRuntimeActivation(t *testin
 	if _, err := binder.Execute(ctx, command); err == nil {
 		t.Fatal("conflicting AgentSession binding was accepted")
 	}
+	runtimecapacity.ObserveContainer(t, pool, started.WorkerSessionID, started.RuntimeInstanceID, "container-bound-1", started.RuntimeGeneration)
 	active, err := (workerapplication.RuntimeResidencyService{
 		Store: workerpostgres.NewRuntimeResidencyStore(pool), Now: func() time.Time { return now.Add(5 * time.Minute) },
 	}).Activate(ctx, workerapplication.ActivateResidentRuntimeCommand{
@@ -487,18 +495,19 @@ RETURNING session_revision`, started.WorkerSessionID, recoveredRuntimeID,
 }
 
 func residentStartCommand(permit taskapplication.IssuedTaskPermit) workerapplication.StartWorkerRunCommand {
+	network, _ := config.ProductionRuntimeNetworkProfiles().ResolveForDeployment(config.SingleUserLocalProfileName)
 	return workerapplication.StartWorkerRunCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: permit.WorkerSessionID,
 		TaskID: permit.TaskID, PermitID: permit.PermitID,
 		ExpectedSessionRevision: permit.ExpectedSessionRevision,
 		RuntimeGeneration:       permit.RuntimeGeneration, TriggerType: "task_initial",
-		StartSnapshot:  []byte(`{"working_copy":"checkpoint-1"}`),
+		StartSnapshot:  []byte(`{"working_copy":"checkpoint-1","working_copy_checkpoint_digest":"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}`),
 		AgentProfileID: "deepseek-codex-openai-v1", AgentProfileRevision: "1",
 		AgentProfileDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		AgentTurnContent:   []byte(`{"text":"execute task"}`),
 		TurnIdempotencyKey: "turn/" + permit.PermitID,
 		RuntimeImageRef:    "switchback-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		ResourceProfileID:  "local_standard_v1", NetworkPolicyID: "m1_public_web_restricted_v1",
-		NetworkEnforcementStatus: "legacy_unenforced", ControlChannelEpoch: 1,
+		ResourceProfileID:  "local_standard_v1", NetworkPolicyID: network.ID, NetworkPolicyRevision: network.Revision, NetworkPolicyDigest: network.Digest,
+		NetworkEnforcementStatus: network.Evidence().EnforcementStatus, ControlChannelEpoch: 1,
 	}
 }

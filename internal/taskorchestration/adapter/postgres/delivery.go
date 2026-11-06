@@ -26,7 +26,7 @@ func NewDeliveryStore(pool *pgxpool.Pool) *DeliveryStore { return &DeliveryStore
 func (store *DeliveryStore) RecordStageResult(ctx context.Context, record application.TaskDeliveryRecord) (application.TaskDeliveryResult, error) {
 	var result application.TaskDeliveryResult
 	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
-		existing, found, err := readDeliveryResult(ctx, tx, record.Command.TaskID, record.Command.IdempotencyKey)
+		existing, found, err := readDeliveryResult(ctx, tx, record.Command.Actor, record.Command.TaskID, record.Command.IdempotencyKey)
 		if err != nil {
 			return err
 		}
@@ -107,7 +107,7 @@ VALUES ($1,$2,$3,$4,$5,'running',$6,'worker_stage_result',$7,$8)`,
 func (store *DeliveryStore) AcceptTask(ctx context.Context, record application.TaskAcceptanceRecord) (application.TaskDeliveryResult, error) {
 	var result application.TaskDeliveryResult
 	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
-		existing, found, err := readDeliveryResult(ctx, tx, record.Command.TaskID, record.Command.IdempotencyKey)
+		existing, found, err := readDeliveryResult(ctx, tx, record.Command.Actor, record.Command.TaskID, record.Command.IdempotencyKey)
 		if err != nil {
 			return err
 		}
@@ -180,12 +180,17 @@ VALUES ($1,$2,$3,$4,$5,'delivered','completed','initiator_accept',
 	return result, err
 }
 
-func readDeliveryResult(ctx context.Context, tx platformpostgres.Tx, taskID, idempotencyKey string) (application.TaskDeliveryResult, bool, error) {
+// A replay key identifies a result, not its reader's authority. Bind both
+// delivery callers to the Task's immutable tenant and initiator before returning
+// a receipt, while preserving the existing Task/Session mutation lock order.
+func readDeliveryResult(ctx context.Context, tx platformpostgres.Tx, actor application.Actor, taskID, idempotencyKey string) (application.TaskDeliveryResult, bool, error) {
 	var result application.TaskDeliveryResult
 	var transitionResult json.RawMessage
 	err := tx.QueryRow(ctx, `
-SELECT task_id,to_state,result_revision,result FROM task_transitions
-WHERE task_id=$1 AND idempotency_key=$2`, taskID, idempotencyKey).Scan(
+SELECT transition.task_id,transition.to_state,transition.result_revision,transition.result
+FROM task_transitions transition JOIN tasks task ON task.task_id=transition.task_id
+WHERE transition.task_id=$1 AND transition.idempotency_key=$2
+  AND task.tenant_id=$3 AND task.initiator_user_id=$4`, taskID, idempotencyKey, actor.TenantID, actor.UserID).Scan(
 		&result.TaskID, &result.Status, &result.Revision, &transitionResult)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return application.TaskDeliveryResult{}, false, nil

@@ -1,0 +1,32 @@
+# INACTIVE source template only; no installation or enablement is authorized.
+# CAP_SYS_ADMIN is not a read-only quota capability; a compromised process may
+# misuse it and its Docker socket. Dedicated trusted single-user guest only.
+# CAP_SYS_PTRACE grants whole-process guest ptrace authority, not read-only
+# namespace access; a compromised publisher may inspect or control guest peers.
+# Child limits do not establish aggregate admission, host backing or target
+# enforcement; exact candidate/native/LSM and private-directory reachability
+# verification remain required. The production deployment gate stays closed.
+[Unit]
+Description=Switchback capacity publisher (inactive candidate)
+
+[Service]
+Type=simple
+ExecStart=/opt/switchback/bin/switchback-capacity-publisher
+User=root
+Group=root
+Slice=switchback-core.slice
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_PTRACE
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+SystemCallFilter=~@mount @reboot @swap
+Restart=no
+UMask=0077
+LimitCORE=0
+KillMode=control-group
+TimeoutStopSec=10s
+CPUQuota=20%
+CPUQuotaPeriodSec=100ms
+MemoryMax=128M
+MemorySwapMax=0
+TasksMax=64

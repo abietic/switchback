@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	platformpostgres "github.com/abietic/switchback/internal/platform/postgres"
 	"github.com/abietic/switchback/internal/taskorchestration/application"
 	"github.com/abietic/switchback/internal/taskorchestration/domain"
+	workerpostgres "github.com/abietic/switchback/internal/workerruntime/adapter/postgres"
+	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 )
 
 func (store *Store) ReworkTask(ctx context.Context, record application.ReworkTaskRecord) (application.ReworkedTask, error) {
@@ -130,6 +133,9 @@ WHERE worker_run_id=$1 ORDER BY created_at DESC,agent_turn_id DESC LIMIT 1 FOR U
 WHERE runtime_instance_id=$1 AND worker_session_id=$2 FOR UPDATE`, runtimeID, sessionID).Scan(
 			&runtimeStatus, &runtimeRevision); err != nil || runtimeStatus != "active" {
 			return platformpostgres.ErrRevisionConflict
+		}
+		if err := workerapp.RejectUnintegratedExecution(); err != nil {
+			return err
 		}
 		startSnapshot, _ := json.Marshal(map[string]any{
 			"continued_from_worker_run_id": previousRunID,
@@ -264,28 +270,32 @@ WHERE tenant_id=$1 AND actor_user_id=$2 AND operation='continue_task_with_worker
 
 func (store *Store) CancelTask(ctx context.Context, record application.CancelTaskRecord) (application.CancelledTask, error) {
 	var result application.CancelledTask
-	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
-		var existingStatus string
-		err := tx.QueryRow(ctx, `SELECT to_state,result_revision,transition_id FROM task_transitions
-WHERE task_id=$1 AND idempotency_key=$2`, record.Command.TaskID, record.Command.IdempotencyKey).Scan(
-			&existingStatus, &result.Revision, &result.EventID)
+	err := workerpostgres.InCapacityTransaction(ctx, store.pool, func(tx pgx.Tx, capacity *workerpostgres.CapacityTx) error {
+		var tenantID, initiatorID, status, sessionID, runID string
+		var revision uint64
+		err := tx.QueryRow(ctx, `SELECT tenant_id,initiator_user_id,status,COALESCE(worker_session_id,''),
+COALESCE(current_worker_run_id,''),revision FROM tasks WHERE task_id=$1 FOR UPDATE`, record.Command.TaskID).Scan(
+			&tenantID, &initiatorID, &status, &sessionID, &runID, &revision)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return platformpostgres.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if tenantID != record.Command.Actor.TenantID || initiatorID != record.Command.Actor.UserID {
+			return platformpostgres.ErrNotFound
+		}
+		var trigger, existingStatus string
+		var expected uint64
+		err = tx.QueryRow(ctx, `SELECT trigger,to_state,expected_revision,result_revision,COALESCE(result->>'event_id','') FROM task_transitions WHERE task_id=$1 AND idempotency_key=$2`, record.Command.TaskID, record.Command.IdempotencyKey).Scan(&trigger, &existingStatus, &expected, &result.Revision, &result.EventID)
 		if err == nil {
+			if trigger != "initiator_cancel" || existingStatus != "cancelled" || expected != record.Command.ExpectedTaskRevision || result.EventID == "" {
+				return application.ErrIdempotencyConflict
+			}
 			result.TaskID, result.Status = record.Command.TaskID, existingStatus
 			return nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		var tenantID, initiatorID, status, sessionID, runID string
-		var revision uint64
-		err = tx.QueryRow(ctx, `SELECT tenant_id,initiator_user_id,status,COALESCE(worker_session_id,''),
-COALESCE(current_worker_run_id,''),revision FROM tasks WHERE task_id=$1 FOR UPDATE`, record.Command.TaskID).Scan(
-			&tenantID, &initiatorID, &status, &sessionID, &runID, &revision)
-		if errors.Is(err, pgx.ErrNoRows) || tenantID != record.Command.Actor.TenantID ||
-			initiatorID != record.Command.Actor.UserID {
-			return platformpostgres.ErrNotFound
-		}
-		if err != nil {
 			return err
 		}
 		if revision != record.Command.ExpectedTaskRevision || status == "completed" ||
@@ -296,7 +306,10 @@ COALESCE(current_worker_run_id,''),revision FROM tasks WHERE task_id=$1 FOR UPDA
 		if err := tx.QueryRow(ctx, `UPDATE tasks SET status='cancelled',waiting_reason=NULL,
 revision=revision+1,updated_at=$2 WHERE task_id=$1 AND revision=$3 RETURNING revision`,
 			record.Command.TaskID, record.Now, revision).Scan(&nextRevision); err != nil {
-			return platformpostgres.ErrRevisionConflict
+			if errors.Is(err, pgx.ErrNoRows) {
+				return platformpostgres.ErrRevisionConflict
+			}
+			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE session_allocation_requests SET status='cancelled',updated_at=$2
 WHERE request_kind='task' AND owner_id=$1 AND status='pending'`, record.Command.TaskID, record.Now); err != nil {
@@ -306,20 +319,37 @@ WHERE request_kind='task' AND owner_id=$1 AND status='pending'`, record.Command.
 WHERE task_id=$1 AND status IN ('pending','permit_issued')`, record.Command.TaskID); err != nil {
 			return err
 		}
+		if err := capacity.RevokeCancelledTaskExecution(ctx, record.Command.TaskID, revision); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `UPDATE session_dispatch_permits SET status='revoked'
 WHERE target_kind='task' AND target_id=$1 AND status='active'`, record.Command.TaskID); err != nil {
 			return err
 		}
-		if sessionID != "" {
-			var sessionRevision uint64
-			var activeRunID *string
-			var sessionStatus string
-			if err := tx.QueryRow(ctx, `SELECT session_revision,active_worker_run_id,status
-FROM worker_sessions WHERE worker_session_id=$1 FOR UPDATE`, sessionID).Scan(
-				&sessionRevision, &activeRunID, &sessionStatus); err != nil {
+		// An assigned but unstarted queued Task owns only its queue entry, never
+		// another Task's resident/failure Run or the Session's execution slot.
+		if sessionID != "" && !(status == "queued" && runID == "") {
+			failure, failedRuntime, err := workerpostgres.ReadRuntimeFailureCancellation(ctx, tx, tenantID, sessionID, runID)
+			if err != nil {
 				return err
 			}
-			if activeRunID == nil {
+			var sessionRevision uint64
+			var activeRunID *string
+			var sessionStatus, boundTask string
+			if err := tx.QueryRow(ctx, `SELECT session_revision,active_worker_run_id,status,COALESCE(bound_task_id,'')
+FROM worker_sessions WHERE worker_session_id=$1 FOR UPDATE`, sessionID).Scan(
+				&sessionRevision, &activeRunID, &sessionStatus, &boundTask); err != nil {
+				return err
+			}
+			if failedRuntime {
+				activeMatches := activeRunID != nil && *activeRunID == runID
+				if failure.WorkerRunID == "" {
+					activeMatches = activeRunID == nil
+				}
+				if !activeMatches || boundTask != record.Command.TaskID || sessionStatus != "waiting_user" {
+					return platformpostgres.ErrRevisionConflict
+				}
+			} else if activeRunID == nil {
 				if _, err := tx.Exec(ctx, `UPDATE worker_sessions SET bound_task_id=NULL,
 status=CASE WHEN status='waiting_user' THEN 'interactive' ELSE status END,
 session_revision=session_revision+1,updated_at=$3
@@ -327,13 +357,19 @@ WHERE worker_session_id=$1 AND bound_task_id=$2`, sessionID, record.Command.Task
 					return err
 				}
 			} else {
+				if *activeRunID != runID || boundTask != record.Command.TaskID {
+					return platformpostgres.ErrRevisionConflict
+				}
 				var turnID string
 				var runRevision, turnRevision uint64
 				if err := tx.QueryRow(ctx, `SELECT turn.agent_turn_id,run.revision,turn.revision
 FROM worker_runs run JOIN agent_turns turn ON turn.worker_run_id=run.worker_run_id
 WHERE run.worker_run_id=$1 AND turn.status IN ('delivered','consumed')
 ORDER BY turn.created_at DESC LIMIT 1`, *activeRunID).Scan(&turnID, &runRevision, &turnRevision); err != nil {
-					return platformpostgres.ErrRevisionConflict
+					if errors.Is(err, pgx.ErrNoRows) {
+						return platformpostgres.ErrRevisionConflict
+					}
+					return err
 				}
 				outcome, _ := json.Marshal(map[string]any{"source": "task_cancel"})
 				if _, err := tx.Exec(ctx, `INSERT INTO worker_user_commands
@@ -375,22 +411,11 @@ func (store *Store) SettleCancelledTask(
 ) (application.SettledCancelledTask, error) {
 	var result application.SettledCancelledTask
 	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
-		var existingEventID string
-		err := tx.QueryRow(ctx, `SELECT event_id FROM outbox_events
-WHERE tenant_id=$1 AND idempotency_key=$2`, record.Command.Actor.TenantID,
-			"TaskCancellationSettled.v1/"+record.Command.IdempotencyKey).Scan(&existingEventID)
-		if err == nil {
-			var revision uint64
-			if err := tx.QueryRow(ctx, `SELECT session_revision FROM worker_sessions
-WHERE worker_session_id=$1`, record.Command.WorkerSessionID).Scan(&revision); err != nil {
-				return err
-			}
-			result = application.SettledCancelledTask{TaskID: record.Command.TaskID,
-				WorkerSessionID: record.Command.WorkerSessionID, SessionRevision: revision,
-				EventID: existingEventID}
-			return nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		command := record.Command
+		workerCommand := workerapp.RuntimeFailureCancellationCommand{TenantID: command.Actor.TenantID, UserID: command.Actor.UserID, TaskID: command.TaskID, WorkerSessionID: command.WorkerSessionID, WorkerRunID: command.WorkerRunID, ExpectedTaskRevision: command.ExpectedTaskRevision, ExpectedSessionRevision: command.ExpectedSessionRevision, IdempotencyKey: command.IdempotencyKey}
+		// Worker outcome authority MUST precede even the Task lock below.
+		failure, err := workerpostgres.LockRuntimeFailureCancellation(ctx, tx, workerCommand)
+		if err != nil {
 			return err
 		}
 		var tenantID, initiatorID, status, sessionID, runID string
@@ -399,32 +424,79 @@ WHERE worker_session_id=$1`, record.Command.WorkerSessionID).Scan(&revision); er
 COALESCE(worker_session_id,''),COALESCE(current_worker_run_id,''),revision
 FROM tasks WHERE task_id=$1 FOR UPDATE`, record.Command.TaskID).Scan(&tenantID, &initiatorID,
 			&status, &sessionID, &runID, &taskRevision); err != nil {
-			return platformpostgres.ErrNotFound
+			if errors.Is(err, pgx.ErrNoRows) {
+				return platformpostgres.ErrNotFound
+			}
+			return err
 		}
 		if tenantID != record.Command.Actor.TenantID || initiatorID != record.Command.Actor.UserID ||
 			status != "cancelled" || sessionID != record.Command.WorkerSessionID ||
 			runID != record.Command.WorkerRunID || taskRevision != record.Command.ExpectedTaskRevision {
 			return platformpostgres.ErrRevisionConflict
 		}
+		var existingEventID, existingTaskID string
+		var payload []byte
+		err = tx.QueryRow(ctx, `SELECT event_id,aggregate_id,payload FROM outbox_events WHERE tenant_id=$1 AND idempotency_key=$2 AND event_type='TaskCancellationSettled.v1' AND producer_context='task-orchestration'`, tenantID, "TaskCancellationSettled.v1/"+command.IdempotencyKey).Scan(&existingEventID, &existingTaskID, &payload)
+		if err == nil {
+			var receipt struct {
+				TaskRevision    uint64 `json:"task_revision"`
+				SessionRevision uint64 `json:"session_revision"`
+				RequestDigest   string `json:"request_digest"`
+			}
+			if err := json.Unmarshal(payload, &receipt); err != nil {
+				return err
+			}
+			if existingTaskID != command.TaskID || receipt.TaskRevision != command.ExpectedTaskRevision || receipt.SessionRevision == 0 {
+				return application.ErrIdempotencyConflict
+			}
+			if receipt.RequestDigest != "" {
+				if receipt.RequestDigest != cancelSettlementDigest(command) {
+					return application.ErrIdempotencyConflict
+				}
+			} else if receipt.SessionRevision != command.ExpectedSessionRevision+1 {
+				return application.ErrIdempotencyConflict
+			}
+			result = application.SettledCancelledTask{TaskID: command.TaskID, WorkerSessionID: command.WorkerSessionID, SessionRevision: receipt.SessionRevision, EventID: existingEventID}
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		var sessionRevision uint64
-		if err := tx.QueryRow(ctx, `UPDATE worker_sessions SET bound_task_id=NULL,
+		if failure != nil {
+			released, err := failure.Release(ctx, workerCommand, record.Now)
+			if err != nil {
+				return err
+			}
+			sessionRevision = released.SessionRevision
+		} else {
+			if err := tx.QueryRow(ctx, `UPDATE worker_sessions SET bound_task_id=NULL,
 status=CASE WHEN status='waiting_user' THEN 'interactive' ELSE status END,
 session_revision=session_revision+1,updated_at=$3
 WHERE worker_session_id=$1 AND bound_task_id=$2 AND active_worker_run_id IS NULL
   AND session_revision=$4 AND status IN ('interactive','waiting_user','idle')
 RETURNING session_revision`, record.Command.WorkerSessionID, record.Command.TaskID, record.Now,
-			record.Command.ExpectedSessionRevision).Scan(&sessionRevision); err != nil {
-			return platformpostgres.ErrRevisionConflict
-		}
-		if _, err := tx.Exec(ctx, `UPDATE worker_user_commands SET status='rejected',
+				record.Command.ExpectedSessionRevision).Scan(&sessionRevision); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return platformpostgres.ErrRevisionConflict
+				}
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE worker_user_commands SET status='rejected',
 outcome=outcome || '{"code":"task_cancelled"}'::jsonb,updated_at=$2
 WHERE worker_session_id=$1 AND command_type='queue' AND status='accepted'`,
-			record.Command.WorkerSessionID, record.Now); err != nil {
-			return err
+				record.Command.WorkerSessionID, record.Now); err != nil {
+				return err
+			}
+		}
+		extra := map[string]any{"session_revision": sessionRevision}
+		if failure != nil {
+			extra["worker_session_id"], extra["worker_run_id"], extra["initiator_user_id"] = sessionID, runID, initiatorID
+			extra["expected_session_revision"], extra["request_digest"] = command.ExpectedSessionRevision, cancelSettlementDigest(command)
 		}
 		if err := store.appendTaskActionEvent(ctx, tx, record.EventID, tenantID,
 			record.Command.TaskID, "TaskCancellationSettled.v1", record.Command.IdempotencyKey,
-			"", taskRevision, map[string]any{"session_revision": sessionRevision}, record.Now); err != nil {
+			"", taskRevision, extra, record.Now); err != nil {
 			return err
 		}
 		result = application.SettledCancelledTask{TaskID: record.Command.TaskID,
@@ -433,6 +505,15 @@ WHERE worker_session_id=$1 AND command_type='queue' AND status='accepted'`,
 		return nil
 	})
 	return result, err
+}
+
+func cancelSettlementDigest(command application.SettleCancelledTaskCommand) string {
+	// Fixed struct, versioned domain separator, no timestamps or generated IDs.
+	encoded, _ := json.Marshal(struct {
+		Version string
+		Command application.SettleCancelledTaskCommand
+	}{"task-cancellation-settlement-v1", command})
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(encoded))
 }
 
 func readReworkResult(ctx context.Context, tx platformpostgres.Tx, taskID, idempotencyKey string) (application.ReworkedTask, bool, error) {

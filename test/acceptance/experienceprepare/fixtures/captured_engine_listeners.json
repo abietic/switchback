@@ -1,0 +1,49 @@
+{
+  "evidence_kind": "captured_ss_records_and_original_failure_only",
+  "primary_failure": {
+    "message": "extra daemon Unix listener",
+    "type": "RuntimeError"
+  },
+  "ss_records": [
+    "u_str LISTEN 0      4096      /run/switchback-engine/containerd/containerd.sock.ttrpc 27682 * 0 users:((\"containerd\",pid=2871,fd=4))                                                                                         ",
+    "u_str LISTEN 0      4096            /run/switchback-engine/containerd/containerd.sock 27683 * 0 users:((\"containerd\",pid=2871,fd=11))                                                                                        ",
+    "u_str LISTEN 0      4096                           /run/switchback-engine/docker.sock 24563 * 0 users:((\"dockerd\",pid=2882,fd=7))                                                                                            ",
+    "u_str LISTEN 0      4096       /run/switchback-engine/docker/extensions/callback.sock 24572 * 0 users:((\"dockerd\",pid=2882,fd=8))                                                                                            ",
+    "u_str LISTEN 0      4096                   /run/switchback-engine/docker/metrics.sock 28674 * 0 users:((\"dockerd\",pid=2882,fd=9))                                                                                            ",
+    "u_str LISTEN 0      4096   /run/switchback-engine/docker/libnetwork/ea06f27642d8.sock 27200 * 0 users:((\"dockerd\",pid=2882,fd=18))                                                                                           "
+  ],
+  "provenance": {
+    "parent_receipt": {
+      "path": ".scratch/experience-launch-1013/engine-checked-r3-actual-parent-result.json",
+      "bytes": 130937,
+      "sha256": "b55a059fcca6b6da4ba66bb649de3eb196ccbc3c110a95c27c69e430d232109c"
+    },
+    "source_checker": {
+      "path": ".scratch/experience-launch-1013/guest-bounded-engine-bootstrap-r3.py",
+      "bytes": 50627,
+      "sha256": "c006b8b2decda313f5b380d256fdc424463b868eaa808c4d20ee1294e5656571"
+    },
+    "raw_ss_stdout": {
+      "bytes": 8214,
+      "sha256": "743c08a4dcb1424a47c43e4c9f836ff3b7db528811d4cb5077e8a557a220606a",
+      "command": [
+        "ss",
+        "-H",
+        "-lxnp"
+      ]
+    },
+    "captured_six_rows": {
+      "bytes": 1332,
+      "sha256": "0dd713e2badb124b7b46e518931d956d9ff2ad2365ee96b5227861dbab6e4d0f"
+    },
+    "old_function": {
+      "original_lines": [
+        522,
+        549
+      ],
+      "bytes": 1384,
+      "sha256": "ae7e4eb263fdd099a714c613914e38443fe8db83f2836fb297908a9303697b9a"
+    }
+  },
+  "scope": "No captured filesystem stat/PID start/executable attestation; synthetic metadata generated separately by tests. Original paths are provenance metadata only."
+}

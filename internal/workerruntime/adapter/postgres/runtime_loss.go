@@ -30,7 +30,7 @@ func (store *RuntimeLossStore) RecordRuntimeLoss(
 	record application.RuntimeLossRecord,
 ) (application.RuntimeLossState, error) {
 	var result application.RuntimeLossState
-	err := platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
+	err := inTerminalCapacityTransaction(ctx, store.pool, func() string { return record.Command.AgentTurnID }, func(tx platformpostgres.Tx) error {
 		if err := lockAgentTurnOutcome(
 			ctx,
 			tx,

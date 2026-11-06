@@ -31,10 +31,14 @@ export function ArtifactWorkbench({
   artifacts,
   requestedArtifact,
   onRequestedArtifactHandled,
+  selectedArtifactId,
+  onArtifactSelectionChange,
 }: {
   artifacts: ArtifactSummary[];
   requestedArtifact?: string;
   onRequestedArtifactHandled: () => void;
+  selectedArtifactId?: string;
+  onArtifactSelectionChange?: (artifactId: string) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const [selectedArtifactIDs, setSelectedArtifactIDs] = useState<Partial<Record<ArtifactSummary["type"], string>>>({});
@@ -42,9 +46,20 @@ export function ArtifactWorkbench({
   const patch = artifactForType(artifacts, "patch", selectedArtifactIDs.patch);
   const [tab, setTab] = useState<WorkbenchTab>(report ? "report" : "diff");
   const [snapshots, setSnapshots] = useState<Record<string, ArtifactPreview>>({});
-  const [loading, setLoading] = useState<string>();
-  const [error, setError] = useState<string>();
-  const artifact = tab === "report" ? report : patch;
+  const [error, setError] = useState<{ artifactID: string; message: string }>();
+  const explicit = selectedArtifactId ? artifacts.find((item) => item.artifact_id === selectedArtifactId) : undefined;
+  const selectedTab = selectedArtifactId ? explicit?.type === "report" ? "report" : tab === "files" ? "files" : "diff" : tab === "report" && !report && patch ? "diff"
+    : tab !== "report" && !patch && report ? "report" : tab;
+  const artifact = selectedArtifactId ? explicit : selectedTab === "report" ? report : patch;
+  const artifactID = artifact?.artifact_id;
+  const selectTab = (next: WorkbenchTab) => {
+    const selected = next === "report" ? (explicit?.type === "report" ? explicit : report) : (explicit?.type === "patch" ? explicit : patch);
+    setTab(next);
+    if (selected) {
+      setSelectedArtifactIDs((current) => ({ ...current, [selected.type]: selected.artifact_id }));
+      onArtifactSelectionChange?.(selected.artifact_id);
+    }
+  };
 
   useEffect(() => {
     if (!requestedArtifact) return;
@@ -57,23 +72,21 @@ export function ArtifactWorkbench({
   }, [artifacts, onRequestedArtifactHandled, requestedArtifact]);
 
   useEffect(() => {
-    if (!artifact || snapshots[artifact.artifact_id]) return;
+    if (!artifactID || snapshots[artifactID]) return;
     const controller = new AbortController();
-    setLoading(artifact.artifact_id);
     setError(undefined);
-    void loadArtifactPreview(productionViews.artifact(artifact.artifact_id), {
+    void loadArtifactPreview(productionViews.artifact(artifactID), {
       signal: controller.signal,
     }).then((outcome) => {
+      if (controller.signal.aborted) return;
       if (outcome.kind !== "available") throw new Error("Artifact review is unavailable.");
-      setSnapshots((current) => ({ ...current, [artifact.artifact_id]: outcome.preview }));
+      setSnapshots((current) => ({ ...current, [artifactID]: outcome.preview }));
     }).catch((cause: unknown) => {
       if (controller.signal.aborted) return;
-      setError(cause instanceof Error ? cause.message : "Artifact review is unavailable.");
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(undefined);
+      setError({ artifactID, message: cause instanceof Error ? cause.message : "Artifact review is unavailable." });
     });
     return () => controller.abort();
-  }, [artifact, snapshots]);
+  }, [artifactID, snapshots]);
 
   const selectedSnapshot = artifact ? snapshots[artifact.artifact_id] : undefined;
   const selected = selectedSnapshot?.data;
@@ -90,16 +103,21 @@ export function ArtifactWorkbench({
         </a> : null}
     </header>
     <nav className="workbench-tabs" aria-label="Artifact views">
-      <Tab selected={tab === "report"} disabled={!report} onClick={() => setTab("report")} icon={<FileText size={15} />} label="Report" />
-      <Tab selected={tab === "diff"} disabled={!patch} onClick={() => setTab("diff")} icon={<Code2 size={15} />} label="Diff" />
-      <Tab selected={tab === "files"} disabled={!patch} onClick={() => setTab("files")} icon={<FolderTree size={15} />} label="Files" />
+      <Tab selected={selectedTab === "report"} disabled={!report} onClick={() => selectTab("report")} icon={<FileText size={15} />} label="Report" />
+      <Tab selected={selectedTab === "diff"} disabled={!patch} onClick={() => selectTab("diff")} icon={<Code2 size={15} />} label="Diff" />
+      <Tab selected={selectedTab === "files"} disabled={!patch} onClick={() => selectTab("files")} icon={<FolderTree size={15} />} label="Files" />
     </nav>
+    {artifact ? <select aria-label="Selected artifact" value={artifact.artifact_id} onChange={(event) => {
+      const selected = artifacts.find((item) => item.artifact_id === event.target.value);
+      if (!selected) return;
+      setSelectedArtifactIDs((current) => ({ ...current, [selected.type]: selected.artifact_id }));
+      onArtifactSelectionChange?.(selected.artifact_id);
+    }}>{artifacts.filter((item) => item.type === artifact.type).map((item) => <option key={item.artifact_id} value={item.artifact_id}>{item.label} · {item.agent_turn_id}</option>)}</select> : null}
     <div className="workbench-body">
-      {loading === artifact?.artifact_id ? <WorkbenchLoading /> :
-        error ? <WorkbenchMessage tone="danger" title="Artifact unavailable" message={error} /> :
-          !artifact ? <WorkbenchMessage title="No artifact" message="This stage has not published this artifact type." /> :
-            !selected ? <WorkbenchLoading /> :
-              <ArtifactSurface tab={tab} artifact={selected} resolvedTheme={resolvedTheme} />}
+      {!artifact ? selectedArtifactId ? <WorkbenchMessage tone="danger" title="Artifact unavailable" message="The selected Artifact is no longer in the canonical Worker summary." /> : <WorkbenchMessage title="No artifact" message="This stage has not published this artifact type." /> :
+        error?.artifactID === artifact.artifact_id ? <WorkbenchMessage tone="danger" title="Artifact unavailable" message={error.message} /> :
+          !selected ? <WorkbenchLoading /> :
+            <ArtifactSurface tab={selectedTab} artifact={selected} resolvedTheme={resolvedTheme} />}
     </div>
   </section>;
 }

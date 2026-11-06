@@ -1,0 +1,29 @@
+{
+  "services": {
+    "switchback-backend": {
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/run/switchback-engine/docker.sock",
+          "target": "/var/run/docker.sock",
+          "read_only": false,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "/run/switchback-created-layer",
+          "target": "/run/switchback-created-layer",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "/etc/switchback/created-layer-observer/key",
+          "target": "/run/switchback-observer-auth/key",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        }
+      ]
+    }
+  }
+}

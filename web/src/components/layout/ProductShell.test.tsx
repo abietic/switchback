@@ -14,6 +14,7 @@ function renderShell(initialEntry = "/tasks") {
     element: <ProductShell />,
     children: [
       { path: "tasks", element: <main>任务页面</main>, handle: overview },
+      { path: "observability", element: <main>观测入口页面</main>, handle: { shellMode: "overview", title: "可观测性" } satisfies SwitchbackRouteHandle },
       { path: "assistant", element: <main>开始对话页面</main>, handle: { shellMode: "overview", title: "Assistant" } satisfies SwitchbackRouteHandle },
       { path: "assistant/:conversationId", element: <main>对话页面</main>, handle: focused },
     ],
@@ -36,7 +37,9 @@ describe("ProductShell", () => {
     expect(screen.getAllByRole("group", { name: "主题" })).toHaveLength(1);
     expect(screen.getByText("平台规划")).toBeInTheDocument();
     expect(screen.getAllByText("规划中").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("link", { name: /Workspace|Memory|Skills|可观测性|Admin/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Workspace|Memory|Skills|Admin/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "可观测性" })).toHaveAttribute("href", "/observability");
+    expect(screen.getByText("Admin").closest("li")).toHaveTextContent("规划中");
 
     router.dispose();
   });
@@ -47,7 +50,22 @@ describe("ProductShell", () => {
     expect(screen.getByTestId("product-shell")).toHaveAttribute("data-shell-mode", "focused");
     expect(screen.getByRole("link", { name: "Assistant 对话" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("navigation", { name: "产品导航" })).toHaveAttribute("data-navigation-mode", "rail");
+    expect(screen.getByRole("link", { name: "可观测性" })).toHaveAttribute("href", "/observability");
 
+    router.dispose();
+  });
+
+  it("opens observability from the drawer and restores focus", async () => {
+    const router = renderShell();
+    const trigger = screen.getByRole("button", { name: "打开导航菜单" });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", { name: "导航菜单" });
+    expect(within(dialog).queryByRole("link", { name: "Admin" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("link", { name: "可观测性" }));
+    await screen.findByText("观测入口页面");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "导航菜单" })).toBeNull());
+    expect(screen.getByRole("link", { name: "可观测性" })).toHaveAttribute("aria-current", "page");
+    expect(trigger).toHaveFocus();
     router.dispose();
   });
 

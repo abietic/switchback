@@ -5,6 +5,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"github.com/abietic/switchback/internal/testsupport/runtimecapacity"
 	"testing"
 	"time"
 
@@ -820,7 +821,7 @@ VALUES
 	}
 }
 
-func TestDisabledRuntimeRecoveryGateDoesNotOpenIncident(t *testing.T) {
+func TestDisabledRuntimeRecoveryGateRequiresHardInspection(t *testing.T) {
 	pool := postgrestest.Open(t)
 	ctx := context.Background()
 	base := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
@@ -871,6 +872,7 @@ func startActiveRecoveryFixture(
 	t.Helper()
 	ctx := context.Background()
 	seedAllocationRequests(t, pool, 1, now)
+	runtimecapacity.Initialize(t, pool)
 	ids := &concurrentAllocationIDs{}
 	allocated, err := (workerapplication.WorkerSessionAllocator{
 		Store: workerpostgres.NewAllocatorStore(pool), IDs: ids,
@@ -899,7 +901,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 	}
 	permit, err := dispatch.IssueTaskPermit(ctx, taskapplication.IssueTaskPermitCommand{
 		TenantID: "tenant-local", UserID: "user-local", WorkerSessionID: allocated.WorkerSessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "capacity-local", IdempotencyKey: "permit-task-01",
+		RuntimeGeneration: 1, IdempotencyKey: "permit-task-01",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -911,6 +913,7 @@ WHERE worker_session_id=$1`, allocated.WorkerSessionID, now.Add(2*time.Minute));
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtimecapacity.ObserveContainer(t, pool, started.WorkerSessionID, started.RuntimeInstanceID, "container-recovery-1", started.RuntimeGeneration)
 	active, err := (workerapplication.RuntimeResidencyService{
 		Store: workerpostgres.NewRuntimeResidencyStore(pool),
 		Now:   func() time.Time { return now.Add(5 * time.Minute) },

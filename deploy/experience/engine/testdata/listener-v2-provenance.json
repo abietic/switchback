@@ -1,0 +1,31 @@
+{
+  "schema": "switchback.engine.listener_provenance.v2",
+  "actual_source": ".scratch/runtime-m1-kit21-carrier-execution-next/ROOT-listener-inventory-05.json",
+  "wrapper_sha256": "40cc4fe995fd790bf336d3d7ec83ef1dcf0a3d39a0bd71855d6f5eb7d6f4843a",
+  "extracted_canonical_sha256": "9bd7e57b6484b0db3102a56018997da42124000667b275fb2d52848d5153c37e",
+  "fixture_sha256": "1deafae662757481ab2380ba20784dfa74b9bf099580666bbf289caef4149e5e",
+  "unix_rows": 139,
+  "positive_metadata": "synthetic; no runtime authority",
+  "actual_metadata": "unchanged value only; missing supplemental filesystem metadata; rejected by v1 and v2",
+  "augmented_complete139_case": {
+    "name": "synthetic_missing_fs_only_complete139_actual_inventory",
+    "preserved_fields": [
+      "phase",
+      "boot_id",
+      "current_boot_id",
+      "complete",
+      "daemons",
+      "identity_before",
+      "identity_after",
+      "unix",
+      "tcp",
+      "tcp6"
+    ],
+    "preserved_original_sockets": 3,
+    "synthetic_missing_only": [
+      "socket_parents",
+      "sockets[3:6] filesystem metadata"
+    ],
+    "authority": "synthetic; no runtime authority"
+  }
+}
