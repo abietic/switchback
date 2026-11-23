@@ -18,8 +18,9 @@ export async function fetchWorkerDiagnostics(target: WorkerDiagnosticTarget, sig
   const result: WorkerDiagnosticLinks = await response.json();
   if (!Array.isArray(result.links) || result.links.length > 3 ||
     !["configured", "disabled", "invalid_config"].includes(result.grafana_status) ||
-    result.langfuse_status !== "identity_unavailable" ||
-    result.links.some((link) => !["grafana", "logs", "langfuse"].includes(link.kind) || !safeLocalLink(link.url))) {
+    !["configured", "identity_unavailable"].includes(result.langfuse_status) ||
+    result.links.some((link) => !["grafana", "logs", "langfuse"].includes(link.kind) || !safeLocalLink(link.url)) ||
+    result.links.filter((link) => link.kind === "langfuse").length !== (result.langfuse_status === "configured" ? 1 : 0)) {
     throw new Error("Invalid diagnostic links");
   }
   return result;

@@ -23,10 +23,20 @@ describe("WorkerDiagnostics", () => {
     expect(screen.getByText(/Langfuse link unavailable/)).toBeInTheDocument();
   });
 
+  it("displays a verified local Langfuse trace independently of Grafana", async () => {
+    const trace = "http://localhost:3000/project/local/traces/0123456789abcdef0123456789abcdef";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      links: [{ kind: "langfuse", url: trace }], grafana_status: "disabled", langfuse_status: "configured",
+    }) }));
+    render(<WorkerDiagnostics sessionId="session-1" />);
+    expect(await screen.findByRole("link", { name: "Langfuse" })).toHaveAttribute("href", trace);
+    expect(screen.queryByText(/Langfuse link unavailable/)).not.toBeInTheDocument();
+  });
+
   it.each(["disabled", "invalid_config"])("shows %s availability without links", async (status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...configured, links: [], grafana_status: status }) }));
     render(<WorkerDiagnostics sessionId="session-1" />);
-    await screen.findByText(status === "disabled" ? "Diagnostic links disabled." : /invalid local browser configuration/);
+    await screen.findByText(status === "disabled" ? "Grafana links disabled." : /invalid local browser configuration/);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
@@ -56,7 +66,7 @@ describe("WorkerDiagnostics", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
     rerender(<WorkerDiagnostics {...next} turnId="turn-3" />);
-    await screen.findByText("Diagnostic links disabled.");
+    await screen.findByText("Grafana links disabled.");
     await act(async () => { oldReply({ ok: true, json: async () => configured }); });
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(fetcher.mock.calls[1][1].signal.aborted).toBe(true);

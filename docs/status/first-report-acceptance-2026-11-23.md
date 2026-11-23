@@ -14,3 +14,5 @@
 使用[独立 Linux Engine 入口](../../test/acceptance/firstreport/README.md)连续两次从空数据库完成假上游验收。两次的 Worker 写层硬限制均为 10 GiB，第二次请求均返回 HTTP `409`，每轮假上游只收到一次请求。每轮均验证同一 Task 的正式报告、Trace、成功的模型观测和 Accept 后重新读取为 `completed`。
 
 Langfuse 导出在本次运行中为 `pending`，由 [Issue #6](https://github.com/abietic/switchback/issues/6) 独立跟踪。
+
+Issue #6 的隔离验收使用合成 Task 和独立 Langfuse 部署。生产导出器确认四个片段回读通过。原样重投两条模型观测后，Trace 和观测的数量与标识保持一致。Chromium 从生产 Worker 页面打开已登录的 Langfuse Trace，页面显示同一次运行的模型观测。验收期间真实模型调用为零，原始回执保留在本地。

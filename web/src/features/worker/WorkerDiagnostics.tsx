@@ -25,8 +25,8 @@ function DiagnosticTarget({ sessionId, runId, turnId }: WorkerDiagnosticTarget) 
       {result.links.map((link) => <p key={link.kind}><a href={link.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
         {link.kind === "grafana" ? "Grafana · Worker overview" : link.kind === "logs" ? "Logs · selected scope" : "Langfuse"}
       </a></p>)}
-      {result.grafana_status === "disabled" ? <p>Diagnostic links disabled.</p> : result.grafana_status === "invalid_config" ? <p>Diagnostic links unavailable: invalid local browser configuration.</p> : <small>Aggregate metrics; logs use the selected Session, Run and Turn. Service availability is not checked.</small>}
-      <p><small>Langfuse link unavailable: verified projection identity is not available.</small></p>
+      {result.grafana_status === "disabled" ? <p>Grafana links disabled.</p> : result.grafana_status === "invalid_config" ? <p>Grafana links unavailable: invalid local browser configuration.</p> : <small>Aggregate metrics; logs use the selected Session, Run and Turn. Service availability is not checked.</small>}
+      {result.langfuse_status === "identity_unavailable" ? <p><small>Langfuse link unavailable: verified projection identity is not available.</small></p> : null}
     </>}
   </section>;
 }

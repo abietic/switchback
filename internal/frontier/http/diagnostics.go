@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,9 @@ type diagnosticLinks struct {
 	GrafanaStatus  string           `json:"grafana_status"`
 	LangfuseStatus string           `json:"langfuse_status"`
 }
+
+var langfuseProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+var langfuseTraceIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 func (handler *handler) workerDiagnostics(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Cache-Control", "private, no-store")
@@ -77,6 +81,12 @@ func (handler *handler) workerDiagnostics(response http.ResponseWriter, request 
 			base.RawQuery = url.Values{"schemaVersion": {"1"}, "panes": {string(panes)}}.Encode()
 			result.Links = append(result.Links, diagnosticLink{Kind: "logs", URL: base.String()})
 		}
+	}
+	if base, valid := localBrowserOrigin(handler.langfuseBrowserBaseURL); valid &&
+		langfuseProjectIDPattern.MatchString(handler.langfuseProjectID) && langfuseTraceIDPattern.MatchString(target.LangfuseTraceID) {
+		base.Path = "/project/" + handler.langfuseProjectID + "/traces/" + target.LangfuseTraceID
+		result.LangfuseStatus = "configured"
+		result.Links = append(result.Links, diagnosticLink{Kind: "langfuse", URL: base.String()})
 	}
 	response.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(response).Encode(result)

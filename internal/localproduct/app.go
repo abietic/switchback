@@ -128,7 +128,9 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 		Viewer: viewer, Views: views,
 		Streams: stream, Timeline: projectionStore,
 		Diagnostics: projectionStore, WorkspaceID: configuration.WorkspaceID,
-		GrafanaBrowserBaseURL: configuration.GrafanaBrowserBaseURL,
+		GrafanaBrowserBaseURL:  configuration.GrafanaBrowserBaseURL,
+		LangfuseBrowserBaseURL: configuration.LangfuseBrowserBaseURL,
+		LangfuseProjectID:      configuration.LangfuseProjectID,
 	})
 	if err != nil {
 		return nil, err

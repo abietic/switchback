@@ -41,6 +41,8 @@ type Config struct {
 	LangfuseBaseURL         string
 	LangfusePublicKey       string
 	LangfuseSecretKey       string
+	LangfuseBrowserBaseURL  string
+	LangfuseProjectID       string
 	TelemetryAddress        string
 	AlloyPushURL            string
 	GrafanaBrowserBaseURL   string
@@ -88,6 +90,8 @@ func LoadConfig(lookup config.LookupEnv) (Config, error) {
 		LangfuseBaseURL:         value(lookup, "LANGFUSE_BASE_URL", ""),
 		LangfusePublicKey:       value(lookup, "LANGFUSE_PUBLIC_KEY", ""),
 		LangfuseSecretKey:       value(lookup, "LANGFUSE_SECRET_KEY", ""),
+		LangfuseBrowserBaseURL:  value(lookup, "SWITCHBACK_LANGFUSE_BROWSER_BASE_URL", ""),
+		LangfuseProjectID:       value(lookup, "SWITCHBACK_LANGFUSE_PROJECT_ID", ""),
 		TelemetryAddress:        value(lookup, "SWITCHBACK_TELEMETRY_ADDRESS", ""),
 		AlloyPushURL:            value(lookup, "SWITCHBACK_ALLOY_PUSH_URL", ""),
 		GrafanaBrowserBaseURL:   value(lookup, "SWITCHBACK_GRAFANA_BROWSER_BASE_URL", ""),
