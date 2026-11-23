@@ -30,8 +30,7 @@ func (FragmentCompiler) CompileObservationFragment(ctx context.Context, frame []
 		return nil, errors.New("source_invalid")
 	}
 	s := f.Scope
-	seed := []string{s.TenantID, s.UserID, s.WorkspaceID, s.WorkerSessionID, s.WorkerRunID}
-	traceID := fragmentID("run", seed...)
+	traceID := FragmentTraceID(s)
 	sum := sha256.Sum256(frame)
 	metadata := map[string]any{"tenant_id": s.TenantID, "user_id": s.UserID, "workspace_id": s.WorkspaceID, "worker_session_id": s.WorkerSessionID, "worker_run_id": s.WorkerRunID, "source_role": string(f.Kind), "source_started_at": f.StartedAt.UTC().Format(time.RFC3339Nano), "projection_version": FragmentProjectionVersion, "compiler_revision": FragmentCompilerRevision, "frame_sha256": "sha256:" + hex.EncodeToString(sum[:])}
 	input, err := encodeJSONText(json.RawMessage(f.InputJSON))
@@ -44,7 +43,7 @@ func (FragmentCompiler) CompileObservationFragment(ctx context.Context, frame []
 		metadata["initial_turn_id"] = f.InitialTurnID
 	} else {
 		i := f.Turn
-		seed = append(seed, string(i.AgentSessionID), string(i.AgentTurnID), string(i.RuntimeInstanceID), strconv.FormatUint(uint64(i.RuntimeGeneration), 10))
+		seed := append(fragmentScopeParts(s), string(i.AgentSessionID), string(i.AgentTurnID), string(i.RuntimeInstanceID), strconv.FormatUint(uint64(i.RuntimeGeneration), 10))
 		turnID := fragmentID("turn", seed...)
 		id, eventType = turnID, "span-create"
 		metadata["agent_session_id"], metadata["agent_turn_id"], metadata["runtime_instance_id"], metadata["runtime_generation"] = i.AgentSessionID, i.AgentTurnID, i.RuntimeInstanceID, i.RuntimeGeneration
@@ -77,6 +76,16 @@ func (FragmentCompiler) CompileObservationFragment(ctx context.Context, frame []
 		return nil, errors.New("projection_cancelled")
 	}
 	return wire, nil
+}
+
+// FragmentTraceID is the trace identity for the scope used by the fragment compiler.
+// Callers must establish that the same scope's projection passed read-back.
+func FragmentTraceID(scope artifactdomain.ObservationScope) string {
+	return fragmentID("run", fragmentScopeParts(scope)...)
+}
+
+func fragmentScopeParts(scope artifactdomain.ObservationScope) []string {
+	return []string{scope.TenantID, scope.UserID, scope.WorkspaceID, scope.WorkerSessionID, scope.WorkerRunID}
 }
 
 func fragmentID(role string, parts ...string) string {

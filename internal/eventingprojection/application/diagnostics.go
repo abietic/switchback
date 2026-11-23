@@ -16,8 +16,9 @@ type WorkerDiagnosticQuery struct {
 }
 
 type WorkerDiagnosticTarget struct {
-	StartedAt time.Time
-	EndedAt   time.Time
+	StartedAt       time.Time
+	EndedAt         time.Time
+	LangfuseTraceID string
 }
 
 type WorkerDiagnosticReader interface {

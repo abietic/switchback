@@ -265,7 +265,7 @@ export interface ApprovalRequest {
 export interface WorkerDiagnosticLinks {
   links: Array<{ kind: "grafana" | "logs" | "langfuse"; url: string }>;
   grafana_status: "configured" | "disabled" | "invalid_config";
-  langfuse_status: "identity_unavailable";
+  langfuse_status: "configured" | "identity_unavailable";
 }
 
 export interface WorkerDetailData {
