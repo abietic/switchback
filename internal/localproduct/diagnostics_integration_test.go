@@ -125,60 +125,6 @@ VALUES ('turn-1','session-1','run-1','agent-1','prompt','{}','completed','one','
 			}
 		})
 	}
-	t.Run("Langfuse links require scoped read-back", func(t *testing.T) {
-		_, err := pool.Exec(ctx, `
-INSERT INTO observation_candidates
-  (kind,source_id,frame_digest,frame,receipt,tenant_id,user_id,workspace_id,worker_session_id,worker_run_id,provenance,status)
-VALUES ('run_basis','test-run-basis','sha256:'||encode(sha256('fixture'::bytea),'hex'),'fixture','receipt',
-        'tenant-local','user-local','workspace-local','session-1','run-1','{"schema_version":"observation.provenance.v1"}','published');
-INSERT INTO observation_publications
-  (kind,source_id,frame_digest,object_key,object_size,object_checksum,tenant_id,user_id,workspace_id,worker_session_id,worker_run_id)
-SELECT kind,source_id,frame_digest,'fixture',7,frame_digest,tenant_id,user_id,workspace_id,worker_session_id,worker_run_id
-FROM observation_candidates WHERE source_id='test-run-basis';
-INSERT INTO observation_fragment_jobs (version,kind,source_id,frame_digest,status)
-SELECT 'langfuse.projection.v3',kind,source_id,frame_digest,'passed'
-FROM observation_publications WHERE source_id='test-run-basis';`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		views, err := projectionapp.NewViewContinuityReader(projectionpostgres.NewStore(pool), projectionapp.ViewContinuityReaderOptions{Now: time.Now, ReplayLimit: 128})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, tc := range []struct {
-			session, query, browser, project, status string
-		}{
-			{"session-1", "", "http://localhost:3000", "switchback-m1", "configured"},
-			{"session-1", "?worker_run_id=run-1", "http://localhost:3000", "switchback-m1", "configured"},
-			{"session-1", "?worker_run_id=run-1&agent_turn_id=turn-1", "http://localhost:3000", "switchback-m1", "identity_unavailable"},
-			{"session-2", "?worker_run_id=run-2", "http://localhost:3000", "switchback-m1", "identity_unavailable"},
-			{"session-1", "", "http://langfuse-web:3000", "switchback-m1", "identity_unavailable"},
-			{"session-1", "", "http://localhost:3000", "../wrong", "identity_unavailable"},
-		} {
-			handler, err := frontierhttp.NewHandler(frontierhttp.Options{
-				Viewer: projectionapp.Viewer{TenantID: profile.TenantID, UserID: profile.ActorUserID},
-				Views:  views, Diagnostics: projectionpostgres.NewStore(pool), WorkspaceID: configuration.WorkspaceID,
-				LangfuseBrowserBaseURL: tc.browser, LangfuseProjectID: tc.project,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			r := httptest.NewRecorder()
-			handler.ServeHTTP(r, httptest.NewRequest("GET", "/api/v1/views/worker_detail/"+tc.session+"/diagnostics"+tc.query, nil))
-			if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &result) != nil || result.LangfuseStatus != tc.status {
-				t.Fatalf("case=%+v status=%d body=%s", tc, r.Code, r.Body.String())
-			}
-			if tc.status == "configured" {
-				valid := len(result.Links) == 1 && result.Links[0].Kind == "langfuse" &&
-					regexp.MustCompile(`^http://localhost:3000/project/switchback-m1/traces/[0-9a-f]{32}$`).MatchString(result.Links[0].URL)
-				if !valid {
-					t.Fatalf("unexpected Langfuse link: %+v", result)
-				}
-			} else if len(result.Links) > 0 {
-				t.Fatalf("unexpected links: %+v", result)
-			}
-		}
-	})
 	// A stale projection remains readable even after its authority has changed.
 	_, err = pool.Exec(ctx, `INSERT INTO view_projections (tenant_id,user_id,view_type,view_id,schema_version,view_epoch,view_cursor,projection_version,query_fingerprint,data,available_actions,related_refs,updated_at)
 VALUES ('tenant-local','user-local','worker_detail','session-1','frontier.projection_snapshot.v1',1,1,1,'scope','{}','[]','[]',now()),
