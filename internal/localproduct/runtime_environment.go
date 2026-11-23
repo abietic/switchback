@@ -536,10 +536,20 @@ func (environment *runtimeEnvironment) discard(identity controlgrpc.RuntimeIdent
 }
 
 func (environment *runtimeEnvironment) credentialFile(profileID string) string {
-	if profileID == config.KimiCodexAnthropicV1 {
-		return environment.configuration.KimiCredentialFile
+	if environment.configuration.RelayTokenFile != "" {
+		if profileID == config.DeepSeekFirstReportV1 {
+			return environment.configuration.RelayTokenFile
+		}
+		return ""
 	}
-	return environment.configuration.DeepSeekCredentialFile
+	switch profileID {
+	case config.KimiCodexAnthropicV1:
+		return environment.configuration.KimiCredentialFile
+	case config.DeepSeekCodexOpenAIV1:
+		return environment.configuration.DeepSeekCredentialFile
+	default:
+		return ""
+	}
 }
 
 func readProviderCredential(path string) (runtimesecret.ProviderCredential, error) {

@@ -34,7 +34,7 @@ COPY --from=go-build /usr/local/go /usr/local/go
 COPY --from=go-build /out/worker-shim /usr/local/bin/worker-shim
 COPY --from=node-deps /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-deps /opt/switchback/node_modules /opt/switchback/node_modules
-COPY images/worker/litellm /opt/switchback/litellm
+COPY --chmod=0644 images/worker/litellm/config.yaml images/worker/litellm/switchback_callback.py /opt/switchback/litellm/
 RUN mkdir -p /workspace /var/lib/switchback/agent-state /var/lib/switchback/trace-spool /run/switchback-secrets /run/switchback-runtime/app-server-logs /run/switchback-runtime/codex-sqlite \
     && chown -R switchback-agent:switchback-agent /workspace /var/lib/switchback/agent-state /var/lib/switchback/trace-spool /home/switchback-agent \
     && chown -R switchback-agent:switchback-agent /run/switchback-runtime \

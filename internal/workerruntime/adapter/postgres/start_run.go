@@ -13,6 +13,7 @@ import (
 	contractsv1 "github.com/abietic/switchback/internal/contracts/v1"
 	"github.com/abietic/switchback/internal/platform/config"
 	platformpostgres "github.com/abietic/switchback/internal/platform/postgres"
+	"github.com/abietic/switchback/internal/workerruntime/adapter/postgres/firstreportcapacity"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/postgres/settlementbarrier"
 	"github.com/abietic/switchback/internal/workerruntime/application"
 )
@@ -86,6 +87,16 @@ func (store *RunStore) StartWorkerRun(
 		if err := validatePermitQueueEntry(ctx, tx, permit, record.Command.TaskID); err != nil {
 			return err
 		}
+		var reservedTaskRevision uint64
+		if record.Command.AgentProfileID == config.DeepSeekFirstReportV1 {
+			if record.Command.TriggerType != "task_initial" || record.Command.RuntimeGeneration != 1 {
+				return application.ErrFirstReportCapacityUnavailable
+			}
+			reservedTaskRevision, err = firstreportcapacity.Verify(ctx, tx, record.Command.PermitID, record.Command.TaskID, record.Command.ResourceProfileID)
+			if err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx, `
 INSERT INTO worker_runs
   (worker_run_id,worker_session_id,task_id,trigger_type,start_snapshot,agent_profile_id,
@@ -135,8 +146,10 @@ VALUES ($1,$2,$3,$4,'docker_container','starting',$5,$6,$7,$8,$9,$10,$11,1,$12)`
 UPDATE tasks
 SET status='running',current_worker_run_id=$3,revision=revision+1,updated_at=$4
 WHERE task_id=$1 AND worker_session_id=$2 AND status='queued'
+  AND ($5::bigint=0 OR revision=$5)
+  AND (COALESCE(task_spec_snapshot #>> '{agent_config,profile_id}','')=$6) = ($5::bigint>0)
 RETURNING revision`, record.Command.TaskID, record.Command.WorkerSessionID,
-			record.WorkerRunID, record.Now).Scan(&taskRevision)
+			record.WorkerRunID, record.Now, reservedTaskRevision, config.DeepSeekFirstReportV1).Scan(&taskRevision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return platformpostgres.ErrRevisionConflict
 		}

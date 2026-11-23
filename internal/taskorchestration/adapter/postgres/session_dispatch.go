@@ -9,9 +9,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	contractsv1 "github.com/abietic/switchback/internal/contracts/v1"
+	"github.com/abietic/switchback/internal/platform/config"
 	platformpostgres "github.com/abietic/switchback/internal/platform/postgres"
 	"github.com/abietic/switchback/internal/taskorchestration/application"
+	"github.com/abietic/switchback/internal/workerruntime/adapter/postgres/firstreportcapacity"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/postgres/settlementbarrier"
+	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 )
 
 var (
@@ -145,19 +148,31 @@ WHERE worker_session_id=$1 AND status='active'`, record.Command.WorkerSessionID)
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("read active dispatch permit: %w", err)
 		}
-		var queueEntryID, taskID string
-		var queueSequence, queueRevision uint64
+		var queueEntryID, taskID, agentProfileID string
+		var queueSequence, queueRevision, taskRevision uint64
 		err = tx.QueryRow(ctx, `
-SELECT queue_entry_id,task_id,session_queue_sequence,queue_revision
-FROM session_task_queue_entries
-WHERE worker_session_id=$1 AND status='pending'
-ORDER BY session_queue_sequence LIMIT 1`, record.Command.WorkerSessionID).Scan(
-			&queueEntryID, &taskID, &queueSequence, &queueRevision)
+SELECT q.queue_entry_id,q.task_id,q.session_queue_sequence,q.queue_revision,t.revision,
+       COALESCE(t.task_spec_snapshot #>> '{agent_config,profile_id}','')
+FROM session_task_queue_entries q
+JOIN tasks t ON t.task_id=q.task_id
+WHERE q.worker_session_id=$1 AND q.status='pending'
+ORDER BY q.session_queue_sequence LIMIT 1`, record.Command.WorkerSessionID).Scan(
+			&queueEntryID, &taskID, &queueSequence, &queueRevision, &taskRevision, &agentProfileID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSessionQueueEmpty
 		}
 		if err != nil {
 			return fmt.Errorf("read SessionTaskQueue head: %w", err)
+		}
+		firstReport := agentProfileID == config.DeepSeekFirstReportV1
+		capacityRef := record.Command.CapacityAdmissionRef
+		if firstReport {
+			if !initialGeneration || record.Command.FirstReportCapacity == nil || capacityRef != "" {
+				return workerapp.ErrFirstReportCapacityUnavailable
+			}
+			capacityRef = firstreportcapacity.Reference(record.PermitID)
+		} else if record.Command.FirstReportCapacity != nil {
+			return workerapp.ErrFirstReportCapacityUnavailable
 		}
 		if initialGeneration {
 			err = tx.QueryRow(ctx, `
@@ -178,9 +193,14 @@ INSERT INTO session_dispatch_permits
    expires_at,created_at)
 VALUES ($1,$2,'task',$3,$4,$5,$6,$7,$8,'active',$9,$10,$11)`,
 			record.PermitID, record.Command.WorkerSessionID, taskID, queueSequence, queueRevision,
-			session.Revision, record.Command.RuntimeGeneration, record.Command.CapacityAdmissionRef,
+			session.Revision, record.Command.RuntimeGeneration, capacityRef,
 			record.Command.IdempotencyKey, record.ExpiresAt, record.Now); err != nil {
 			return fmt.Errorf("insert SessionDispatchPermit: %w", err)
+		}
+		if firstReport {
+			if err := firstreportcapacity.Reserve(ctx, tx, record.PermitID, taskID, taskRevision, record.Command.FirstReportCapacity); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx, `UPDATE session_task_queue_entries
 SET status='permit_issued' WHERE queue_entry_id=$1 AND status='pending'`, queueEntryID); err != nil {
