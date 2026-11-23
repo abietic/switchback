@@ -24,6 +24,7 @@ import (
 	gatewayhttp "github.com/abietic/switchback/internal/gateway/http"
 	"github.com/abietic/switchback/internal/platform/config"
 	platformpostgres "github.com/abietic/switchback/internal/platform/postgres"
+	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 )
 
@@ -98,6 +99,10 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 		Actor:     gatewayhttp.FixedActor{TenantID: configuration.Profile.TenantID, UserID: configuration.Profile.ActorUserID},
 		Commands:  commands,
 		Assistant: commands,
+		DeliveryReview: gatewayhttp.DeliveryReviewOptions{
+			Store: taskpostgres.NewDeliveryStore(pool), WorkspaceID: configuration.WorkspaceID,
+			TokenSHA256: configuration.ReviewTokenSHA256,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -238,6 +243,7 @@ func requireSchema(ctx context.Context, pool *pgxpool.Pool, assistantEnabled boo
 SELECT to_regclass('tasks') IS NOT NULL
    AND to_regclass('view_projections') IS NOT NULL
 	   AND to_regclass('artifact_refs') IS NOT NULL
+   AND to_regclass('delivery_reviews') IS NOT NULL
 	   AND to_regclass('worker_user_commands') IS NOT NULL
 	   AND to_regclass('worker_approval_requests') IS NOT NULL
 	   AND to_regclass('display_checkpoints') IS NOT NULL

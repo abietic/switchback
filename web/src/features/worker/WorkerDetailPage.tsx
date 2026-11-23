@@ -30,6 +30,7 @@ import {
 } from "./useWorkerCommandAuthority";
 import { WorkerTimeline } from "./WorkerTimeline";
 import { WorkerDiagnostics } from "./WorkerDiagnostics";
+import { DeliveryReviewFeedback } from "./DeliveryReviewFeedback";
 import { ArtifactWorkbench } from "./workbench/ArtifactWorkbench";
 
 const minimumWorkbenchWidth = 360;
@@ -176,6 +177,13 @@ export function WorkerDetailPage({
         />
         {hasReviewAction ? <section className="side-section delivery-review">
           <h2>Delivery review</h2>
+          {worker.bound_task_id && worker.task_revision ? (
+            <DeliveryReviewFeedback
+              key={`${worker.bound_task_id}:${worker.task_revision}`}
+              taskId={worker.bound_task_id}
+              taskRevision={worker.task_revision}
+            />
+          ) : null}
           <ReviewActions
             key={`review-actions-${worker.worker_session_id}-${worker.bound_task_id ?? "none"}-${
               commandAuthority.taskDecisionAuthorityKey

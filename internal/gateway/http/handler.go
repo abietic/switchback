@@ -104,9 +104,10 @@ type AssistantCommandService interface {
 }
 
 type HandlerOptions struct {
-	Actor     FixedActor
-	Commands  CommandService
-	Assistant AssistantCommandService
+	Actor          FixedActor
+	Commands       CommandService
+	Assistant      AssistantCommandService
+	DeliveryReview DeliveryReviewOptions
 }
 
 // NewHandler keeps health available before the production composition root has
@@ -126,6 +127,9 @@ func NewHandlerWithOptions(options HandlerOptions) (http.Handler, error) {
 	if options.Assistant == nil {
 		options.Assistant = unavailableAssistantCommands{}
 	}
+	if err := options.DeliveryReview.validate(); err != nil {
+		return nil, err
+	}
 	return newHandler(options), nil
 }
 
@@ -137,6 +141,7 @@ func newHandler(options HandlerOptions) http.Handler {
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("POST /api/v1/tasks", handler.createTask)
 	mux.HandleFunc("POST /api/v1/tasks/{task_id}/{action}", handler.taskCommand)
+	registerDeliveryReview(mux, options.Actor, options.DeliveryReview)
 	mux.HandleFunc("POST /api/v1/worker-sessions/{worker_session_id}/{action}", handler.sessionCommand)
 	mux.HandleFunc("POST /api/v1/assistant/conversations", handler.createConversation)
 	mux.HandleFunc("POST /api/v1/assistant/conversations/{conversation_id}/open", handler.openConversation)
