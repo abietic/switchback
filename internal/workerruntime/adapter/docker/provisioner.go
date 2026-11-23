@@ -115,6 +115,12 @@ func (p *Provisioner) Provision(ctx context.Context, request application.Runtime
 	if err != nil {
 		return application.ProvisionedRuntime{}, err
 	}
+	layerLimit := writableLayerLimit(request, resources)
+	if layerLimit != "" {
+		if err := checkWritableLayerEngine(ctx, p.engine); err != nil {
+			return application.ProvisionedRuntime{}, err
+		}
+	}
 	name := containerName(request.RuntimeInstanceID)
 	inspected, err := p.engine.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err == nil {
@@ -155,6 +161,17 @@ func (p *Provisioner) Provision(ctx context.Context, request application.Runtime
 	}
 	if created.ID == "" {
 		return application.ProvisionedRuntime{}, fmt.Errorf("create runtime container returned an empty id")
+	}
+	if layerLimit != "" {
+		// overlay2 applies size during create. Reinspect the returned ID before Start.
+		inspected, err := p.engine.ContainerInspect(ctx, created.ID, client.ContainerInspectOptions{})
+		if err != nil || inspected.Container.ID != created.ID || inspected.Container.State == nil ||
+			inspected.Container.State.Status != "created" || inspected.Container.Config == nil ||
+			!matchesRuntimeLabels(inspected.Container.Config.Labels, request) ||
+			inspected.Container.HostConfig == nil || inspected.Container.HostConfig.StorageOpt["size"] != layerLimit {
+			_, cleanupErr := p.engine.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true})
+			return application.ProvisionedRuntime{}, errors.Join(fmt.Errorf("verify writable-layer quota on created Worker container"), err, cleanupErr)
+		}
 	}
 	if _, err := p.engine.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		_, cleanupErr := p.engine.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true})
@@ -341,6 +358,10 @@ func (p *Provisioner) validateRequest(request application.RuntimeProvisionReques
 
 func (p *Provisioner) createOptions(request application.RuntimeProvisionRequest, resources config.RuntimeResourceProfile, secretVolume string) client.ContainerCreateOptions {
 	pids := resources.PIDsLimit
+	var storageOptions map[string]string
+	if limit := writableLayerLimit(request, resources); limit != "" {
+		storageOptions = map[string]string{"size": limit}
+	}
 	return client.ContainerCreateOptions{
 		Name:  containerName(request.RuntimeInstanceID),
 		Image: p.options.Image,
@@ -366,11 +387,14 @@ func (p *Provisioner) createOptions(request application.RuntimeProvisionRequest,
 			PublishAllPorts: false,
 			ReadonlyRootfs:  false,
 			CapDrop:         []string{"ALL"},
-			CapAdd:          []string{"KILL", "SETUID", "SETGID"},
-			SecurityOpt:     []string{"no-new-privileges"},
-			CgroupnsMode:    container.CgroupnsModePrivate,
-			IpcMode:         container.IPCModePrivate,
-			RestartPolicy:   container.RestartPolicy{Name: container.RestartPolicyDisabled},
+			// The root shim inspects Agent state and writes traces on UID 10002's
+			// private mounts. The non-root Agent and LiteLLM children drop its capabilities.
+			CapAdd:        []string{"KILL", "SETUID", "SETGID", "DAC_OVERRIDE"},
+			SecurityOpt:   []string{"no-new-privileges"},
+			CgroupnsMode:  container.CgroupnsModePrivate,
+			IpcMode:       container.IPCModePrivate,
+			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
+			StorageOpt:    storageOptions,
 			Resources: container.Resources{
 				NanoCPUs:  resources.CPUUnits * 1_000_000_000,
 				Memory:    resources.MemoryBytes,
@@ -383,11 +407,14 @@ func (p *Provisioner) createOptions(request application.RuntimeProvisionRequest,
 
 func (p *Provisioner) verifyExisting(inspected client.ContainerInspectResult, request application.RuntimeProvisionRequest, resources config.RuntimeResourceProfile) error {
 	if inspected.Container.ID == "" || inspected.Container.Config == nil || inspected.Container.HostConfig == nil ||
-		!reflect.DeepEqual(inspected.Container.Config.Labels, runtimeLabels(request)) {
+		!matchesRuntimeLabels(inspected.Container.Config.Labels, request) {
 		return fmt.Errorf("runtime container identity conflict")
 	}
 	want := p.createOptions(request, resources, secretVolumeName(request))
 	gotHost := inspected.Container.HostConfig
+	if limit := writableLayerLimit(request, resources); limit != "" && gotHost.StorageOpt["size"] != limit {
+		return fmt.Errorf("existing Worker container writable-layer quota differs from the resource profile")
+	}
 	if inspected.Container.Config.Image != p.options.Image || inspected.Container.Config.User != workerUser ||
 		gotHost.Privileged || gotHost.PublishAllPorts || len(gotHost.PortBindings) != 0 ||
 		gotHost.NetworkMode != want.HostConfig.NetworkMode ||
@@ -533,6 +560,23 @@ func runtimeLabels(request application.RuntimeProvisionRequest) map[string]strin
 		labelNetworkDigest:     request.NetworkProfile.Digest,
 		labelNetworkStatus:     request.NetworkEnforcementStatus,
 	}
+}
+
+func matchesRuntimeLabels(labels map[string]string, request application.RuntimeProvisionRequest) bool {
+	expected := runtimeLabels(request)
+	for key, value := range expected {
+		if labels[key] != value {
+			return false
+		}
+	}
+	// Docker merges image labels into the container configuration. Only
+	// Switchback's namespace represents ownership and runtime policy.
+	for key := range labels {
+		if _, known := expected[key]; !known && strings.HasPrefix(key, "com.switchback.") {
+			return false
+		}
+	}
+	return true
 }
 
 func secretVolumeName(request application.RuntimeProvisionRequest) string {

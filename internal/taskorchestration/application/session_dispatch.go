@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	workerapp "github.com/abietic/switchback/internal/workerruntime/application"
 )
 
 type EnqueueTaskCommand struct {
@@ -38,6 +40,7 @@ type IssueTaskPermitCommand struct {
 	WorkerSessionID      string
 	RuntimeGeneration    uint64
 	CapacityAdmissionRef string
+	FirstReportCapacity  *workerapp.FirstReportCapacityEvidence
 	IdempotencyKey       string
 }
 
@@ -108,14 +111,20 @@ func (service SessionDispatchService) IssueTaskPermit(
 	}
 	if err := validateDispatchStrings(map[string]string{
 		"tenant_id": command.TenantID, "user_id": command.UserID,
-		"worker_session_id":      command.WorkerSessionID,
-		"capacity_admission_ref": command.CapacityAdmissionRef,
-		"idempotency_key":        command.IdempotencyKey,
+		"worker_session_id": command.WorkerSessionID,
+		"idempotency_key":   command.IdempotencyKey,
 	}); err != nil {
 		return IssuedTaskPermit{}, err
 	}
 	if command.RuntimeGeneration == 0 {
 		return IssuedTaskPermit{}, fmt.Errorf("runtime generation is required")
+	}
+	if command.FirstReportCapacity == nil {
+		if err := validateDispatchStrings(map[string]string{"capacity_admission_ref": command.CapacityAdmissionRef}); err != nil {
+			return IssuedTaskPermit{}, err
+		}
+	} else if command.CapacityAdmissionRef != "" {
+		return IssuedTaskPermit{}, fmt.Errorf("first-report capacity derives its reference from the reservation")
 	}
 	permitID, err := service.IDs.NewID("session-dispatch-permit")
 	if err != nil {

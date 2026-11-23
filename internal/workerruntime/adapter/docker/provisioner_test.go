@@ -90,7 +90,7 @@ func TestProvisionCreatesOneFixedIsolatedWorkerContainer(t *testing.T) {
 			t.Fatalf("network label %q=%q, want %q", label, create.Config.Labels[label], want)
 		}
 	}
-	if !slices.Equal(create.HostConfig.CapDrop, []string{"ALL"}) || !slices.Equal(create.HostConfig.CapAdd, []string{"KILL", "SETUID", "SETGID"}) {
+	if !slices.Equal(create.HostConfig.CapDrop, []string{"ALL"}) || !slices.Equal(create.HostConfig.CapAdd, []string{"KILL", "SETUID", "SETGID", "DAC_OVERRIDE"}) {
 		t.Fatalf("Worker capabilities drop=%v add=%v", create.HostConfig.CapDrop, create.HostConfig.CapAdd)
 	}
 	if !slices.Contains(create.HostConfig.SecurityOpt, "no-new-privileges") {

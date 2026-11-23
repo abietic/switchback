@@ -36,6 +36,8 @@ type Config struct {
 	GRPCAddress             string
 	KimiCredentialFile      string
 	DeepSeekCredentialFile  string
+	RelayTokenFile          string
+	FirstReportEngineID     string
 	LangfuseBaseURL         string
 	LangfusePublicKey       string
 	LangfuseSecretKey       string
@@ -81,6 +83,8 @@ func LoadConfig(lookup config.LookupEnv) (Config, error) {
 		GRPCAddress:             value(lookup, "SWITCHBACK_GRPC_ADDRESS", defaultGRPCAddress),
 		KimiCredentialFile:      value(lookup, "SWITCHBACK_KIMI_CREDENTIAL_FILE", ""),
 		DeepSeekCredentialFile:  value(lookup, "SWITCHBACK_DEEPSEEK_CREDENTIAL_FILE", ""),
+		RelayTokenFile:          value(lookup, "SWITCHBACK_FIRST_REPORT_RELAY_TOKEN_FILE", ""),
+		FirstReportEngineID:     value(lookup, "SWITCHBACK_FIRST_REPORT_ENGINE_ID", ""),
 		LangfuseBaseURL:         value(lookup, "LANGFUSE_BASE_URL", ""),
 		LangfusePublicKey:       value(lookup, "LANGFUSE_PUBLIC_KEY", ""),
 		LangfuseSecretKey:       value(lookup, "LANGFUSE_SECRET_KEY", ""),
@@ -144,6 +148,20 @@ func (configuration Config) Validate() error {
 	if err := absolutePath("data root", configuration.DataRoot); err != nil {
 		return err
 	}
+	if configuration.RelayTokenFile != "" {
+		if !configuration.ExecutionEnabled || configuration.Assistant.Enabled || configuration.RuntimeRecoveryEnabled {
+			return fmt.Errorf("first-report relay requires Worker delivery, with Assistant and Runtime recovery disabled")
+		}
+		if configuration.KimiCredentialFile != "" || configuration.DeepSeekCredentialFile != "" {
+			return fmt.Errorf("first-report relay requires direct provider credentials to be absent")
+		}
+		if !canonical(configuration.FirstReportEngineID) || len(configuration.FirstReportEngineID) > 128 {
+			return fmt.Errorf("first-report relay requires the qualified Docker Engine ID")
+		}
+		if err := absolutePath("first-report relay token file", configuration.RelayTokenFile); err != nil {
+			return err
+		}
+	}
 	if configuration.ExecutionEnabled {
 		for name, current := range map[string]string{
 			"Worker image":          configuration.WorkerImage,
@@ -155,12 +173,15 @@ func (configuration Config) Validate() error {
 				return fmt.Errorf("%s is required when Worker delivery is enabled", name)
 			}
 		}
-		for name, current := range map[string]string{
-			"engine data root":         configuration.EngineDataRoot,
-			"Workspace source root":    configuration.WorkspaceSourceRoot,
-			"Kimi credential file":     configuration.KimiCredentialFile,
-			"DeepSeek credential file": configuration.DeepSeekCredentialFile,
-		} {
+		paths := map[string]string{
+			"engine data root":      configuration.EngineDataRoot,
+			"Workspace source root": configuration.WorkspaceSourceRoot,
+		}
+		if configuration.RelayTokenFile == "" {
+			paths["Kimi credential file"] = configuration.KimiCredentialFile
+			paths["DeepSeek credential file"] = configuration.DeepSeekCredentialFile
+		}
+		for name, current := range paths {
 			if err := absolutePath(name, current); err != nil {
 				return err
 			}

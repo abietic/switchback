@@ -13,6 +13,7 @@ import (
 const (
 	LocalStandardV1           = "local_standard_v1"
 	DeepSeekCodexOpenAIV1     = "deepseek-codex-openai-v1"
+	DeepSeekFirstReportV1     = "deepseek-codex-first-report-v1"
 	KimiCodexAnthropicV1      = "kimi-codex-anthropic-v1"
 	KimiAssistantOpenAIV1     = "kimi-assistant-openai-v1"
 	KimiCodeAssistantOpenAIV1 = "kimi-code-assistant-openai-v1"
@@ -174,6 +175,11 @@ func ProductionProfileRegistry() ProfileRegistry {
 		CredentialRef:    "model-profile/deepseek-codex-openai-v1",
 	}
 	deepseek.Digest = agentProfileDigest(deepseek)
+	firstReport := deepseek
+	firstReport.ID = DeepSeekFirstReportV1
+	firstReport.APIBase = "http://first-report-model-relay:8080"
+	firstReport.CredentialRef = "model-profile/" + firstReport.ID
+	firstReport.Digest = agentProfileDigest(firstReport)
 
 	kimi := AgentProfile{
 		ID:               KimiCodexAnthropicV1,
@@ -213,8 +219,9 @@ func ProductionProfileRegistry() ProfileRegistry {
 	return ProfileRegistry{
 		runtimeResources: map[string]RuntimeResourceProfile{resources.ID: resources},
 		agents: map[string]AgentProfile{
-			deepseek.ID: deepseek,
-			kimi.ID:     kimi,
+			deepseek.ID:    deepseek,
+			firstReport.ID: firstReport,
+			kimi.ID:        kimi,
 		},
 		assistants: map[string]AssistantModelProfile{
 			kimiCodeAssistant.ID: kimiCodeAssistant,

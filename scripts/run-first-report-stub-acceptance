@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""Run one isolated first-report Task against a loopback fake upstream."""
+
+import argparse
+from contextlib import contextmanager
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = ROOT / "test/acceptance/firstreport"
+SOCKET = "/var/run/docker.sock"
+PROFILE = "deepseek-codex-first-report-v1"
+OWNER = "com.switchback.first-report-acceptance"
+RUNTIME_ID = "com.switchback.runtime-instance-id"
+HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+SECOND_REQUEST = """\
+import json
+from pathlib import Path
+import urllib.error
+import urllib.request
+token = json.loads(Path("/run/switchback-secrets/bootstrap.json").read_bytes())["proxy_token"]
+data = {"model": "switchback-codex", "messages": [{"role": "user", "content": "second fixture request"}]}
+request = urllib.request.Request("http://127.0.0.1:4000/v1/chat/completions", json.dumps(data).encode(),
+                                 {"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+try:
+    with urllib.request.urlopen(request, timeout=15) as response:
+        raise SystemExit(f"expected relay denial, got HTTP {response.status}")
+except urllib.error.HTTPError as error:
+    with error:
+        if error.code != 409 or b"permit already consumed" not in error.read(65536).lower():
+            raise SystemExit(f"expected relay denial, got HTTP {error.code}")
+print(409)
+"""
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def command(*args, stdin=None, timeout=40, check=True):
+    return subprocess.run(args, input=stdin, text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, timeout=timeout, check=check,
+                          env={"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8"})
+
+
+def docker(*args, **kwargs):
+    try:
+        return command("docker", "--host", f"unix://{SOCKET}", *args, **kwargs).stdout.strip()
+    except subprocess.CalledProcessError as error:
+        # Container create arguments can contain generated fixture credentials.
+        raise RuntimeError(f"Docker {' '.join(args[:2])} failed (exit {error.returncode})") from None
+
+
+def container_log(container):
+    result = command("docker", "--host", f"unix://{SOCKET}", "logs", container, check=False)
+    return result.stdout + result.stderr
+
+
+def wait_for(check, message, seconds=60):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if result := check():
+            return result
+        time.sleep(0.25)
+    raise RuntimeError(message)
+
+
+def bind(source, target, writable=False):
+    require("," not in str(source), "bind-mount source cannot contain a comma")
+    return ["--mount", f"type=bind,source={source},target={target}" + ("" if writable else ",readonly")]
+
+
+@contextmanager
+def engine_lock():
+    fd = os.open("/run/lock/switchback-first-report-stub.lock",
+                 os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("another first-report stub acceptance holds the local Engine lock") from None
+        yield
+    finally:
+        os.close(fd)
+
+
+class Acceptance:
+    def __init__(self, args):
+        self.args = args
+        parent = args.output_parent.resolve(strict=True)
+        require(not parent.is_relative_to(ROOT), "keep acceptance state outside the source checkout")
+        self.path = Path(tempfile.mkdtemp(prefix="switchback-first-report-stub-", dir=parent))
+        self.network = self.path.name
+        self.postgres = self.network + "-db"
+        self.backend = self.network + "-backend"
+        self.relay = self.network + "-relay"
+        self.web = self.network + "-web"
+        self.services = {}
+        self.network_created = False
+        self.runtime_ids = set()
+        self.password = secrets.token_hex(24)
+        self.token = secrets.token_hex(32)
+
+    def save(self, name, value):
+        (self.path / name).write_text(json.dumps(value, indent=2) + "\n")
+
+    def preflight(self):
+        info = json.loads(docker("info", "--format", "{{json .}}"))
+        require(info["ID"] == self.args.engine_id, "local Docker Engine differs from --engine-id")
+        require(info["OSType"] == "linux" and info["Driver"] == "overlay2", "classic Linux overlay2 required")
+        require(not docker("ps", "-q"), "use an idle, dedicated acceptance Engine")
+        root = Path(info["DockerRootDir"]).resolve(strict=True)
+        mount = command("findmnt", "-n", "-o", "FSTYPE,OPTIONS", "-T", str(root)).stdout.split()
+        require(mount[0] == "xfs" and {"prjquota", "pquota"}.intersection(mount[1].split(",")),
+                "the Docker data root requires XFS project quotas")
+        capacity = root / ".switchback-capacity"
+        capacity.mkdir(mode=0o555, exist_ok=True)
+        status = capacity.lstat()
+        require(stat.S_ISDIR(status.st_mode) and status.st_uid == 0 and not status.st_mode & 0o222
+                and status.st_dev == root.stat().st_dev and not any(capacity.iterdir()),
+                "Engine capacity bind must be a protected empty directory on the Docker filesystem")
+        self.capacity = capacity
+        self.docker_root = root
+        for name in ("worker", "backend", "postgres", "web"):
+            ref = getattr(self.args, name + "_image")
+            image, = json.loads(docker("image", "inspect", "--", ref))
+            require(image["Os"] == "linux", f"{name} image must be a local Linux image")
+            setattr(self, name + "_image", image["Id"])
+        print(f"evidence: {self.path}", flush=True)
+
+    def launch(self, name, *options):
+        cid = docker("create", "--pull=never", "--name", name, "--label", f"{OWNER}={self.network}",
+                     "--network", self.network, *options)
+        self.services[name] = cid
+        docker("start", cid)
+
+    def service_ready(self, name):
+        state = docker("inspect", "--format", "{{.State.Status}}", name)
+        require(state not in ("exited", "dead"), f"{name} exited; see its local log")
+        return state == "running"
+
+    def sql(self, statement):
+        return docker("exec", self.postgres, "psql", "-X", "-Atq", "-v", "ON_ERROR_STOP=1",
+                      "-U", "switchback", "-d", "switchback", "-c", statement)
+
+    def request(self, path, body=None, expected=200):
+        content = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(f"http://{self.web_ip}:8080" + path, content,
+                                         {"Content-Type": "application/json"})
+        with HTTP.open(request, timeout=4) as response:
+            require(response.status == expected, f"{path} returned HTTP {response.status}, expected {expected}")
+            return response.read(4 << 20)
+
+    def task_projection(self, view):
+        try:
+            return json.loads(self.request(view))
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            return None
+
+    def stage_postgres_inputs(self):
+        # PostgreSQL reads these bind mounts after dropping root. The run directory
+        # stays private on the host, while its mounted contents need readable modes.
+        source = ROOT / "deploy/local"
+        for name in ("init-postgres.sh", "migrate-postgres.sh"):
+            target = self.path / name
+            target.write_bytes((source / name).read_bytes())
+            target.chmod(0o755)
+        target = self.path / "migrations"
+        target.mkdir()
+        target.chmod(0o755)
+        migrations = sorted((ROOT / "migrations").glob("[0-9]" * 6 + "_*.sql"))
+        require(migrations, "checkout has no PostgreSQL migrations")
+        for file in migrations:
+            staged = target / file.name
+            staged.write_bytes(file.read_bytes())
+            staged.chmod(0o644)
+        return migrations[-1].name.split("_", 1)[0]
+
+    def setup(self):
+        for subdir in ("data", "workspace", "control", "permit"):
+            (self.path / subdir).mkdir(mode=0o700)
+        (self.path / "workspace" / "README.txt").write_text("Synthetic first-report workspace.\n")
+        token = self.path / "relay-token"
+        token.write_text(self.token)
+        expected_schema = self.stage_postgres_inputs()
+        docker("network", "create", "--internal", "--label", f"{OWNER}={self.network}", self.network)
+        self.network_created = True
+        require(docker("network", "inspect", "--format", "{{.Internal}}", self.network) == "true",
+                "acceptance requires an internal network")
+        self.launch(self.postgres, "-e", "POSTGRES_USER=switchback", "-e", "POSTGRES_DB=postgres",
+                    "-e", "POSTGRES_PASSWORD=" + self.password,
+                    *bind(self.path / "init-postgres.sh", "/docker-entrypoint-initdb.d/10-switchback-init.sh"),
+                    *bind(self.path / "migrate-postgres.sh", "/opt/switchback/migrate-postgres.sh"),
+                    *bind(self.path / "migrations", "/opt/switchback/migrations"), self.postgres_image)
+        wait_for(lambda: self.service_ready(self.postgres) and docker(
+            "exec", self.postgres, "pg_isready", "-h", "127.0.0.1", "-U", "switchback",
+            "-d", "switchback", check=False).endswith("accepting connections"), "PostgreSQL TCP readiness timed out")
+        schema = self.sql("SELECT max(version) FROM switchback_schema_migrations")
+        require(schema == expected_schema, f"isolated PostgreSQL schema is {schema}, expected {expected_schema}")
+        hardened = ["--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"]
+        self.launch(self.relay, *hardened, "--network-alias", "first-report-model-relay",
+                    "-e", "PYTHONDONTWRITEBYTECODE=1",
+                    *bind(FIXTURES / "model_relay.py", "/run/fixture/model_relay.py"),
+                    *bind(FIXTURES / "stub_upstream.py", "/run/fixture/stub_upstream.py"),
+                    *bind(token, "/run/fixture/relay-credential"),
+                    *bind(self.path / "control", "/run/fixture-control"),
+                    *bind(self.path / "permit", "/run/fixture-permit", True),
+                    "--entrypoint", "python3", self.worker_image, "/run/fixture/stub_upstream.py")
+        wait_for(lambda: self.service_ready(self.relay) and "stub-relay-ready" in docker("logs", self.relay),
+                 "local stub relay readiness timed out")
+        env = {
+            "SWITCHBACK_CONTAINERIZED": "1", "SWITCHBACK_WEB_ADDRESS": "0.0.0.0:8080",
+            "SWITCHBACK_DATABASE_URL": f"postgresql://switchback:{self.password}@{self.postgres}:5432/switchback?sslmode=disable",
+            "SWITCHBACK_DATA_ROOT": self.path / "data", "SWITCHBACK_ENGINE_DATA_ROOT": self.path / "data",
+            "SWITCHBACK_WORKSPACE_SOURCE_ROOT": "/opt/fixture", "SWITCHBACK_WORKER_IMAGE": self.worker_image,
+            "SWITCHBACK_WORKER_NETWORK": self.network, "SWITCHBACK_M1_WORKER_DELIVERY_ENABLED": "1",
+            "SWITCHBACK_M2_ASSISTANT_ENABLED": "0", "SWITCHBACK_SINGLE_RUNTIME_RECOVERY_ENABLED": "0",
+            "SWITCHBACK_BACKEND_GRPC_TARGET": "switchback-backend:9090",
+            "SWITCHBACK_BACKEND_HTTP_BASE_URL": "http://switchback-backend:8080",
+            "SWITCHBACK_FIRST_REPORT_RELAY_TOKEN_FILE": "/run/fixture/relay-credential",
+            "SWITCHBACK_FIRST_REPORT_ENGINE_ID": self.args.engine_id,
+        }
+        options = [arg for key, value in env.items() for arg in ("-e", f"{key}={value}")]
+        self.launch(self.backend, *hardened, "--network-alias", "switchback-backend", "--cap-add", "CHOWN",
+                    "--cap-add", "FOWNER", "--cap-add", "DAC_OVERRIDE", "--tmpfs", "/tmp:size=32m,mode=1777",
+                    *options, *bind(SOCKET, SOCKET), *bind(self.capacity, "/run/switchback-capacity"),
+                    *bind(self.path / "data", self.path / "data", True),
+                    *bind(self.path / "workspace", "/opt/fixture"),
+                    *bind(token, "/run/fixture/relay-credential"), self.backend_image)
+        self.launch(self.web, *hardened, "--tmpfs", "/tmp:size=32m,mode=1777", self.web_image)
+        inspected, = json.loads(docker("inspect", self.web))
+        self.web_ip = inspected["NetworkSettings"]["Networks"][self.network]["IPAddress"]
+
+        def web_ready():
+            self.service_ready(self.backend)
+            self.service_ready(self.web)
+            try:
+                return (b"/assets/" in self.request("/tasks")
+                        and json.loads(self.request("/api/v1/views/task_summary/index"))["data"]["tasks"] == [])
+            except (urllib.error.URLError, TimeoutError):
+                return False
+
+        wait_for(web_ready, "production Web or same-origin Task API readiness timed out")
+        return schema
+
+    def workers(self):
+        return docker("ps", "-aq", "--no-trunc", "--filter", f"network={self.network}",
+                      "--filter", "label=com.switchback.managed=worker-runtime").splitlines()
+
+    def quota(self, worker):
+        inspected, = json.loads(docker("inspect", worker))
+        host = inspected["HostConfig"]
+        require(inspected["Id"] == worker and host["StorageOpt"]["size"] == str(10 * 1024**3),
+                "Worker Docker writable-layer option did not match 10 GiB")
+        require(set(inspected["NetworkSettings"]["Networks"]) == {self.network}
+                and not host["Privileged"] and not host["PortBindings"]
+                and all(m["Destination"] != SOCKET for m in inspected["Mounts"]),
+                "Worker isolation does not match the fixture network")
+        upper = Path(inspected["GraphDriver"]["Data"]["UpperDir"]).resolve(strict=True)
+        require(upper.is_relative_to(self.docker_root), "Worker UpperDir is outside the Docker data root")
+        xfs = command("xfs_io", "-r", "-c", "stat", str(upper)).stdout
+        project = re.search(r"fsxattr\.projid\s*=\s*(\d+)", xfs)
+        require(project and int(project[1]) > 0, "missing XFS project ID for the Worker UpperDir")
+        report = command("xfs_quota", "-x", "-c", "report -p -b -n", str(self.docker_root)).stdout
+        row = next((line.split() for line in report.splitlines() if line.split()[:1] == ["#" + project[1]]), [])
+        require(len(row) >= 4 and int(row[3]) == 10 * 1024**2, "Worker XFS project hard limit is not 10 GiB")
+        routes = docker("exec", worker, "cat", "/proc/net/route").splitlines()[1:]
+        require(not any(line.split()[1] == "00000000" for line in routes), "Worker has a default IPv4 route")
+        self.save("worker-quota.json", {"container_id": worker, "project_id": int(project[1]),
+                                       "hard_limit_kib": int(row[3])})
+
+    def verified_trace(self, evidence):
+        root = (self.path / "data/objects").resolve(strict=True)
+
+        def read_object(key, digest, size=None):
+            path = (root.parent / key).resolve(strict=True)
+            require(path.is_relative_to(root), "Trace object escaped the ObjectStore")
+            raw = path.read_bytes()
+            require(hashlib.sha256(raw).hexdigest() == digest.removeprefix("sha256:")
+                    and (size is None or len(raw) == size), "Trace object digest or length mismatch")
+            return raw
+
+        manifest = json.loads(read_object(evidence["manifest_key"], evidence["manifest_digest"]))
+        fields = ("trace_stream_id", "worker_run_id", "agent_turn_id", "runtime_instance_id")
+        require(all(manifest[key] == evidence[key] for key in fields), "Trace provenance differs from the report")
+        observations = None
+        for segment in manifest["segments"]:
+            require(segment["uri"].startswith("object://objects/"), "invalid Trace segment object URI")
+            raw = read_object(segment["uri"].removeprefix("object://"), segment["sha256"], segment["size_bytes"])
+            if segment["kind"] == "turn-observation-source":
+                source = json.loads(raw)
+                require(source["identity"]["task_id"] == evidence["task_id"],
+                        "observation-source Task differs from the report")
+                observations = source["model_observations"]
+        require(observations and any(
+            item["Status"] == "ok" and item["Model"] == "deepseek-v4-pro"
+            and item["WorkerRunID"] == evidence["worker_run_id"] and item["AgentTurnID"] == evidence["agent_turn_id"]
+            for item in observations), "Trace is missing a successful model observation for the report Turn")
+        self.save("trace-manifest.json", manifest)
+
+    def verify(self, schema):
+        task = json.loads(self.request("/api/v1/tasks", {
+            "schema_version": "gateway.direct_task_input.v1", "idempotency_key": "stub-first-report",
+            "project_id": "project-local", "workspace_id": "workspace-local",
+            "workspace_revision_id": "workspace-revision-local-v1", "title": "Switchback stub first report",
+            "goal": "Return the fixture report as final text without tools.",
+            "target": {"kind": "workspace", "ref": "workspace-revision-local-v1"},
+            "constraints": ["Return text only."], "acceptance_criteria": ["A report is available for acceptance."],
+            "agent_profile_id": PROFILE, "acceptance_mode": "manual", "user_visible_types": ["report"],
+        }, expected=202))
+        view = task["view_ref"]
+        require(re.fullmatch(r"/api/v1/views/task_summary/task-[a-z0-9]+", view), "unexpected Task view reference")
+        task_id = view.rsplit("/", 1)[1]
+        workers = wait_for(self.workers, "Backend did not create the Worker")
+        require(len(workers) == 1, "expected exactly one isolated Worker")
+        worker, = workers
+        wait_for(lambda: self.service_ready(worker) and f"worker runtime ready profile={PROFILE}" in docker("logs", worker),
+                 "Worker shim readiness timed out", 90)
+        self.quota(worker)
+        wait_for(lambda: "fixture-upstream-request" in docker("logs", self.relay),
+                 "Worker did not reach the loopback stub", 75)
+        try:
+            denial = docker("exec", "-i", worker, "python3", "-", stdin=SECOND_REQUEST, timeout=20)
+            require(denial == "409", "second request did not receive relay HTTP 409")
+        finally:
+            (self.path / "control" / "release").touch()
+
+        def delivered():
+            projection = self.task_projection(view)
+            if not projection:
+                return None
+            status = projection["data"]["status"]
+            require(status not in ("failed", "cancelled", "waiting_user"), f"Task stopped before delivery ({status})")
+            if status == "delivered":
+                return projection
+
+        before = wait_for(delivered, "Task did not deliver a report", 90)
+        evidence = json.loads(self.sql(f"""
+SELECT jsonb_build_object('task_id', a.task_id, 'artifact_id', a.artifact_id,
+ 'artifact_digest', a.object_checksum, 'worker_run_id', a.worker_run_id, 'agent_turn_id', a.agent_turn_id,
+ 'runtime_instance_id', a.runtime_instance_id, 'trace_stream_id', t.trace_stream_id,
+ 'manifest_key', t.manifest_object_key, 'manifest_digest', t.manifest_checksum,
+ 'model_observations', (SELECT count(*) FROM runtime_control_messages m
+  WHERE m.runtime_instance_id=a.runtime_instance_id AND m.direction='event' AND m.effect_status='applied'
+  AND m.envelope->>'message_type'='model.observation' AND m.envelope->>'agent_turn_id'=a.agent_turn_id
+  AND m.envelope->>'worker_run_id'=a.worker_run_id))
+FROM artifact_refs a
+JOIN trace_manifests t ON t.trace_stream_id=a.trace_stream_id AND t.worker_run_id=a.worker_run_id
+ AND t.agent_turn_id=a.agent_turn_id
+JOIN tasks task ON task.task_id=a.task_id AND task.current_worker_run_id=a.worker_run_id
+WHERE a.task_id='{task_id}' AND a.artifact_type='report'"""))
+        require(evidence["model_observations"] >= 1, "no applied model observation matched the report Turn")
+        self.verified_trace(evidence)
+        artifact = evidence["artifact_id"]
+        require(re.fullmatch(r"artifact-report-[a-z0-9]+", artifact), "unexpected report identity")
+        body = self.request(f"/api/v1/artifacts/{artifact}/content")
+        require(b"The isolated report and acceptance path completed." in body
+                and "sha256:" + hashlib.sha256(body).hexdigest() == evidence["artifact_digest"],
+                "formal report body or checksum differs from the fixture")
+        (self.path / "first-report.md").write_bytes(body)
+        self.request(f"/api/v1/tasks/{task_id}/accept", {
+            "schema_version": "gateway.task_command.v1", "idempotency_key": "accept-stub-first-report",
+            "expected_task_revision": before["data"]["revision"], "message": "Accept synthetic report.",
+        }, expected=202)
+
+        def refreshed():
+            projection = self.task_projection(view)
+            if projection and projection["view_id"] == task_id and projection["data"]["status"] == "completed":
+                return projection
+
+        after = wait_for(refreshed, "fresh Task projection did not show completed")
+        require(after["data"]["revision"] > before["data"]["revision"], "Task revision did not advance")
+        self.save("task-completed.json", after)
+        relay_log = container_log(self.relay)
+        require(relay_log.splitlines().count("fixture-upstream-request") == 1
+                and relay_log.splitlines().count("fixture-relay-status=200") == 1
+                and "fixture-relay-status=409" in relay_log and (self.path / "permit/permit.used").is_file(),
+                "expected one forwarded request and at least one relay denial")
+        counts = self.sql("SELECT (SELECT count(*) FROM tasks),(SELECT count(*) FROM worker_runs),"
+                          "(SELECT count(*) FROM runtime_instances),(SELECT count(*) FROM first_report_capacity_reservations)")
+        require(counts == "1|1|1|1" and self.workers() == [worker], "expected one Task, Run, Runtime and reservation")
+        evidence.update(schema=schema, state="completed", revision=after["data"]["revision"],
+                        second_request_status=409, fake_upstream_requests=1, real_model_requests=0)
+        return evidence
+
+    def cleanup(self):
+        (self.path / "relay-token").unlink(missing_ok=True)
+        if not self.network_created:
+            return
+        if self.backend in self.services:
+            docker("stop", "-t", "5", self.services[self.backend], check=False)
+        if self.postgres in self.services:
+            # Also find a provisioner's secret volume if the Worker never started.
+            try:
+                self.runtime_ids.update(self.sql("SELECT runtime_instance_id FROM runtime_instances").splitlines())
+            except RuntimeError:
+                pass
+        workers = self.workers()
+        for cid in workers:
+            inspected, = json.loads(docker("inspect", cid))
+            self.runtime_ids.add(inspected["Config"]["Labels"][RUNTIME_ID])
+        for cid in workers + list(reversed(self.services.values())):
+            text = container_log(cid).replace(self.password, "[fixture-password]").replace(self.token, "[fixture-token]")
+            (self.path / f"{cid}.log").write_text(text)
+            docker("rm", "-fv", cid)
+        for runtime in sorted(self.runtime_ids):
+            require(re.fullmatch(r"[a-zA-Z0-9_-]+", runtime), "invalid Runtime identity during cleanup")
+            volumes = docker("volume", "ls", "-q", "--filter", f"label={RUNTIME_ID}={runtime}",
+                             "--filter", "label=com.switchback.managed=runtime-secret-volume").splitlines()
+            if volumes:
+                docker("volume", "rm", *volumes)
+        docker("network", "rm", self.network)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--engine-id", required=True, help="expected ID of the dedicated local Docker Engine")
+    parser.add_argument("--output-parent", type=Path, default=Path(tempfile.gettempdir()),
+                        help="existing directory outside the checkout for private per-run evidence")
+    for name in ("worker", "backend", "postgres", "web"):
+        parser.add_argument(f"--{name}-image", required=True, help=f"existing local {name} image or digest")
+    args = parser.parse_args()
+    require(sys.platform == "linux" and os.geteuid() == 0, "run on the qualified Linux Engine host as root")
+    os.umask(0o077)
+    with engine_lock():
+        run = Acceptance(args)
+        try:
+            run.preflight()
+            result = run.verify(run.setup())
+        finally:
+            run.cleanup()
+        run.save("summary.json", result)
+        print(f"PASS: {result['task_id']} completed, second request HTTP 409, one fake upstream request")
+
+
+if __name__ == "__main__":
+    try:
+        def terminate(*_):
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGTERM, terminate)
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        sys.exit(str(error))

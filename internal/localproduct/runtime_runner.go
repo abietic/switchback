@@ -479,6 +479,7 @@ func newRuntimeKnownTokenScanner(configuration Config) (*secretcheck.Scanner, er
 	}{
 		{label: "kimi-provider-key", path: configuration.KimiCredentialFile},
 		{label: "deepseek-provider-key", path: configuration.DeepSeekCredentialFile},
+		{label: "first-report-relay-token", path: configuration.RelayTokenFile},
 	} {
 		credential, err := readProviderCredential(candidate.path)
 		if err != nil {
@@ -1085,6 +1086,15 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 	if err != nil {
 		return fmt.Errorf("read next queued Task: %w", err)
 	}
+	capacityRef := "local-standard-admission"
+	var capacityEvidence *workerapp.FirstReportCapacityEvidence
+	if runner.configuration.RelayTokenFile != "" {
+		sample, err := runner.provisioner.SampleFirstReportCapacity(ctx, runner.configuration.FirstReportEngineID)
+		if err != nil {
+			return fmt.Errorf("sample first-report Engine capacity: %w", err)
+		}
+		capacityEvidence, capacityRef = &sample, ""
+	}
 	if sessionID == "" {
 		allocated, err := runner.allocator.Execute(ctx, workerapp.AllocateWorkerSessionCommand{
 			TenantID:            runner.configuration.Profile.TenantID,
@@ -1116,9 +1126,12 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 	permit, err := runner.dispatch.IssueTaskPermit(ctx, taskapp.IssueTaskPermitCommand{
 		TenantID: runner.configuration.Profile.TenantID,
 		UserID:   runner.configuration.Profile.ActorUserID, WorkerSessionID: sessionID,
-		RuntimeGeneration: 1, CapacityAdmissionRef: "local-standard-admission",
+		RuntimeGeneration: 1, CapacityAdmissionRef: capacityRef, FirstReportCapacity: capacityEvidence,
 		IdempotencyKey: "local-dispatch/" + taskID,
 	})
+	if errors.Is(err, workerapp.ErrFirstReportCapacityUnavailable) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("issue queued Task dispatch permit: %w", err)
 	}
@@ -1170,6 +1183,9 @@ ORDER BY task.created_at,task.task_id LIMIT 1`, runner.configuration.Profile.Ten
 	if err != nil {
 		if started.Ownership.RuntimeInstanceID != "" {
 			return runner.reconcileFailedRuntimeStart(ctx, started.Ownership, err)
+		}
+		if errors.Is(err, workerapp.ErrFirstReportCapacityUnavailable) {
+			return nil
 		}
 		return fmt.Errorf("start queued Task Runtime: %w", err)
 	}

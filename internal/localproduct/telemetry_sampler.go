@@ -58,7 +58,7 @@ func (s telemetrySampler) terminals(ctx context.Context, tx pgx.Tx, snapshot *te
 	// Verified finite references become SQL inputs, never GROUP BY dimensions.
 	var ids, revisions, digests, harnesses []string
 	registry := config.ProductionProfileRegistry()
-	for _, id := range []string{config.DeepSeekCodexOpenAIV1, config.KimiCodexAnthropicV1} {
+	for _, id := range []string{config.DeepSeekCodexOpenAIV1, config.DeepSeekFirstReportV1, config.KimiCodexAnthropicV1} {
 		profile, ok := registry.Agent(id)
 		if !ok || profile.ValidateDigest() != nil || profile.AgentAdapter != "codex-acp" {
 			continue
