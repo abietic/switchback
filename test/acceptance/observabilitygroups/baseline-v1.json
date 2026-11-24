@@ -604,6 +604,18 @@
       "sha256": "8c8aca6b28ded5124adaab4a34e2b55ef82b8132cbfa8325728dbc6a6cec02d6"
     },
     {
+      "id": "internal/localproduct/TestArgusReportReviewBoundsStdout",
+      "sha256": "9a070506fc15e2c6ac35909b9f16a6a533b21f6270d58e9453f9d8bd06160aa3"
+    },
+    {
+      "id": "internal/localproduct/TestArgusReportReviewRejectsResultForWrongDelivery",
+      "sha256": "cb2ab1a422bb491f37afb248ec10716ca7424c8bb092ce705ed8eaf5dba2f071"
+    },
+    {
+      "id": "internal/localproduct/TestArgusReportReviewSubprocessPinsInputsAndReturnsBoundReceipt",
+      "sha256": "7fcf834b5e753cff7cba6a59a735b8afb08df72f8b55dfab55b8416a56387f86"
+    },
+    {
       "id": "internal/localproduct/TestAssistantBackendRestartMakesUnknownModelEffectVisibleWithoutRetry",
       "sha256": "1f2d8b5d69bf9fe3275b7e713eafc446508833ba4adebd713af2c7b542be8388"
     },
@@ -1104,6 +1116,10 @@
       "sha256": "1e500890d1f6fad42ef63fee9f29c80cf0247c6900b57a750f2ad2428688381b"
     },
     {
+      "id": "internal/localproduct/TestStartupRejectionReconcilesRuntimeMarkedUnhealthyByWatchdog",
+      "sha256": "3f65d554e224e901a3b15a7f51e2b558c9622b9593e6a5d1621a9e4d3ee312a7"
+    },
+    {
       "id": "internal/localproduct/TestStartupSafetyDrainOpensOverdueFirstHeartbeatRecoveryBeforeRestore",
       "sha256": "fff18c8630e036fa7ad48de471a9fa5f857c6fffde8b245bc2b362f6f98ee44b"
     },
@@ -1438,6 +1454,10 @@
     {
       "id": "internal/localproduct/mapLookup",
       "sha256": "f8726bc3993fbb55a61ea9e41f0fd08ba1ffd8d0c546ed1df81fb70b2c43a761"
+    },
+    {
+      "id": "internal/localproduct/marshalArgusTestJSON",
+      "sha256": "4fe2e2b87c5299641b80871e0e14d9e707cce3165e1b1fde2ce1b03f257f0bfe"
     },
     {
       "id": "internal/localproduct/materializeCleanupRegistry",
@@ -2079,6 +2099,9 @@
         "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithDurableTerminalWitness",
         "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithoutTerminalEvent",
         "internal/localproduct/TestApplyRuntimeSettlementSourceRejectsPartialBackendDeadlineWitness",
+        "internal/localproduct/TestArgusReportReviewBoundsStdout",
+        "internal/localproduct/TestArgusReportReviewRejectsResultForWrongDelivery",
+        "internal/localproduct/TestArgusReportReviewSubprocessPinsInputsAndReturnsBoundReceipt",
         "internal/localproduct/TestAssistantRunnerOptionalExporterCannotPreventConstruction",
         "internal/localproduct/TestAwaitStartupRuntimeRestoreCancelsOnDeadlineWorkerFailure",
         "internal/localproduct/TestAwaitStartupRuntimeRestoreRejectsUnexpectedDeadlineWorkerStop",
@@ -2314,6 +2337,9 @@
         "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithDurableTerminalWitness",
         "internal/localproduct/TestApplyRuntimeSettlementSourceDispatchesCleanupWithoutTerminalEvent",
         "internal/localproduct/TestApplyRuntimeSettlementSourceRejectsPartialBackendDeadlineWitness",
+        "internal/localproduct/TestArgusReportReviewBoundsStdout",
+        "internal/localproduct/TestArgusReportReviewRejectsResultForWrongDelivery",
+        "internal/localproduct/TestArgusReportReviewSubprocessPinsInputsAndReturnsBoundReceipt",
         "internal/localproduct/TestAssistantBackendRestartMakesUnknownModelEffectVisibleWithoutRetry",
         "internal/localproduct/TestAssistantClarificationConfirmsTaskAndDispatchesFakeWorker",
         "internal/localproduct/TestAssistantRunnerOptionalExporterCannotPreventConstruction",
@@ -2439,6 +2465,7 @@
         "internal/localproduct/TestStartupDeadlineWorkerClaimsDeadlineThatExpiresDuringRuntimeRestore",
         "internal/localproduct/TestStartupPendingTerminalIsSettledBeforeFreshHeartbeatBarrier",
         "internal/localproduct/TestStartupRecoverySignalStopsReconnectBeforeFreshHeartbeat",
+        "internal/localproduct/TestStartupRejectionReconcilesRuntimeMarkedUnhealthyByWatchdog",
         "internal/localproduct/TestStartupSafetyDrainOpensOverdueFirstHeartbeatRecoveryBeforeRestore",
         "internal/localproduct/TestStartupSafetyPollerDrainsDeadlinesAndFirstHeartbeatWatchdogs",
         "internal/localproduct/TestStartupSettlementDrainsPredecessorBeforeExactTerminalDelivery",
