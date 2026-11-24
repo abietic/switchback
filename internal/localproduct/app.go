@@ -24,6 +24,7 @@ import (
 	gatewayhttp "github.com/abietic/switchback/internal/gateway/http"
 	"github.com/abietic/switchback/internal/platform/config"
 	platformpostgres "github.com/abietic/switchback/internal/platform/postgres"
+	taskpostgres "github.com/abietic/switchback/internal/taskorchestration/adapter/postgres"
 	taskapp "github.com/abietic/switchback/internal/taskorchestration/application"
 )
 
@@ -35,6 +36,7 @@ type App struct {
 	outbox           platformpostgres.OutboxDispatcher
 	runtime          *runtimeRunner
 	assistant        *assistantRunner
+	argusReview      *argusReviewRunner
 	observability    observabilityBackgroundRunner
 	telemetry        *telemetryRunner
 	fragmentHistory  artifactapp.FragmentHistory
@@ -98,6 +100,10 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 		Actor:     gatewayhttp.FixedActor{TenantID: configuration.Profile.TenantID, UserID: configuration.Profile.ActorUserID},
 		Commands:  commands,
 		Assistant: commands,
+		DeliveryReview: gatewayhttp.DeliveryReviewOptions{
+			Store: taskpostgres.NewDeliveryStore(pool), WorkspaceID: configuration.WorkspaceID,
+			TokenSHA256: configuration.ReviewTokenSHA256,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -162,6 +168,12 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 			return nil, fmt.Errorf("compose local Assistant: %w", err)
 		}
 	}
+	if configuration.ArgusReviewConfig != "" {
+		app.argusReview, err = newArgusReviewRunner(configuration, pool, objects)
+		if err != nil {
+			return nil, fmt.Errorf("compose Argus report review: %w", err)
+		}
+	}
 	app.observability = activateObservability(ctx, newObservabilityRunner(configuration, pool, objects))
 	if configuration.ExecutionEnabled {
 		app.runtime, err = newRuntimeRunner(configuration, pool, objects, materializer, transientDisplay)
@@ -201,6 +213,11 @@ func (app *App) Run(ctx context.Context) error {
 		go func() { defer close(done); app.observability.Run(runCtx) }()
 		defer func() { cancel(); <-done }()
 	}
+	if app.argusReview != nil {
+		done := make(chan struct{})
+		go func() { defer close(done); app.argusReview.Run(runCtx) }()
+		defer func() { cancel(); <-done }()
+	}
 	errors := make(chan error, 3)
 	go func() { errors <- app.runOutbox(runCtx) }()
 	if app.runtime != nil {
@@ -238,6 +255,8 @@ func requireSchema(ctx context.Context, pool *pgxpool.Pool, assistantEnabled boo
 SELECT to_regclass('tasks') IS NOT NULL
    AND to_regclass('view_projections') IS NOT NULL
 	   AND to_regclass('artifact_refs') IS NOT NULL
+   AND to_regclass('delivery_reviews') IS NOT NULL
+   AND to_regclass('argus_report_review_jobs') IS NOT NULL
 	   AND to_regclass('worker_user_commands') IS NOT NULL
 	   AND to_regclass('worker_approval_requests') IS NOT NULL
 	   AND to_regclass('display_checkpoints') IS NOT NULL

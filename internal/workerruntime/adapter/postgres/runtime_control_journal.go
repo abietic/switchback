@@ -1969,29 +1969,47 @@ func reconcileClaimedActiveTurn(
 			proof.StartCommandSequence > record.Command.WorkerCommandAppliedSequence) {
 		return false, application.ErrRuntimeControlCursorConflict
 	}
-	var turnStatus string
+	var turnStatus, runStatus string
+	var currentRun, releasedRun bool
 	err = tx.QueryRow(ctx, `
-SELECT turn.status
+SELECT turn.status,run.status,
+       session.active_worker_run_id IS NOT DISTINCT FROM run.worker_run_id
+         AND runtime.worker_run_id IS NOT DISTINCT FROM run.worker_run_id,
+       COALESCE((session.active_worker_run_id IS NULL AND runtime.worker_run_id=run.worker_run_id)
+         OR (session.active_worker_run_id=runtime.worker_run_id AND EXISTS (
+           SELECT 1 FROM worker_runs successor
+           WHERE successor.worker_run_id=runtime.worker_run_id
+             AND successor.worker_session_id=session.worker_session_id
+             AND successor.previous_worker_run_id=run.worker_run_id
+             AND successor.status='running'
+         )),false)
 FROM agent_turns turn
 JOIN worker_sessions session ON session.worker_session_id=turn.worker_session_id
-JOIN worker_runs run ON run.worker_run_id=turn.worker_run_id
+JOIN worker_runs run ON run.worker_run_id=turn.worker_run_id AND run.worker_session_id=session.worker_session_id
 JOIN runtime_instances runtime ON runtime.runtime_instance_id=$4
 WHERE turn.agent_turn_id=$1 AND turn.worker_run_id=$2 AND turn.agent_session_id=$3
   AND turn.worker_session_id=$5
-  AND session.active_worker_run_id=run.worker_run_id
   AND session.active_runtime_instance_id=runtime.runtime_instance_id
   AND runtime.worker_session_id=session.worker_session_id
-  AND runtime.worker_run_id=run.worker_run_id
   AND runtime.generation=$6 AND runtime.control_channel_epoch=$7
 FOR UPDATE OF turn,session,run,runtime`,
 		string(proof.AgentTurnID), string(proof.WorkerRunID), string(proof.AgentSessionID),
 		state.RuntimeInstanceID, state.WorkerSessionID, state.RuntimeGeneration, state.ChannelEpoch,
-	).Scan(&turnStatus)
+	).Scan(&turnStatus, &runStatus, &currentRun, &releasedRun)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, application.ErrRuntimeControlIdentityConflict
 	}
 	if err != nil {
 		return false, fmt.Errorf("lock claimed Runtime control active Turn: %w", err)
+	}
+	// When a Run releases the Session slot, the resident Shim still reports
+	// its last terminal effect. The exact settled proof can resume transport
+	// even if the direct successor Run already owns the slot.
+	if !currentRun && (!releasedRun ||
+		!runtimeControlRunStatusTerminal(runStatus) || !runtimeControlAgentTurnStatusTerminal(turnStatus) ||
+		proof.Phase != contractsv1.RuntimeControlTurnEffectTerminal ||
+		!sameNullableActiveTurn(state.ActiveEffectSnapshot, proof)) {
+		return false, application.ErrRuntimeControlIdentityConflict
 	}
 	if !runtimeControlTurnStatusAllowsEffect(
 		turnStatus,
@@ -2024,6 +2042,9 @@ FOR UPDATE OF turn,session,run,runtime`,
 		if err != nil {
 			return false, err
 		}
+		if !currentRun && (!found || terminal.AppliedAt == nil) {
+			return false, application.ErrRuntimeControlMessageConflict
+		}
 		if !found {
 			if proof.LastUpdateSequence <= state.EventCommittedSequence ||
 				proof.LastUpdateSequence > record.Command.WorkerEventLastSequence {
@@ -2048,6 +2069,9 @@ FOR UPDATE OF turn,session,run,runtime`,
 				return false, application.ErrRuntimeControlMessageConflict
 			}
 		}
+	}
+	if !currentRun {
+		return false, nil
 	}
 	turnConsumed := false
 	if proof.Phase == contractsv1.RuntimeControlTurnEffectActive ||
