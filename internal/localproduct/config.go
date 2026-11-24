@@ -38,6 +38,7 @@ type Config struct {
 	DeepSeekCredentialFile  string
 	RelayTokenFile          string
 	ReviewTokenSHA256       string
+	ArgusReviewConfig       string
 	FirstReportEngineID     string
 	LangfuseBaseURL         string
 	LangfusePublicKey       string
@@ -88,6 +89,7 @@ func LoadConfig(lookup config.LookupEnv) (Config, error) {
 		DeepSeekCredentialFile:  value(lookup, "SWITCHBACK_DEEPSEEK_CREDENTIAL_FILE", ""),
 		RelayTokenFile:          value(lookup, "SWITCHBACK_FIRST_REPORT_RELAY_TOKEN_FILE", ""),
 		ReviewTokenSHA256:       value(lookup, "SWITCHBACK_DELIVERY_REVIEW_TOKEN_SHA256", ""),
+		ArgusReviewConfig:       value(lookup, "SWITCHBACK_ARGUS_REPORT_REVIEW_CONFIG", ""),
 		FirstReportEngineID:     value(lookup, "SWITCHBACK_FIRST_REPORT_ENGINE_ID", ""),
 		LangfuseBaseURL:         value(lookup, "LANGFUSE_BASE_URL", ""),
 		LangfusePublicKey:       value(lookup, "LANGFUSE_PUBLIC_KEY", ""),
@@ -153,6 +155,11 @@ func (configuration Config) Validate() error {
 	}
 	if err := absolutePath("data root", configuration.DataRoot); err != nil {
 		return err
+	}
+	if configuration.ArgusReviewConfig != "" {
+		if err := absolutePath("Argus review config", configuration.ArgusReviewConfig); err != nil {
+			return err
+		}
 	}
 	if configuration.RelayTokenFile != "" {
 		if !configuration.ExecutionEnabled || configuration.Assistant.Enabled || configuration.RuntimeRecoveryEnabled {

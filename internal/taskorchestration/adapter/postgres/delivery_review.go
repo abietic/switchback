@@ -22,9 +22,18 @@ func (store *DeliveryStore) RecordDeliveryReview(ctx context.Context, scope appl
 		return receipt, err
 	}
 	err = platformpostgres.InTransaction(ctx, store.pool, func(tx platformpostgres.Tx) error {
-		// Serialize against Accept and Rework, which lock the same Task row.
-		var current bool
-		err := tx.QueryRow(ctx, `
+		return recordDeliveryReview(ctx, tx, scope, review, payload, &receipt)
+	})
+	return receipt, err
+}
+
+func recordDeliveryReview(
+	ctx context.Context, tx platformpostgres.Tx, scope application.DeliveryReviewScope,
+	review contractsv1.DeliveryReview, payload []byte, receipt *application.DeliveryReviewReceipt,
+) error {
+	// Serialize against Accept and Rework, which lock the same Task row.
+	var current bool
+	err := tx.QueryRow(ctx, `
 SELECT t.status='delivered' AND t.revision=$5 AND t.current_worker_run_id IS NOT DISTINCT FROM $6::text
    AND t.result_refs @> jsonb_build_array(jsonb_build_object('artifact_id',$7::text,'worker_run_id',$6::text,'sha256',$8::text))
    AND EXISTS (
@@ -35,39 +44,37 @@ SELECT t.status='delivered' AND t.revision=$5 AND t.current_worker_run_id IS NOT
    )
 FROM tasks t WHERE t.task_id=$1 AND t.tenant_id=$2 AND t.initiator_user_id=$3 AND t.workspace_id=$4
 FOR UPDATE OF t`, scope.TaskID, scope.TenantID, scope.UserID, scope.WorkspaceID,
-			review.ExpectedTaskRevision, review.WorkerRunID, review.ArtifactID, review.ArtifactSHA256).Scan(&current)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return application.ErrDeliveryReviewUnavailable
-		}
-		if err != nil {
-			return err
-		}
-		var same bool
-		err = tx.QueryRow(ctx, `
+		review.ExpectedTaskRevision, review.WorkerRunID, review.ArtifactID, review.ArtifactSHA256).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return application.ErrDeliveryReviewUnavailable
+	}
+	if err != nil {
+		return err
+	}
+	var same bool
+	err = tx.QueryRow(ctx, `
 SELECT payload=$3::jsonb, recorded_at FROM delivery_reviews WHERE task_id=$1 AND review_run_id=$2`,
-			scope.TaskID, review.ReviewRunID, payload).Scan(&same, &receipt.RecordedAt)
-		if err == nil {
-			if same {
-				return nil
-			}
-			return application.ErrIdempotencyConflict
+		scope.TaskID, review.ReviewRunID, payload).Scan(&same, &receipt.RecordedAt)
+	if err == nil {
+		if same {
+			return nil
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if !current {
-			return application.ErrDeliveryReviewStale
-		}
-		err = tx.QueryRow(ctx, `
+		return application.ErrIdempotencyConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if !current {
+		return application.ErrDeliveryReviewStale
+	}
+	err = tx.QueryRow(ctx, `
 INSERT INTO delivery_reviews (review_run_id,task_id,worker_run_id,artifact_id,artifact_sha256,payload)
 VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING recorded_at`,
-			review.ReviewRunID, scope.TaskID, review.WorkerRunID, review.ArtifactID, review.ArtifactSHA256, payload).Scan(&receipt.RecordedAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return application.ErrIdempotencyConflict
-		}
-		return err
-	})
-	return receipt, err
+		review.ReviewRunID, scope.TaskID, review.WorkerRunID, review.ArtifactID, review.ArtifactSHA256, payload).Scan(&receipt.RecordedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return application.ErrIdempotencyConflict
+	}
+	return err
 }
 
 func (store *DeliveryStore) ReadDeliveryReview(ctx context.Context, scope application.DeliveryReviewScope) (application.CurrentDeliveryReview, error) {
