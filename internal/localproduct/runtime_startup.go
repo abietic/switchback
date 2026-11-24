@@ -1149,6 +1149,7 @@ func (runner *runtimeRunner) rejectStartupRuntime(
 ) error {
 	var sessionID, runID, turnID, runtimeID, containerID, status string
 	var generation, sessionRevision, runRevision, turnRevision, runtimeRevision uint64
+	// The startup watchdog may have committed unhealthy during the reconnect wait.
 	err := runner.pool.QueryRow(ctx, `
 SELECT session.worker_session_id,runtime_run.worker_run_id,turn.agent_turn_id,
        runtime.runtime_instance_id,COALESCE(runtime.container_id,''),runtime.generation,
@@ -1168,7 +1169,7 @@ WHERE runtime.runtime_instance_id=$1
   AND session.worker_session_id=$2
   AND runtime.generation=$3
   AND runtime.control_channel_epoch=$4
-  AND runtime.status IN ('active','suspect')`,
+  AND runtime.status IN ('active','suspect','unhealthy')`,
 		candidate.Restore.RuntimeInstanceID,
 		candidate.Restore.WorkerSessionID,
 		candidate.Restore.RuntimeGeneration,
