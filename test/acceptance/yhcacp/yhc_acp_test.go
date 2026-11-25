@@ -1,3 +1,5 @@
+//go:build yhc_acp_smoke
+
 package yhcacp
 
 import (
@@ -44,8 +46,8 @@ type fixtureCounts struct {
 
 func TestYHCACPReportAndRework(t *testing.T) {
 	binary := os.Getenv("SWITCHBACK_TEST_YHC_BINARY")
-	if binary == "" && os.Getenv("SWITCHBACK_TEST_YHC_SHA256") == "" {
-		t.Skip("set SWITCHBACK_TEST_YHC_BINARY and SWITCHBACK_TEST_YHC_SHA256 for the offline YHC smoke")
+	if binary == "" || os.Getenv("SWITCHBACK_TEST_YHC_SHA256") == "" {
+		t.Fatal("set SWITCHBACK_TEST_YHC_BINARY and SWITCHBACK_TEST_YHC_SHA256 for the offline YHC smoke")
 	}
 	assertPinnedBinary(t, binary, os.Getenv("SWITCHBACK_TEST_YHC_SHA256"))
 	t.Run("managed", func(t *testing.T) { runYHCACPReportAndRework(t, binary, true) })

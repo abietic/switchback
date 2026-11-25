@@ -26,14 +26,14 @@ SHA-256 produced by the build. The smoke checks the digest before launching it.
 ```sh
 SWITCHBACK_TEST_YHC_BINARY="$run_dir/yhc" \
 SWITCHBACK_TEST_YHC_SHA256='<sha256 from the build>' \
-go test -v -count=3 ./test/acceptance/yhcacp -run '^TestYHCACPReportAndRework$'
+go test -tags=yhc_acp_smoke -v -count=3 ./test/acceptance/yhcacp -run '^TestYHCACPReportAndRework$'
 ```
 
 To enforce loopback-only networking on macOS, compile the test before entering
 the sandbox. The same environment variables are required for the test process.
 
 ```sh
-go test -c -o "$run_dir/yhc-acp.test" ./test/acceptance/yhcacp
+go test -tags=yhc_acp_smoke -c -o "$run_dir/yhc-acp.test" ./test/acceptance/yhcacp
 SWITCHBACK_TEST_YHC_BINARY="$run_dir/yhc" \
 SWITCHBACK_TEST_YHC_SHA256='<sha256 from the build>' \
 /usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)
