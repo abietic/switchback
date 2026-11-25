@@ -13,6 +13,7 @@ import stat
 
 UPSTREAM_HOST = "api.deepseek.com"
 COMPLETION_PATH = "/chat/completions"
+API_PATHS = {"chat-completions": COMPLETION_PATH, "responses": "/responses"}
 MODEL = "deepseek-v4-pro"
 MAX_BODY_BYTES = 1 << 20
 
@@ -53,7 +54,11 @@ def open_upstream() -> http.client.HTTPSConnection:
     return http.client.HTTPSConnection(UPSTREAM_HOST, timeout=90)
 
 
-def make_handler(directory: Path, relay_token: bytes, upstream_key: bytes, connect=open_upstream):
+def make_handler(directory: Path, relay_token: bytes, upstream_key: bytes, connect=open_upstream,
+                 *, api_family="chat-completions"):
+    if api_family == "responses" and connect is open_upstream:
+        raise ValueError("Responses relay requires an explicitly supplied upstream connection")
+    request_path = API_PATHS[api_family]
     expected_authorization = b"Bearer " + relay_token
     upstream_authorization = b"Bearer " + upstream_key
 
@@ -66,7 +71,7 @@ def make_handler(directory: Path, relay_token: bytes, upstream_key: bytes, conne
             pass
 
         def do_POST(self):
-            if self.path != COMPLETION_PATH:
+            if self.path != request_path:
                 self.send_error(404)
                 return
             supplied = self.headers.get_all("Authorization", [])
@@ -115,7 +120,7 @@ def make_handler(directory: Path, relay_token: bytes, upstream_key: bytes, conne
             try:
                 # HTTPConnection sends once and never follows redirects.
                 with closing(connect()) as upstream:
-                    upstream.request("POST", COMPLETION_PATH, body, {
+                    upstream.request("POST", request_path, body, {
                         "Authorization": upstream_authorization,
                         "Content-Type": "application/json",
                         "Connection": "close",

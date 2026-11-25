@@ -86,7 +86,7 @@ func newWithPool(ctx context.Context, configuration Config, pool *pgxpool.Pool) 
 	commands, err := gatewaypostgres.NewCommandService(gatewaypostgres.CommandServiceOptions{
 		Pool: pool, IDs: ids, Now: now, ProjectID: configuration.ProjectID, Profiles: profiles,
 		NetworkProfile: configuration.NetworkProfile, Assistant: configuration.Assistant,
-		FirstReportMode: configuration.RelayTokenFile != "",
+		FirstReportMode: configuration.RelayTokenFile != "", YHCAgentProfileEnabled: configuration.YHCAgentProfileEnabled,
 		Workspace: taskapp.WorkspaceRevisionEvidence{
 			TenantID: configuration.Profile.TenantID, WorkspaceID: configuration.WorkspaceID,
 			WorkspaceRevisionID: configuration.WorkspaceRevisionID, ResolutionID: "resolution-local",

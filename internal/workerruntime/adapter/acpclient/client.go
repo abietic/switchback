@@ -2,6 +2,7 @@ package acpclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,9 +17,11 @@ import (
 type protocolClient struct {
 	workspaceRoot string
 	onUpdate      func(sdk.SessionNotification)
+	onExtension   func(string, json.RawMessage) bool
 }
 
 var _ sdk.Client = (*protocolClient)(nil)
+var _ sdk.ExtensionMethodHandler = (*protocolClient)(nil)
 
 func (*protocolClient) RequestPermission(context.Context, sdk.RequestPermissionRequest) (sdk.RequestPermissionResponse, error) {
 	return sdk.RequestPermissionResponse{Outcome: sdk.RequestPermissionOutcome{
@@ -31,6 +34,13 @@ func (c *protocolClient) SessionUpdate(_ context.Context, notification sdk.Sessi
 		c.onUpdate(notification)
 	}
 	return nil
+}
+
+func (c *protocolClient) HandleExtensionMethod(_ context.Context, method string, params json.RawMessage) (any, error) {
+	if c.onExtension != nil && c.onExtension(method, params) {
+		return nil, nil
+	}
+	return nil, sdk.NewMethodNotFound(method)
 }
 
 func (c *protocolClient) ReadTextFile(_ context.Context, request sdk.ReadTextFileRequest) (sdk.ReadTextFileResponse, error) {

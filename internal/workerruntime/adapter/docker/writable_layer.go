@@ -60,7 +60,7 @@ func readWritableLayerEngine(ctx context.Context, reader engineInfoReader) (syst
 }
 
 func writableLayerLimit(request application.RuntimeProvisionRequest, profile config.RuntimeResourceProfile) string {
-	if request.AgentProfile.ID == config.DeepSeekFirstReportV1 {
+	if config.IsFirstReportAgentProfile(request.AgentProfile.ID) {
 		return strconv.FormatInt(profile.WritableLayerBytes, 10)
 	}
 	return ""

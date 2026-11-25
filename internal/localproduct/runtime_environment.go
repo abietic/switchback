@@ -102,6 +102,15 @@ func (environment *runtimeEnvironment) PrepareRuntime(
 	if !ok || profile.Digest != request.Command.AgentProfileDigest {
 		return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("AgentProfile is unavailable or stale")
 	}
+	if profile.ID == config.DeepSeekYHCFirstReportV1 {
+		if !environment.configuration.YHCAgentProfileEnabled || environment.configuration.RelayTokenFile == "" {
+			return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("YHC AgentProfile is disabled")
+		}
+		// Avoid shadowing repository content with the private transcript mount.
+		if _, err := os.Lstat(filepath.Join(environment.configuration.WorkspaceSourceRoot, ".yhc")); !errors.Is(err, os.ErrNotExist) {
+			return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("YHC reserves .yhc for private AgentState")
+		}
+	}
 	resource, ok := environment.profiles.RuntimeResource(request.Command.ResourceProfileID)
 	if !ok {
 		return workerapp.RuntimeProvisionRequest{}, fmt.Errorf("Runtime resource profile is unavailable")
@@ -537,7 +546,8 @@ func (environment *runtimeEnvironment) discard(identity controlgrpc.RuntimeIdent
 
 func (environment *runtimeEnvironment) credentialFile(profileID string) string {
 	if environment.configuration.RelayTokenFile != "" {
-		if profileID == config.DeepSeekFirstReportV1 {
+		if config.IsFirstReportAgentProfile(profileID) &&
+			(profileID != config.DeepSeekYHCFirstReportV1 || environment.configuration.YHCAgentProfileEnabled) {
 			return environment.configuration.RelayTokenFile
 		}
 		return ""

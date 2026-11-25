@@ -164,7 +164,7 @@ ORDER BY q.session_queue_sequence LIMIT 1`, record.Command.WorkerSessionID).Scan
 		if err != nil {
 			return fmt.Errorf("read SessionTaskQueue head: %w", err)
 		}
-		firstReport := agentProfileID == config.DeepSeekFirstReportV1
+		firstReport := config.IsFirstReportAgentProfile(agentProfileID)
 		capacityRef := record.Command.CapacityAdmissionRef
 		if firstReport {
 			if !initialGeneration || record.Command.FirstReportCapacity == nil || capacityRef != "" {

@@ -362,6 +362,14 @@ func (p *Provisioner) createOptions(request application.RuntimeProvisionRequest,
 	if limit := writableLayerLimit(request, resources); limit != "" {
 		storageOptions = map[string]string{"size": limit}
 	}
+	mounts := storageMounts(request.Storage, secretVolume)
+	if request.AgentProfile.ID == config.DeepSeekYHCFirstReportV1 {
+		// YHC writes ACP transcripts relative to its cwd. Keep those writes off the
+		// physical WorkingCopy that Backend freezes or diffs.
+		mounts = append(mounts, mount.Mount{
+			Type: mount.TypeBind, Source: request.Storage.AgentState.EngineSource, Target: "/workspace/.yhc",
+		})
+	}
 	return client.ContainerCreateOptions{
 		Name:  containerName(request.RuntimeInstanceID),
 		Image: p.options.Image,
@@ -400,7 +408,7 @@ func (p *Provisioner) createOptions(request application.RuntimeProvisionRequest,
 				Memory:    resources.MemoryBytes,
 				PidsLimit: &pids,
 			},
-			Mounts: storageMounts(request.Storage, secretVolume),
+			Mounts: mounts,
 		},
 	}
 }

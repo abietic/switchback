@@ -40,6 +40,7 @@ type Config struct {
 	ReviewTokenSHA256       string
 	ArgusReviewConfig       string
 	FirstReportEngineID     string
+	YHCAgentProfileEnabled  bool
 	LangfuseBaseURL         string
 	LangfusePublicKey       string
 	LangfuseSecretKey       string
@@ -114,6 +115,10 @@ func LoadConfig(lookup config.LookupEnv) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	result.YHCAgentProfileEnabled, err = boolValue(lookup, "SWITCHBACK_YHC_AGENT_PROFILE_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
 	if err := result.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -160,6 +165,9 @@ func (configuration Config) Validate() error {
 		if err := absolutePath("Argus review config", configuration.ArgusReviewConfig); err != nil {
 			return err
 		}
+	}
+	if configuration.YHCAgentProfileEnabled && configuration.RelayTokenFile == "" {
+		return fmt.Errorf("YHC AgentProfile requires the isolated first-report relay")
 	}
 	if configuration.RelayTokenFile != "" {
 		if !configuration.ExecutionEnabled || configuration.Assistant.Enabled || configuration.RuntimeRecoveryEnabled {

@@ -2,6 +2,8 @@ package acpclient
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,25 +33,26 @@ const (
 type Adapter struct {
 	mu sync.Mutex
 
-	options  Options
-	state    adapterState
-	command  *exec.Cmd
-	stdin    io.WriteCloser
-	conn     *sdk.ClientSideConnection
-	recorder *traceRecorder
-	done     chan error
+	options                  Options
+	state                    adapterState
+	command                  *exec.Cmd
+	stdin                    io.WriteCloser
+	conn                     *sdk.ClientSideConnection
+	recorder                 *traceRecorder
+	done                     chan error
+	preconfiguredProxyDigest *[sha256.Size]byte
 
-	workerSessionID        string
-	runtimeID              string
-	generation             uint64
-	capabilities           application.AgentCapabilities
-	authenticationDeclared bool
-	agentSessionID         string
-	activeTurnID           string
-	lastTerminalTurnID     string
-	activeUpdates          chan application.AgentUpdate
-	cancelRequested        bool
-	systemError            bool
+	workerSessionID    string
+	runtimeID          string
+	generation         uint64
+	capabilities       application.AgentCapabilities
+	agentSessionID     string
+	activeTurnID       string
+	lastTerminalTurnID string
+	activeUpdates      chan application.AgentUpdate
+	cancelRequested    bool
+	systemError        bool
+	extensionFailure   bool
 }
 
 var _ application.AgentAdapter = (*Adapter)(nil)
@@ -87,14 +90,18 @@ func (a *Adapter) Initialize(ctx context.Context, request application.AgentIniti
 		a.failClosed()
 		return application.AgentCapabilities{}, fmt.Errorf("initialize ACP connection")
 	}
-	if response.ProtocolVersion != sdk.ProtocolVersionNumber || !hasAuthMethod(response.AuthMethods, a.options.Authentication.MethodID) {
+	if response.ProtocolVersion != sdk.ProtocolVersionNumber || !a.supportsAuthentication(response.AuthMethods) {
 		a.failClosed()
-		return application.AgentCapabilities{}, fmt.Errorf("ACP protocol or %s authentication capability is unsupported", a.options.Authentication.MethodID)
+		return application.AgentCapabilities{}, fmt.Errorf("ACP protocol or authentication capability is unsupported for %s", a.options.ProcessName)
 	}
 	raw, err := json.Marshal(response)
 	if err != nil {
 		a.failClosed()
 		return application.AgentCapabilities{}, fmt.Errorf("record ACP capability snapshot")
+	}
+	if a.preconfiguredProxyDigest != nil && a.recorder.containsProxyToken(string(raw)) {
+		a.failClosed()
+		return application.AgentCapabilities{}, fmt.Errorf("ACP capability snapshot exposes launcher credentials")
 	}
 	snapshot := application.AgentCapabilities{
 		ProtocolVersion: strconv.Itoa(int(response.ProtocolVersion)),
@@ -114,23 +121,25 @@ func (a *Adapter) Initialize(ctx context.Context, request application.AgentIniti
 	a.runtimeID = request.RuntimeID
 	a.generation = request.Generation
 	a.capabilities = snapshot
-	a.authenticationDeclared = true
 	a.state = stateInitialized
 	a.mu.Unlock()
 	return snapshot, nil
 }
 
-// Authenticate sends the proxy token through the trusted authentication policy.
+// Authenticate validates the preconfigured proxy token or sends it via ACP.
 func (a *Adapter) Authenticate(ctx context.Context, proxyToken string) error {
 	if err := validateProxyToken(proxyToken); err != nil {
 		return err
+	}
+	if a.preconfiguredProxyDigest != nil {
+		return a.authenticatePreconfigured(proxyToken)
 	}
 	request, err := a.options.Authentication.Request(proxyToken)
 	if err != nil || request.MethodId != a.options.Authentication.MethodID {
 		return fmt.Errorf("ACP authentication request is invalid")
 	}
 	a.mu.Lock()
-	if a.state != stateInitialized || !a.authenticationDeclared || a.conn == nil {
+	if a.state != stateInitialized || a.conn == nil {
 		a.mu.Unlock()
 		return fmt.Errorf("ACP adapter is not ready for authentication")
 	}
@@ -146,6 +155,21 @@ func (a *Adapter) Authenticate(ctx context.Context, proxyToken string) error {
 	defer a.mu.Unlock()
 	if a.state != stateInitialized {
 		return fmt.Errorf("ACP authentication result was fenced")
+	}
+	a.state = stateAuthenticated
+	return nil
+}
+
+func (a *Adapter) authenticatePreconfigured(proxyToken string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.state != stateInitialized || a.conn == nil {
+		return fmt.Errorf("ACP adapter is not ready for authentication")
+	}
+	digest := sha256.Sum256([]byte(proxyToken))
+	if subtle.ConstantTimeCompare(digest[:], a.preconfiguredProxyDigest[:]) != 1 {
+		a.state = stateUnusable
+		return fmt.Errorf("ACP proxy token does not match the preconfigured launcher")
 	}
 	a.state = stateAuthenticated
 	return nil
@@ -198,7 +222,7 @@ func (a *Adapter) OpenSession(ctx context.Context, request application.AgentSess
 		})
 		sessionID = string(response.SessionId)
 	}
-	if err != nil || sessionID == "" {
+	if err != nil || sessionID == "" || (a.preconfiguredProxyDigest != nil && a.recorder.containsProxyToken(sessionID)) {
 		a.failClosed()
 		return "", fmt.Errorf("open ACP session: outcome is unknown")
 	}
@@ -230,6 +254,7 @@ func (a *Adapter) Prompt(ctx context.Context, request application.AgentPromptReq
 	a.activeUpdates = updates
 	a.cancelRequested = false
 	a.systemError = false
+	a.extensionFailure = false
 	connection := a.conn
 	a.mu.Unlock()
 
@@ -251,12 +276,14 @@ func (a *Adapter) runPrompt(ctx context.Context, connection *sdk.ClientSideConne
 	a.mu.Lock()
 	systemError := a.systemError
 	cancelRequested := a.cancelRequested
+	extensionFailure := a.extensionFailure
 	a.mu.Unlock()
 	if err != nil && cancelRequested {
 		response.StopReason = sdk.StopReasonCancelled
 		err = nil
 	}
-	if err != nil || systemError || !terminalStopReason(response.StopReason) {
+	if err != nil || systemError || !terminalStopReason(response.StopReason) ||
+		(extensionFailure && response.StopReason == sdk.StopReasonEndTurn) {
 		code := "acp_prompt_failed"
 		if err != nil {
 			select {
@@ -288,6 +315,7 @@ func (a *Adapter) finishPrompt(agentTurnID string) {
 		a.activeUpdates = nil
 		a.cancelRequested = false
 		a.systemError = false
+		a.extensionFailure = false
 	}
 }
 
@@ -332,6 +360,10 @@ func (a *Adapter) observeSessionUpdate(notification sdk.SessionNotification) {
 	if string(notification.SessionId) != a.agentSessionID || a.activeTurnID == "" || a.activeUpdates == nil {
 		return
 	}
+	if a.preconfiguredProxyDigest != nil && a.recorder.containsProxyToken(string(payload)) {
+		a.systemError = true
+		return
+	}
 	updates := a.activeUpdates
 	if a.options.IsSystemError != nil && a.options.IsSystemError(notification) {
 		a.systemError = true
@@ -342,6 +374,23 @@ func (a *Adapter) observeSessionUpdate(notification sdk.SessionNotification) {
 		// Bounded backpressure is a protocol failure, not permission to drop updates.
 		a.systemError = true
 	}
+}
+
+func (a *Adapter) observeExtension(method string, params json.RawMessage) bool {
+	if a.options.ExtensionFailureSession == nil {
+		return false
+	}
+	sessionID := a.options.ExtensionFailureSession(method, params)
+	if sessionID == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if sessionID != a.agentSessionID || a.activeTurnID == "" {
+		return false
+	}
+	a.extensionFailure = true
+	return true
 }
 
 func (a *Adapter) sendUpdate(ctx context.Context, updates chan application.AgentUpdate, update application.AgentUpdate) {
@@ -357,6 +406,13 @@ func (a *Adapter) failClosed() {
 		a.state = stateUnusable
 	}
 	a.mu.Unlock()
+}
+
+func (a *Adapter) supportsAuthentication(methods []sdk.AuthMethod) bool {
+	if a.preconfiguredProxyDigest != nil {
+		return len(methods) == 0
+	}
+	return hasAuthMethod(methods, a.options.Authentication.MethodID)
 }
 
 func hasAuthMethod(methods []sdk.AuthMethod, wanted string) bool {

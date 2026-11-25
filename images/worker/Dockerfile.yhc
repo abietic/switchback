@@ -1,0 +1,6 @@
+ARG WORKER_BASE
+FROM ${WORKER_BASE}
+ARG YHC_SHA256
+COPY --chmod=0555 yhc /opt/switchback/yhc
+COPY --chmod=0644 yhc-config.yaml /opt/switchback/litellm/yhc-config.yaml
+RUN printf '%s  %s\n' "${YHC_SHA256}" /opt/switchback/yhc | sha256sum -c -

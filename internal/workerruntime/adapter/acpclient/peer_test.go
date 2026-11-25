@@ -47,10 +47,14 @@ func TestCorePeerProcess(t *testing.T) {
 			if scenario == "protocol-two" {
 				version = 2
 			}
-			if scenario == "no-auth" {
+			if scenario == "no-auth" || scenario == "preconfigured-leak" {
 				auth = nil
 			}
-			json.NewEncoder(&buf).Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"protocolVersion": version, "agentCapabilities": map[string]any{"loadSession": true}, "authMethods": auth}})
+			result := map[string]any{"protocolVersion": version, "agentCapabilities": map[string]any{"loadSession": true}, "authMethods": auth}
+			if scenario == "preconfigured-leak" {
+				result["agentInfo"] = map[string]string{"name": "fixture", "version": os.Getenv("SWITCHBACK_CORE_PROXY")}
+			}
+			json.NewEncoder(&buf).Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result})
 			if err := os.WriteFile(filepath.Join(os.Getenv("SWITCHBACK_CORE_ROOT"), "initialize-frame"), buf.Bytes(), 0600); err != nil {
 				os.Exit(2)
 			}

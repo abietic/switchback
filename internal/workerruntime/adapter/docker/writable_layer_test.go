@@ -79,6 +79,32 @@ func TestFirstReportInspectsExactCreatedWorkerBeforeStart(t *testing.T) {
 	}
 }
 
+func TestYHCFirstReportBindsPrivateAgentStateAndRequiresQuota(t *testing.T) {
+	request := firstReportRequest(t)
+	profile, ok := config.ProductionProfileRegistry().Agent(config.DeepSeekYHCFirstReportV1)
+	if !ok {
+		t.Fatal("YHC profile missing")
+	}
+	request.AgentProfile = application.ProfileRef{ID: profile.ID, Revision: profile.Revision, Digest: profile.Digest}
+	engine := &quotaEngine{info: compatibleEngineInfo()}
+	if _, err := newProvisioner(t, engine, &recordingVerifier{}).Provision(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	host := engine.creates[1].HostConfig
+	if host.StorageOpt["size"] != "10737418240" {
+		t.Fatal("YHC Worker did not request the 10 GiB quota")
+	}
+	found := false
+	for _, attachment := range host.Mounts {
+		if attachment.Target == "/workspace/.yhc" && attachment.Source == request.Storage.AgentState.EngineSource {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("YHC Worker did not bind private state outside its physical WorkingCopy")
+	}
+}
+
 func TestFirstReportDoesNotStartExistingWorkerWithoutQuota(t *testing.T) {
 	request := firstReportRequest(t)
 	engine := &quotaEngine{info: compatibleEngineInfo()}
