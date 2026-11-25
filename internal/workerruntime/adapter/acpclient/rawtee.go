@@ -40,9 +40,11 @@ type rawTraceEvent struct {
 }
 
 type traceRecorder struct {
-	mu          sync.Mutex
-	destination io.Writer
-	proxyToken  string
+	mu             sync.Mutex
+	destination    io.Writer
+	proxyToken     string
+	jsonProxyToken string
+	redactor       *strings.Replacer
 }
 
 func newTraceRecorder(destination io.Writer) *traceRecorder {
@@ -53,6 +55,15 @@ func (r *traceRecorder) setProxyToken(token string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.proxyToken = token
+	escaped, _ := json.Marshal(token)
+	r.jsonProxyToken = string(escaped[1 : len(escaped)-1])
+	r.redactor = strings.NewReplacer(r.jsonProxyToken, proxyTokenMarker, token, proxyTokenMarker)
+}
+
+func (r *traceRecorder) containsProxyToken(content string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.proxyToken != "" && (strings.Contains(content, r.proxyToken) || strings.Contains(content, r.jsonProxyToken))
 }
 
 func (r *traceRecorder) record(event rawTraceEvent) error {
@@ -65,7 +76,7 @@ func (r *traceRecorder) record(event rawTraceEvent) error {
 		return fmt.Errorf("ACP trace event is incomplete")
 	}
 	if r.proxyToken != "" {
-		event.Frame = strings.ReplaceAll(event.Frame, r.proxyToken, proxyTokenMarker)
+		event.Frame = r.redactor.Replace(event.Frame)
 	}
 	encoded, err := json.Marshal(event)
 	if err != nil {

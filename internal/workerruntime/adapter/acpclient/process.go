@@ -42,7 +42,11 @@ func (a *Adapter) startProcess() error {
 	}
 	outbound := newRecordingWriter(stdin, a.recorder, directionClientToAgent)
 	sdkReader, sdkWriter := io.Pipe()
-	client := &protocolClient{workspaceRoot: a.options.WorkspaceRoot, onUpdate: a.observeSessionUpdate}
+	client := &protocolClient{
+		workspaceRoot: a.options.WorkspaceRoot,
+		onUpdate:      a.observeSessionUpdate,
+		onExtension:   a.observeExtension,
+	}
 	connection := sdk.NewClientSideConnection(client, outbound, sdkReader)
 	done := make(chan error, 1)
 	go func() {
