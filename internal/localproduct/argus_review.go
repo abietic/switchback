@@ -24,14 +24,15 @@ import (
 )
 
 const (
-	argusReviewProfile   = "lets-quant-report.v1"
-	argusReviewRequestV1 = "argus.report_review_request.v1alpha1"
-	argusReviewResultV1  = "argus.report_review_result.v1alpha1"
-	argusReviewTimeout   = 20 * time.Second
-	argusReviewLease     = 25 * time.Second
-	argusReviewMaxInput  = 16 << 20
-	argusReviewMaxOutput = 64 << 10
-	argusReviewMaxBinary = 128 << 20
+	argusReviewProfile       = "lets-quant-report.v1"
+	argusMarketReviewProfile = "lets-quant-market-report.v1"
+	argusReviewRequestV1     = "argus.report_review_request.v1alpha1"
+	argusReviewResultV1      = "argus.report_review_result.v1alpha1"
+	argusReviewTimeout       = 20 * time.Second
+	argusReviewLease         = 25 * time.Second
+	argusReviewMaxInput      = 16 << 20
+	argusReviewMaxOutput     = 64 << 10
+	argusReviewMaxBinary     = 128 << 20
 )
 
 var (
@@ -40,6 +41,7 @@ var (
 )
 
 type argusReviewConfig struct {
+	Profile          string            `json:"profile,omitempty"`
 	Executable       string            `json:"executable"`
 	ExecutableSHA256 string            `json:"executable_sha256"`
 	EvidenceDir      string            `json:"evidence_dir"`
@@ -142,6 +144,7 @@ func (runner *argusReviewRunner) review(ctx context.Context, job taskapp.ArgusRe
 }
 
 type argusSubprocess struct {
+	profile       string
 	executable    string
 	profileDir    string
 	profileSHA256 string
@@ -162,7 +165,13 @@ func loadArgusReviewAdapter(configPath, dataRoot string) (*argusSubprocess, erro
 		len(cfg.EvidenceSHA256) != len(argusReviewEvidenceNames) {
 		return nil, fmt.Errorf("Argus executable and evidence directory must be absolute with four pinned evidence digests")
 	}
-	adapter := &argusSubprocess{evidence: make(map[string][]byte), evidenceSHA: cfg.EvidenceSHA256}
+	if cfg.Profile == "" {
+		cfg.Profile = argusReviewProfile
+	}
+	if cfg.Profile != argusReviewProfile && cfg.Profile != argusMarketReviewProfile {
+		return nil, fmt.Errorf("unsupported Argus review profile")
+	}
+	adapter := &argusSubprocess{profile: cfg.Profile, evidence: make(map[string][]byte), evidenceSHA: cfg.EvidenceSHA256}
 	for _, name := range argusReviewEvidenceNames {
 		raw, err := readReviewFile(filepath.Join(cfg.EvidenceDir, name), argusReviewMaxInput)
 		if err != nil || reviewSHA256(raw) != cfg.EvidenceSHA256[name] {
@@ -178,7 +187,7 @@ func loadArgusReviewAdapter(configPath, dataRoot string) (*argusSubprocess, erro
 		Profile    string
 		Executable string
 		Evidence   map[string]string
-	}{argusReviewProfile, cfg.ExecutableSHA256, cfg.EvidenceSHA256})
+	}{adapter.profile, cfg.ExecutableSHA256, cfg.EvidenceSHA256})
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +257,7 @@ func (adapter *argusSubprocess) Review(ctx context.Context, job taskapp.ArgusRev
 	request := argusReviewRequest{
 		SchemaVersion: argusReviewRequestV1, TaskID: job.TaskID, TaskRevision: job.TaskRevision,
 		WorkerRunID: string(job.WorkerRunID), ArtifactID: job.ArtifactID, ArtifactSHA256: job.ArtifactSHA256,
-		Profile: argusReviewProfile, EvidenceSHA256: adapter.evidenceSHA,
+		Profile: adapter.profile, EvidenceSHA256: adapter.evidenceSHA,
 	}
 	identity, err := json.Marshal(request)
 	if err != nil {

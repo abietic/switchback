@@ -26,9 +26,17 @@ Use `passed` with `findings: []`, or `rework_required` with one to twenty findin
 
 ## Automatic local Argus review
 
-Apply migration `000029`. In a deployment whose configured Workspace uses the
-`lets-quant-report.v1` review profile, point
-`SWITCHBACK_ARGUS_REPORT_REVIEW_CONFIG` to an absolute JSON file inside the Backend.
+Apply migration `000029`. Point `SWITCHBACK_ARGUS_REPORT_REVIEW_CONFIG` to an
+absolute JSON file inside the Backend. Omitting `profile` selects
+`lets-quant-report.v1`. To review a frozen real-market window, set
+`profile` to `lets-quant-market-report.v1` and pin an Argus build and
+evidence set that support that profile. The Backend rejects unknown profiles.
+
+The Linux/ARM64 reference reviewer for this market profile was built from
+[`dd05631ed8d899c947128c71fec23e83c61fd5e5`](https://github.com/abietic/argus/commit/dd05631ed8d899c947128c71fec23e83c61fd5e5)
+with Go 1.26.4, `GOARM64=v8.0`, `CGO_ENABLED=0`, `-mod=readonly`,
+`-trimpath -buildvcs=false`, and `-ldflags "-X main.version=dd05631ed8d899c947128c71fec23e83c61fd5e5"`.
+The binary SHA-256 is `8f49856ed4f14c1316d099c312514125ddd16043ab17c239069733736cb5ef38`.
 For Compose, bind-mount the configuration, Argus executable and evidence directory
 read-only in a local override. The Backend starts automatic review when this
 configuration is present. Use an operator-approved Argus build that provides
@@ -57,7 +65,7 @@ records the receipt and job completion in the same transaction.
 
 Preserve the Backend data root across restarts. Argus keeps its scoped immutable
 results under `argus-report-review` there. An expired job claim is reclaimed
-with the same request and Argus store. Changed executable or evidence digests
+with the same request and Argus store. Changed profile, executable or evidence digests
 produce a new profile identity. Restore the approved configuration to resume
 a pending job bound to the previous profile. Review failures leave the delivery
 available for human Rework or Accept.
