@@ -72,12 +72,30 @@ capacity. Install `xfs_io`, `xfs_quota` and Python 3.11 or later on that host.
 
 Build the ordinary Switchback Backend, Worker and production Web images
 from the Switchback revision under test. Use an existing local PostgreSQL image.
-Build Linux/ARM64 YHC from a reviewed revision containing
-`serve acp --disable-long-session-services`, and Linux/ARM64 Argus from a
-reviewed revision containing `report-review`. Keep the source revisions and
-the separately computed binary SHA-256 values with the run evidence. The
-Argus reference used for this profile is
-[`fad5df26c17d656dad20923c92ff57e5f14951fc`](https://github.com/abietic/argus/commit/fad5df26c17d656dad20923c92ff57e5f14951fc).
+The verified YHC Linux/ARM64 build comes from public commit
+[`e3f201bf77a2d4862cf170b0f752d237c202c34e`](https://github.com/abietic/yhc/commit/e3f201bf77a2d4862cf170b0f752d237c202c34e).
+Use a clean checkout at that commit and verify the binary digest before staging
+the Worker image.
+
+```sh
+yhc_source=/absolute/path/to/yhc
+yhc_binary=/absolute/path/to/yhc-linux-arm64
+yhc_commit=e3f201bf77a2d4862cf170b0f752d237c202c34e
+yhc_sha256=9f36d8c3348ade5e14c71a063b884020ec01ce7a3ba94b943086e4c887f1d0d0
+(
+  set -eu
+  cd "$yhc_source"
+  test "$(git rev-parse HEAD)" = "$yhc_commit"
+  GOENV=off GOTOOLCHAIN=go1.27.0 GOOS=linux GOARCH=arm64 GOARM64=v8.0 CGO_ENABLED=0 \
+    go build -trimpath -buildvcs=false -o "$yhc_binary" ./cmd/yhc
+  printf '%s  %s\n' "$yhc_sha256" "$yhc_binary" | sha256sum -c -
+)
+```
+
+Build Linux/ARM64 Argus from the verified
+[`fad5df26c17d656dad20923c92ff57e5f14951fc`](https://github.com/abietic/argus/commit/fad5df26c17d656dad20923c92ff57e5f14951fc)
+revision containing `report-review`. Keep the source revisions and binary
+SHA-256 values with the run evidence.
 
 Build an optional derivative of the Worker image using an existing local
 base image and the verified YHC binary. The derivative uses a separate
