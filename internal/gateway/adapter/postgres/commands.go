@@ -31,15 +31,16 @@ type IDGenerator interface {
 }
 
 type CommandServiceOptions struct {
-	Pool            *pgxpool.Pool
-	IDs             IDGenerator
-	Now             func() time.Time
-	Workspace       taskapp.WorkspaceRevisionEvidence
-	ProjectID       string
-	Profiles        config.ProfileRegistry
-	NetworkProfile  config.RuntimeNetworkProfile
-	Assistant       config.AssistantSettings
-	FirstReportMode bool
+	Pool                   *pgxpool.Pool
+	IDs                    IDGenerator
+	Now                    func() time.Time
+	Workspace              taskapp.WorkspaceRevisionEvidence
+	ProjectID              string
+	Profiles               config.ProfileRegistry
+	NetworkProfile         config.RuntimeNetworkProfile
+	Assistant              config.AssistantSettings
+	FirstReportMode        bool
+	YHCAgentProfileEnabled bool
 }
 
 type CommandService struct {
@@ -160,7 +161,8 @@ func (service *CommandService) CreateTask(ctx context.Context, actor gatewayhttp
 	} else if found {
 		return existing, nil
 	}
-	if (input.AgentProfileID == config.DeepSeekFirstReportV1) != service.options.FirstReportMode {
+	if config.IsFirstReportAgentProfile(input.AgentProfileID) != service.options.FirstReportMode ||
+		(input.AgentProfileID == config.DeepSeekYHCFirstReportV1 && !service.options.YHCAgentProfileEnabled) {
 		return gatewayhttp.CommandResult{}, gatewayhttp.ErrCommandUnsupported
 	}
 	profile, ok := service.options.Profiles.Agent(input.AgentProfileID)

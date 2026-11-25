@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Run the YHC and Argus delivery/rework/accept loop with a local fake upstream."""
+from pathlib import Path
+import runpy
+
+if __name__ == "__main__":
+    root = Path(__file__).resolve().parents[1]
+    runpy.run_path(str(root / "test/acceptance/yhcacp/run_review.py"), run_name="__main__")

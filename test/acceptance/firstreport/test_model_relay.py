@@ -61,11 +61,12 @@ class RelayTest(unittest.TestCase):
         Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
         return server
 
-    def start_relay(self):
+    def start_relay(self, api_family="chat-completions"):
         def connect():
             return http.client.HTTPConnection("127.0.0.1", self.upstream.server_port, timeout=0.3)
 
-        return self.start_server(model_relay.make_handler(self.permit, RELAY_TOKEN, UPSTREAM_KEY, connect))
+        return self.start_server(model_relay.make_handler(self.permit, RELAY_TOKEN, UPSTREAM_KEY, connect,
+                                                          api_family=api_family))
 
     def request(self, *, path=model_relay.COMPLETION_PATH, token=RELAY_TOKEN, model=model_relay.MODEL, server=None):
         server = server or self.relay
@@ -95,6 +96,19 @@ class RelayTest(unittest.TestCase):
         self.assertFalse(self.requests)
         self.assertEqual(self.request()[0], 200)
         self.assert_one_upstream()
+
+    def test_responses_mode_uses_exact_path_and_shares_the_permit(self):
+        with self.assertRaises(ValueError):
+            model_relay.make_handler(self.permit, RELAY_TOKEN, UPSTREAM_KEY, api_family="responses")
+        responses = self.start_relay("responses")
+        self.assertEqual(self.request(path="/responses")[0], 404)
+        self.assertEqual(self.request(server=responses)[0], 404)
+        self.assertEqual(self.request(path="/responses?extra=1", server=responses)[0], 404)
+        self.assertFalse(self.requests)
+        self.assertEqual(self.request(path="/responses", server=responses), (200, EVENT_STREAM))
+        self.assertEqual(self.request(path="/responses", server=responses)[0], 409)
+        self.assertEqual(self.request()[0], 409)
+        self.assertEqual(self.requests, [("/responses", "Bearer " + UPSTREAM_KEY.decode(), model_relay.MODEL)])
 
     def test_redirect_does_not_follow_or_enable_another_relay(self):
         self.behavior = "redirect"

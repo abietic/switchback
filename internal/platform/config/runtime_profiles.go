@@ -14,6 +14,7 @@ const (
 	LocalStandardV1           = "local_standard_v1"
 	DeepSeekCodexOpenAIV1     = "deepseek-codex-openai-v1"
 	DeepSeekFirstReportV1     = "deepseek-codex-first-report-v1"
+	DeepSeekYHCFirstReportV1  = "deepseek-yhc-first-report-v1"
 	KimiCodexAnthropicV1      = "kimi-codex-anthropic-v1"
 	KimiAssistantOpenAIV1     = "kimi-assistant-openai-v1"
 	KimiCodeAssistantOpenAIV1 = "kimi-code-assistant-openai-v1"
@@ -21,6 +22,11 @@ const (
 	UpstreamProtocolOpenAI    = "openai"
 	UpstreamProtocolAnthropic = "anthropic"
 )
+
+// IsFirstReportAgentProfile identifies the profiles that require the isolated relay and capacity gate.
+func IsFirstReportAgentProfile(id string) bool {
+	return id == DeepSeekFirstReportV1 || id == DeepSeekYHCFirstReportV1
+}
 
 type RuntimeResourceProfileRef struct {
 	ID       string `json:"id"`
@@ -181,6 +187,14 @@ func ProductionProfileRegistry() ProfileRegistry {
 	firstReport.CredentialRef = "model-profile/" + firstReport.ID
 	firstReport.Digest = agentProfileDigest(firstReport)
 
+	yhc := firstReport
+	yhc.ID = DeepSeekYHCFirstReportV1
+	yhc.AgentAdapter = "yhc-acp"
+	// The relay exposes Responses through LiteLLM's OpenAI-compatible route.
+	yhc.LiteLLMModel = "openai/deepseek-v4-pro"
+	yhc.CredentialRef = "model-profile/" + yhc.ID
+	yhc.Digest = agentProfileDigest(yhc)
+
 	kimi := AgentProfile{
 		ID:               KimiCodexAnthropicV1,
 		Revision:         1,
@@ -221,6 +235,7 @@ func ProductionProfileRegistry() ProfileRegistry {
 		agents: map[string]AgentProfile{
 			deepseek.ID:    deepseek,
 			firstReport.ID: firstReport,
+			yhc.ID:         yhc,
 			kimi.ID:        kimi,
 		},
 		assistants: map[string]AssistantModelProfile{

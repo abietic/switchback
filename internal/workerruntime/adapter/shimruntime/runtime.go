@@ -22,10 +22,12 @@ import (
 	"time"
 
 	contractsv1 "github.com/abietic/switchback/internal/contracts/v1"
+	"github.com/abietic/switchback/internal/platform/config"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/codexacp"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/controlgrpc"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/modelobs"
 	"github.com/abietic/switchback/internal/workerruntime/adapter/runtimesecret"
+	"github.com/abietic/switchback/internal/workerruntime/adapter/yhcacp"
 	"github.com/abietic/switchback/internal/workerruntime/application"
 	sdk "github.com/coder/acp-go-sdk"
 	"golang.org/x/sys/unix"
@@ -104,9 +106,19 @@ func Run(ctx context.Context, stdout, stderr io.Writer) error {
 	if err := os.MkdirAll(traceSpoolPath, 0o700); err != nil {
 		return fmt.Errorf("prepare Runtime trace spool")
 	}
-	if err := prepareAgentDirectories([]string{
-		"/var/lib/switchback/agent-state/codex",
-	}, prepareAgentDirectory); err != nil {
+	agentState := "/var/lib/switchback/agent-state/codex"
+	if inputs.Bootstrap.AgentProfileID == config.DeepSeekYHCFirstReportV1 {
+		profile, err := config.ProductionProfileRegistry().ResolveAgent(config.AgentProfileRef{
+			ID: inputs.Bootstrap.AgentProfileID, Revision: inputs.Bootstrap.AgentProfileRevision, Digest: inputs.Bootstrap.AgentProfileDigest,
+		})
+		if err != nil || profile.LiteLLMModel != inputs.Bootstrap.LiteLLMModel ||
+			profile.APIBase != inputs.Bootstrap.UpstreamAPIBase || profile.UpstreamProtocol != inputs.Bootstrap.UpstreamProtocol ||
+			inputs.Bootstrap.LoadExistingSession {
+			return fmt.Errorf("invalid YHC bootstrap")
+		}
+		agentState = yhcacp.AgentHome
+	}
+	if err := prepareAgentDirectories([]string{agentState}, prepareAgentDirectory); err != nil {
 		return err
 	}
 	observations := make(chan modelobs.Observation, 128)
@@ -144,7 +156,7 @@ func Run(ctx context.Context, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer trace.Close()
-	agent, err := codexacp.New(trace)
+	agent, err := newAgent(inputs.Bootstrap, trace)
 	if err != nil {
 		return err
 	}
@@ -178,6 +190,13 @@ func Run(ctx context.Context, stdout, stderr io.Writer) error {
 			drainTimeout:      controlDrainTimeout,
 		},
 	)
+}
+
+func newAgent(bootstrap runtimesecret.Bootstrap, trace io.Writer) (application.AgentAdapter, error) {
+	if bootstrap.AgentProfileID == config.DeepSeekYHCFirstReportV1 {
+		return yhcacp.New(trace, bootstrap.ProxyToken)
+	}
+	return codexacp.New(trace)
 }
 
 func startAgent(ctx context.Context, agent application.AgentAdapter, bootstrap runtimesecret.Bootstrap) (application.AgentCapabilities, string, error) {
@@ -993,7 +1012,11 @@ func modelProxyCommand(bootstrap runtimesecret.Bootstrap, credential runtimesecr
 	if err != nil {
 		return nil, err
 	}
-	command := exec.Command(liteLLMBinary, "--config", liteLLMConfigPath, "--host", "127.0.0.1", "--port", "4000")
+	configPath := liteLLMConfigPath
+	if bootstrap.AgentProfileID == config.DeepSeekYHCFirstReportV1 {
+		configPath = "/opt/switchback/litellm/yhc-config.yaml"
+	}
+	command := exec.Command(liteLLMBinary, "--config", configPath, "--host", "127.0.0.1", "--port", "4000")
 	command.Env = append(append([]string(nil), specs.LiteLLM.Env...),
 		"HOME=/var/lib/switchback-litellm", "PATH=/usr/local/bin:/usr/bin:/bin")
 	command.Stdout = log

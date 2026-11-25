@@ -88,7 +88,7 @@ func (store *RunStore) StartWorkerRun(
 			return err
 		}
 		var reservedTaskRevision uint64
-		if record.Command.AgentProfileID == config.DeepSeekFirstReportV1 {
+		if config.IsFirstReportAgentProfile(record.Command.AgentProfileID) {
 			if record.Command.TriggerType != "task_initial" || record.Command.RuntimeGeneration != 1 {
 				return application.ErrFirstReportCapacityUnavailable
 			}
@@ -147,9 +147,11 @@ UPDATE tasks
 SET status='running',current_worker_run_id=$3,revision=revision+1,updated_at=$4
 WHERE task_id=$1 AND worker_session_id=$2 AND status='queued'
   AND ($5::bigint=0 OR revision=$5)
-  AND (COALESCE(task_spec_snapshot #>> '{agent_config,profile_id}','')=$6) = ($5::bigint>0)
+  AND ((COALESCE(task_spec_snapshot #>> '{agent_config,profile_id}','') IN ($6,$7)) = ($5::bigint>0))
+  AND ($5::bigint=0 OR task_spec_snapshot #>> '{agent_config,profile_id}'=$8)
 RETURNING revision`, record.Command.TaskID, record.Command.WorkerSessionID,
-			record.WorkerRunID, record.Now, reservedTaskRevision, config.DeepSeekFirstReportV1).Scan(&taskRevision)
+			record.WorkerRunID, record.Now, reservedTaskRevision, config.DeepSeekFirstReportV1,
+			config.DeepSeekYHCFirstReportV1, record.Command.AgentProfileID).Scan(&taskRevision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return platformpostgres.ErrRevisionConflict
 		}
